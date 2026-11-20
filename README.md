@@ -9,7 +9,7 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 | Fonction | Détail |
 |---|---|
 | Connexion | Via la page de connexion du serveur (GitLab, mot de passe, double authentification), par e-mail et mot de passe, ou par jeton ; mémorisée dans le gestionnaire d'identifiants Windows, bouton « Déconnexion » pour l'oublier. Dernière équipe et dernier canal de chaque équipe rouverts au lancement |
-| Barre latérale | Catégories de l'utilisateur récupérées depuis l'API (Favoris, Canaux, Messages directs, catégories personnelles) dans son ordre, tri propre à chaque catégorie (alphabétique, récents, manuel), section « Non lus » si activée dans les préférences, limite de messages directs visibles, catégories repliables (synchronisé avec le serveur), canaux en sourdine atténués, mises à jour en temps réel |
+| Barre latérale | Chaque canal précédé d'une pastille colorée à ses initiales (« Dev backend » → DB), couleur stable tirée de son nom, petit cadenas pour les canaux privés. Catégories de l'utilisateur récupérées depuis l'API (Favoris, Canaux, Messages directs, catégories personnelles) dans son ordre, tri propre à chaque catégorie (alphabétique, récents, manuel), section « Non lus » si activée dans les préférences, limite de messages directs visibles, catégories repliables (synchronisé avec le serveur), canaux en sourdine atténués, mises à jour en temps réel |
 | Messages | Historique infini (remonter charge la page précédente) avec bouton flottant « Revenir au présent », ligne « Nouveaux messages » à l'ouverture d'un canal non lu, regroupement par auteur, vos propres messages repérés par un liseré et un fond léger, @mentions en pastilles (les vôtres surlignées), `#étiquettes` cliquables (lancent la recherche), avatars et présence (en ligne, absent, ne pas déranger), messages qui vous mentionnent surlignés, « (modifié) », messages système |
 | Intégrations et liens | Messages des intégrations (GitLab, webhooks…) en cartes : barre de couleur, auteur, titre cliquable, texte, champs, image, pied, boutons interactifs ; étiquette « BOT ». Aperçus de liens (site, titre, description, image), images liées, citations de messages. Les images externes sont chargées sans jamais envoyer le jeton |
 | Envoi | Entrée pour envoyer, Maj+Entrée pour aller à la ligne, « X est en train d'écrire… » dans les deux sens. Autocomplétion : `@` personnes, `~` canaux, `:` emojis (standard et personnalisés), `/` commandes ; ↑ ↓ pour choisir, Entrée ou Tab pour insérer, Échap pour fermer. Les commandes « / » sont exécutées par le serveur |
@@ -19,8 +19,8 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 | Fils | Compteur « N réponses », panneau latéral avec réponse dans le fil |
 | Navigation | Ctrl+K : sélecteur de canaux (recherche sans accents, ↑ ↓ Entrée, canaux récents si rien n'est tapé). Panneau de droite : messages épinglés du canal, messages enregistrés ; un clic ouvre le canal et le fil du message |
 | Recherche | Champ permanent dans l'en-tête (Ctrl+F). Pendant la saisie : filtres en pastilles (`from:`, `in:`, `on:`, `after:`, `before:`, `-mot`), suggestions toutes prêtes (dans ce canal, mes messages, messages de la personne en message direct, aujourd'hui, 7 derniers jours), étiquettes du canal, recherches récentes (8, effaçables) ; `from:` et `in:` proposent les personnes et les canaux au fil de la frappe. Résultats dans le panneau de droite, la requête affichée en jetons qu'un clic sur × retire |
-| Fichiers du canal | Icône dossier dans l'en-tête : onglets Médias (vignettes, visionneuse), Fichiers (ouvrir, télécharger) et Liens (adresses des messages chargés, avec le titre de leur aperçu) |
-| Membres | Liste permanente des membres du canal à droite : administrateurs (système ou du canal) d'abord, puis par statut (en ligne, absent, ne pas déranger, hors ligne), comme Discord ; un clic ouvre la carte de profil. Dans un message direct, la carte de la personne remplace la liste. Masquable depuis l'en-tête (réglage mémorisé) ; s'efface quand un fil ou un panneau est ouvert |
+| Fichiers du canal | Icône dossier dans l'en-tête : onglets Médias (galerie par mois, lignes justifiées qui gardent les proportions des images, nom au survol, visionneuse), Fichiers (ouvrir, télécharger) et Liens (adresses des messages chargés, avec le titre de leur aperçu) |
+| Membres | Liste permanente des membres du canal à droite : administrateurs (système ou du canal) d'abord, puis par statut (en ligne, absent, ne pas déranger, hors ligne), comme Discord ; chaque groupe a sa couleur (violet pour les administrateurs, dont le nom prend aussi la couleur, vert, orange, rouge, gris) ; un clic ouvre la carte de profil. Dans un message direct, la carte de la personne remplace la liste. Masquable depuis l'en-tête (réglage mémorisé) ; s'efface quand un fil ou un panneau est ouvert |
 | Fils suivis | Icône dans l'en-tête : fils suivis du canal affiché, avec participants (avatars empilés), nombre de réponses et réponses non lues ; ouvrir un fil le marque comme lu |
 | Mentions récentes | Icône @ dans l'en-tête : messages qui vous mentionnent, toutes équipes confondues ; un clic ouvre l'équipe, le canal et le fil |
 | Carte de profil | Un clic sur une personne (avatar ou nom d'un message, @mention, liste des membres, participants d'un fil) ouvre une mini-carte : photo en médaillon avec son statut, nom, poste, adresse e-mail, heure locale et écart avec la vôtre, rôle d'administrateur, bouton « Envoyer un message ». Échap ou un clic à côté la ferme |
@@ -98,6 +98,10 @@ cargo run --release -- --demo
 Les couleurs viennent du thème Mattermost de l'utilisateur (Profil ›
 Paramètres › Affichage › Thème), lu dans ses préférences : thème de l'équipe
 s'il y en a un, sinon thème global, sinon « Denim ».
+
+Les dégradés (écran de connexion, barre latérale, barre des équipes, en-tête,
+carte de profil) sont calculés à partir de ces mêmes couleurs : ils suivent
+donc le thème. Menu du compte › Apparence › Dégradés pour les désactiver.
 
 > **Chemins longs sous Windows** : si le dossier du projet a un chemin très
 > long, l'éditeur de liens échoue (`LNK1104`). Placez le projet dans un

@@ -168,6 +168,20 @@ impl Demo {
 
         // Messages avec pièces jointes.
         demo.add_with_files(
+            "design",
+            "u5",
+            now - 20 * h,
+            "Les captures de la revue d'interface :camera:",
+            vec![
+                file("f-d1", "accueil-large.png", "image/png", 820_000, 1600, 900),
+                file("f-d2", "mobile-portrait.png", "image/png", 410_000, 750, 1334),
+                file("f-d3", "icone.png", "image/png", 90_000, 1024, 1024),
+                file("f-d4", "tableau-de-bord.png", "image/png", 990_000, 1440, 960),
+                file("f-d5", "bandeau.jpg", "image/jpeg", 300_000, 2400, 800),
+                file("f-d6", "carte.png", "image/png", 520_000, 1200, 1500),
+            ],
+        );
+        demo.add_with_files(
             "general",
             "u5",
             now - 30 * m,
@@ -493,7 +507,16 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         Command::LoadTeamUnreads => {}
         Command::LoadPreview { file_id } => {
             let seed = file_id.bytes().fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
-            let bytes = bmp(480, 270, 0x1c58d9 ^ (seed & 0x3f3f3f), 0xffbc1f ^ (seed & 0x1f1f00));
+            // Aperçu aux proportions du fichier, comme celui du serveur.
+            let (w, h) = demo
+                .posts
+                .values()
+                .flatten()
+                .flat_map(|p| p.metadata.files.iter())
+                .find(|f| f.id == file_id && f.width > 0 && f.height > 0)
+                .map(|f| (480u32, (480 * f.height / f.width).clamp(60, 960) as u32))
+                .unwrap_or((480, 270));
+            let bytes = bmp(w, h, 0x1c58d9 ^ (seed & 0x3f3f3f), 0xffbc1f ^ (seed & 0x1f1f00));
             send(Event::FilePreview { file_id, bytes: Arc::new(bytes) });
         }
         Command::LoadFullImage { file_id } => {

@@ -23,6 +23,8 @@ pub struct UiSettings {
     pub recent_searches: Vec<String>,
     /// Barre de mise en forme visible au-dessus de la zone de saisie.
     pub show_formatting: bool,
+    /// Dégradés tirés des couleurs du thème (barre latérale, en-tête, connexion).
+    pub gradients: bool,
 }
 
 impl Default for UiSettings {
@@ -34,6 +36,7 @@ impl Default for UiSettings {
             show_members: true,
             recent_searches: Vec::new(),
             show_formatting: false,
+            gradients: true,
         }
     }
 }
