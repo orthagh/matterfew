@@ -37,6 +37,35 @@ pub fn replace_shortcodes(text: &str) -> String {
     out
 }
 
+/// Catalogue des emojis standard par catégorie, pour le sélecteur :
+/// (catégorie, [(nom, caractère)]). Calculé une seule fois.
+pub fn catalog() -> &'static [(&'static str, Vec<(String, String)>)] {
+    use std::sync::OnceLock;
+    static CATALOG: OnceLock<Vec<(&'static str, Vec<(String, String)>)>> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        emojis::Group::iter()
+            .map(|group| {
+                let label = match group {
+                    emojis::Group::SmileysAndEmotion => "Smileys et émotions",
+                    emojis::Group::PeopleAndBody => "Personnes",
+                    emojis::Group::AnimalsAndNature => "Animaux et nature",
+                    emojis::Group::FoodAndDrink => "Nourriture et boissons",
+                    emojis::Group::TravelAndPlaces => "Voyages et lieux",
+                    emojis::Group::Activities => "Activités",
+                    emojis::Group::Objects => "Objets",
+                    emojis::Group::Symbols => "Symboles",
+                    emojis::Group::Flags => "Drapeaux",
+                };
+                let list = group
+                    .emojis()
+                    .filter_map(|e| e.shortcode().map(|code| (code.to_string(), e.as_str().to_string())))
+                    .collect();
+                (label, list)
+            })
+            .collect()
+    })
+}
+
 /// Emojis standard dont un nom court commence par `prefix` : (nom, caractère).
 /// Les noms les plus courts d'abord (« smile » avant « smiley_cat »).
 pub fn search(prefix: &str, limit: usize) -> Vec<(String, String)> {

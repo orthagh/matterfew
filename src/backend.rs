@@ -22,6 +22,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::api::{
     Channel, ChannelMember, Client, FileInfo, Post, Preference, Reaction, SidebarCategory, Team, TeamUnread, User,
+    UserThread,
 };
 
 /// Taille d'une page de messages.
@@ -38,6 +39,18 @@ pub enum AcKind {
     Emoji,
     /// `/` en début de message : commandes.
     Command,
+}
+
+/// Contenu du panneau latéral (hors fil de discussion).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SideKind {
+    Pinned,
+    Saved,
+    Search,
+    /// Fils suivis (chargés par `LoadThreads`).
+    Threads,
+    /// Mentions récentes, toutes équipes confondues.
+    Mentions,
 }
 
 /// Une proposition de l'autocomplétion.
@@ -81,6 +94,15 @@ pub enum Command {
     Autocomplete { seq: u64, kind: AcKind, term: String, team_id: String, channel_id: String, root_id: String },
     /// Image d'un emoji personnalisé.
     LoadEmoji { id: String, name: String },
+    /// Messages épinglés (`channel_id`), enregistrés, ou résultats de `terms`.
+    LoadSide { kind: SideKind, team_id: String, channel_id: String, terms: String },
+    LoadMembers { channel_id: String },
+    /// Profil d'après le nom d'utilisateur (clic sur une @mention).
+    LoadUserByName { username: String },
+    LoadThreads { team_id: String },
+    MarkThreadRead { team_id: String, root_id: String },
+    /// Ouvre (ou crée) le message direct avec quelqu'un.
+    OpenDirect { user_id: String },
     MarkUnread { post_id: String },
     SavePost { post_id: String, save: bool },
     PinPost { post_id: String, pin: bool },
@@ -120,6 +142,14 @@ pub enum Event {
     FullImage { file_id: String, result: Result<Arc<Vec<u8>>, String> },
     ExternalImage { url: String, bytes: Arc<Vec<u8>> },
     Suggestions { seq: u64, kind: AcKind, items: Vec<Suggestion> },
+    SidePosts { kind: SideKind, posts: Vec<Post> },
+    Members { channel_id: String, user_ids: Vec<String>, admins: Vec<String>, total: i64 },
+    Threads(Vec<UserThread>),
+    /// Équipe de canaux hors de l'équipe affichée (mentions récentes).
+    ChannelTeams(Vec<(String, String)>),
+    DirectOpened(Channel),
+    /// Quelqu'un a rejoint ou quitté un canal : membres à recharger.
+    MembersChanged { channel_id: String },
     CustomEmoji { name: String, bytes: Arc<Vec<u8>> },
     Downloaded { path: PathBuf, open: bool },
     Uploaded { local_id: u64, file: FileInfo },
@@ -193,6 +223,9 @@ struct Ctx {
     ws_out: mpsc::UnboundedSender<Value>,
     /// Fils réduits actifs (paramètre des requêtes de messages).
     crt: Arc<AtomicBool>,
+    me_username: String,
+    /// Équipes de l'utilisateur (recherche des mentions dans toutes).
+    team_ids: Vec<String>,
 }
 
 impl Ctx {
@@ -280,6 +313,8 @@ async fn run(
         known_users: Arc::default(),
         ws_out,
         crt: Arc::new(AtomicBool::new(true)),
+        me_username: me.username.clone(),
+        team_ids: teams.iter().map(|t| t.id.clone()).collect(),
     };
     ctx.ensure_users([me.id.clone()]).await;
     // Logos des équipes, en arrière-plan.
@@ -455,6 +490,69 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::LoadEmoji { id, name } => {
             let bytes = client.emoji_image(&id).await?;
             ctx.emit(Event::CustomEmoji { name, bytes: Arc::new(bytes) }).await;
+        }
+        Command::LoadSide { kind, team_id, channel_id, terms } => {
+            let posts = match kind {
+                SideKind::Pinned => client.pinned_posts(&channel_id).await?,
+                SideKind::Saved => client.saved_posts(&ctx.me_id).await?,
+                SideKind::Search => client.search_posts(&team_id, &terms).await?,
+                SideKind::Threads => Vec::new(),
+                SideKind::Mentions => {
+                    // Toutes les équipes : une recherche « @nom » par équipe, fusionnées.
+                    let terms = format!("@{}", ctx.me_username);
+                    let mut all = Vec::new();
+                    let mut teams = Vec::new();
+                    for team in &ctx.team_ids {
+                        if let Ok(mut found) = client.search_posts(team, &terms).await {
+                            teams.extend(found.iter().map(|p| (p.channel_id.clone(), team.clone())));
+                            all.append(&mut found);
+                        }
+                    }
+                    ctx.emit(Event::ChannelTeams(teams)).await;
+                    all.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+                    all.dedup_by(|a, b| a.id == b.id);
+                    all.truncate(60);
+                    all
+                }
+            };
+            ctx.ensure_users(posts.iter().map(|p| p.user_id.clone())).await;
+            ctx.emit(Event::SidePosts { kind, posts }).await;
+        }
+        Command::LoadMembers { channel_id } => {
+            let (users, admins, total) = client.channel_users(&channel_id).await?;
+            let ids: Vec<String> = users.iter().map(|u| u.id.clone()).collect();
+            // Profils et avatars des inconnus, puis présence de tous.
+            ctx.ensure_users(ids.clone()).await;
+            if let Ok(statuses) = client.statuses(&ids).await {
+                ctx.emit(Event::Statuses(statuses.into_iter().map(|s| (s.user_id, s.status)).collect())).await;
+            }
+            // Profils complets (rôles, fuseau…) même pour les personnes déjà connues.
+            ctx.emit(Event::Users(users)).await;
+            ctx.emit(Event::Members { channel_id, user_ids: ids, admins, total }).await;
+        }
+        Command::LoadUserByName { username } => {
+            let user = client.user_by_username(&username).await?;
+            ctx.ensure_users([user.id.clone()]).await;
+            ctx.emit(Event::Users(vec![user])).await;
+        }
+        Command::LoadThreads { team_id } => {
+            let threads = client.user_threads(&ctx.me_id, &team_id).await?;
+            let mut ids: Vec<String> = Vec::new();
+            for t in &threads {
+                ids.push(t.post.user_id.clone());
+                ids.extend(t.participants.iter().map(|u| u.id.clone()));
+            }
+            ctx.ensure_users(ids).await;
+            ctx.emit(Event::Threads(threads)).await;
+        }
+        Command::MarkThreadRead { team_id, root_id } => {
+            let now = chrono::Utc::now().timestamp_millis();
+            client.mark_thread_read(&ctx.me_id, &team_id, &root_id, now).await?;
+        }
+        Command::OpenDirect { user_id } => {
+            let channel = client.direct_channel(&ctx.me_id, &user_id).await?;
+            ctx.ensure_users([user_id]).await;
+            ctx.emit(Event::DirectOpened(channel)).await;
         }
         Command::MarkUnread { post_id } => client.set_unread(&ctx.me_id, &post_id).await?,
         Command::SavePost { post_id, save } => {
@@ -687,6 +785,13 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
             parent_id: str_field(&data, "/parent_id"),
             user_id: str_field(&data, "/user_id"),
         }),
+        "user_added" | "user_removed" => {
+            let channel_id = match str_field(&value, "/broadcast/channel_id") {
+                c if c.is_empty() => str_field(&data, "/channel_id"),
+                c => c,
+            };
+            (!channel_id.is_empty()).then_some(Event::MembersChanged { channel_id })
+        }
         "status_change" => {
             let (user_id, status) = (str_field(&data, "/user_id"), str_field(&data, "/status"));
             (!user_id.is_empty()).then(|| Event::Statuses(vec![(user_id, status)]))

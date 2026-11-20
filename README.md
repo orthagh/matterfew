@@ -10,23 +10,29 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 |---|---|
 | Connexion | Via la page de connexion du serveur (GitLab, mot de passe, double authentification), par e-mail et mot de passe, ou par jeton ; mémorisée dans le gestionnaire d'identifiants Windows, bouton « Déconnexion » pour l'oublier. Dernière équipe et dernier canal de chaque équipe rouverts au lancement |
 | Barre latérale | Catégories de l'utilisateur récupérées depuis l'API (Favoris, Canaux, Messages directs, catégories personnelles) dans son ordre, tri propre à chaque catégorie (alphabétique, récents, manuel), section « Non lus » si activée dans les préférences, limite de messages directs visibles, catégories repliables (synchronisé avec le serveur), canaux en sourdine atténués, mises à jour en temps réel |
-| Messages | Historique infini (remonter charge la page précédente), ligne « Nouveaux messages » à l'ouverture d'un canal non lu, regroupement par auteur, avatars et présence (en ligne, absent, ne pas déranger), messages qui vous mentionnent surlignés, « (modifié) », messages système |
+| Messages | Historique infini (remonter charge la page précédente) avec bouton flottant « Revenir au présent », ligne « Nouveaux messages » à l'ouverture d'un canal non lu, regroupement par auteur, avatars et présence (en ligne, absent, ne pas déranger), messages qui vous mentionnent surlignés, « (modifié) », messages système |
 | Intégrations et liens | Messages des intégrations (GitLab, webhooks…) en cartes : barre de couleur, auteur, titre cliquable, texte, champs, image, pied, boutons interactifs ; étiquette « BOT ». Aperçus de liens (site, titre, description, image), images liées, citations de messages. Les images externes sont chargées sans jamais envoyer le jeton |
 | Envoi | Entrée pour envoyer, Maj+Entrée pour aller à la ligne, « X est en train d'écrire… » dans les deux sens. Autocomplétion : `@` personnes, `~` canaux, `:` emojis (standard et personnalisés), `/` commandes ; ↑ ↓ pour choisir, Entrée ou Tab pour insérer, Échap pour fermer. Les commandes « / » sont exécutées par le serveur |
 | Actions sur un message | Au survol : réactions rapides, Répondre et « ⋯ » : Marquer comme non lu, Enregistrer, Épingler au canal, Copier le lien, Copier le texte, et pour ses propres messages Modifier / Supprimer (avec confirmation). Étiquettes « Épinglé » et « Enregistré ». Cliquer une réaction existante l'ajoute ou la retire |
 | Options des canaux | En-tête : favori, sourdine et « ⋯ ». Clic droit sur un canal de la barre latérale : marquer comme lu, favori, sourdine, copier le lien, quitter. « ⋯ » d'une catégorie : tri (alphabétique, activité récente, manuel) et « marquer la catégorie comme lue ». Menu du compte : statut (en ligne, absent, ne pas déranger, hors ligne) et déconnexion |
 | Éditeur | Barre de mise en forme (gras, italique, barré, titre, lien, code, bloc de code, citation, listes), raccourcis Ctrl+B, Ctrl+I, Ctrl+Maj+X, Ctrl+Alt+K, Ctrl+Alt+C, aperçu du rendu. Brouillon conservé par canal et par fil (crayon dans la barre latérale) |
 | Fils | Compteur « N réponses », panneau latéral avec réponse dans le fil |
-| Fichiers | Aperçu des images jointes (clic : visionneuse intégrée, Échap pour fermer), cartes pour les autres fichiers avec « Ouvrir » / « Télécharger » (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
-| Équipes | Barre des équipes avec leur logo, pastille de non-lus et compteur de mentions |
-| Mise en page | Barre latérale redimensionnable en glissant son bord droit (largeur mémorisée dans `%APPDATA%\mm-gpui\ui.json`) |
+| Navigation | Ctrl+K : sélecteur de canaux (recherche sans accents, ↑ ↓ Entrée, canaux récents si rien n'est tapé). Panneau de droite : recherche dans les messages de l'équipe (syntaxe Mattermost `from:`, `in:`, guillemets), messages épinglés du canal, messages enregistrés ; un clic ouvre le canal et le fil du message |
+| Membres | Liste permanente des membres du canal à droite : administrateurs (système ou du canal) d'abord, puis par statut (en ligne, absent, ne pas déranger, hors ligne), comme Discord. Masquable depuis l'en-tête (réglage mémorisé) ; s'efface quand un fil ou un panneau est ouvert |
+| Fils suivis | Icône dans l'en-tête : fils suivis du canal affiché, avec participants (avatars empilés), nombre de réponses et réponses non lues ; ouvrir un fil le marque comme lu |
+| Mentions récentes | Icône @ dans l'en-tête : messages qui vous mentionnent, toutes équipes confondues ; un clic ouvre l'équipe, le canal et le fil |
+| Carte de profil | Un clic sur une personne (avatar ou nom d'un message, @mention, liste des membres, participants d'un fil) ouvre une mini-carte : photo en médaillon avec son statut, nom, poste, adresse e-mail, heure locale et écart avec la vôtre, rôle d'administrateur, bouton « Envoyer un message ». Échap ou un clic à côté la ferme |
+| Emojis | Sélecteur d'emojis (catégories, recherche, emojis du serveur) pour réagir à un message ou insérer dans la saisie |
+| Fichiers | Aperçu des images jointes (clic : visionneuse intégrée, Échap pour fermer), cartes pour les autres fichiers avec boutons icônes Ouvrir et Télécharger (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
+| Équipes | Barre des équipes avec leur logo ; pilule au bord gauche pour l'équipe affichée (courte pour une équipe avec des non-lus), pastille de non-lus et compteur de mentions |
+| Mise en page | Barre latérale redimensionnable en glissant son bord droit (largeur mémorisée dans `%APPDATA%\mm-gpui\ui.json`) ; barres de défilement visibles seulement pendant le défilement |
 | Temps réel | WebSocket « fiable » : en cas de coupure, le serveur rejoue les événements manqués ; s'il ne le peut plus, rattrapage ciblé (canaux, non-lus, messages modifiés depuis le dernier connu, fil ouvert). Présence rafraîchie chaque minute |
 | Notifications | Notification Windows selon vos préférences Mattermost, comme le client web : niveau « tous / mentions / aucun » de l'utilisateur ou du canal, canaux en sourdine, « Ne pas déranger », fils suivis ; rien pour ce qui est déjà affiché. Au nom de l'application, une par canal ; un clic ouvre le canal ; le bouton de la barre des tâches clignote |
-| Intégration Windows | Pastille sur l'icône de la barre des tâches (nombre de mentions, point pour les non-lus, « ! » si la session a expiré), icône dans la zone de notification (état, menu Ouvrir / Quitter) ; fermer la fenêtre la réduit dans cette zone ; une seule instance (relancer ramène la fenêtre) |
+| Intégration Windows | Icône de l'application intégrée à l'exécutable (fenêtre, barre des tâches, explorateur, menu Démarrer), dessinée par le code et convertie à la compilation (`build.rs`). Pastille sur l'icône de la barre des tâches (nombre de mentions, point pour les non-lus, « ! » si la session a expiré), icône dans la zone de notification (état, menu Ouvrir / Quitter) ; fermer la fenêtre la réduit dans cette zone ; une seule instance (relancer ramène la fenêtre) |
 | Markdown | Rendu complet (gras, italique, listes, code, tableaux, citations, liens cliquables), texte sélectionnable |
 | Emojis | `:smile:` → 😄 dans le texte et les réactions ; emojis personnalisés du serveur affichés en image |
 
-Non couvert : recherche, liste des messages épinglés et enregistrés, coller une image depuis le presse-papiers,
+Non couvert : coller une image depuis le presse-papiers,
 appels, plugins, réorganisation des canaux par glisser-déposer, cache local.
 
 > **Au premier lancement sous Windows**, l'application crée un raccourci
@@ -108,6 +114,7 @@ src/
 ├── icons.rs     icônes dessinées par le code (application, pastilles) — testé
 ├── rich.rs      intégrations et aperçus de liens — testé
 ├── editor.rs    mise en forme Markdown de la zone de saisie — testé
+├── fuzzy.rs     recherche rapide de canaux (Ctrl+K) — testé
 ├── settings.rs  préférences locales (largeur, dernière équipe et canaux)
 ├── theme.rs     thème Mattermost de l'utilisateur → couleurs de l'interface
 ├── sso.rs       fenêtre de connexion « via Mattermost » (WebView2)

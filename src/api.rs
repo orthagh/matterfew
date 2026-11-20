@@ -26,6 +26,18 @@ pub struct User {
     /// `desktop` = all / mention / none, `channel`, `first_name`, `mention_keys`…
     #[serde(default, deserialize_with = "string_map")]
     pub notify_props: HashMap<String, String>,
+    /// Vide si l'administrateur masque les adresses.
+    #[serde(default)]
+    pub email: String,
+    /// Poste (« Développeur », « Support »…).
+    #[serde(default)]
+    pub position: String,
+    /// Rôles système, ex. "system_user system_admin".
+    #[serde(default)]
+    pub roles: String,
+    /// {useAutomaticTimezone, automaticTimezone, manualTimezone}
+    #[serde(default)]
+    pub timezone: serde_json::Value,
 }
 
 /// Désérialise un objet JSON en ne gardant que les valeurs textuelles
@@ -47,6 +59,18 @@ fn string_map<'de, D: serde::Deserializer<'de>>(d: D) -> Result<HashMap<String, 
 }
 
 impl User {
+    pub fn is_system_admin(&self) -> bool {
+        self.roles.split_whitespace().any(|r| r == "system_admin")
+    }
+
+    /// Fuseau horaire IANA de la personne (« Europe/Paris »), s'il est connu.
+    pub fn time_zone(&self) -> Option<String> {
+        let tz = &self.timezone;
+        let get = |k: &str| tz.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let name = if get("useAutomaticTimezone") == "true" { get("automaticTimezone") } else { get("manualTimezone") };
+        (!name.is_empty()).then_some(name)
+    }
+
     /// Nom affiché : « Prénom Nom » si disponible, sinon le nom d'utilisateur.
     pub fn display_name(&self) -> String {
         let full = format!("{} {}", self.first_name, self.last_name);
@@ -308,6 +332,25 @@ pub struct CustomEmoji {
     pub name: String,
 }
 
+/// Fil suivi par l'utilisateur (vue « Fils de discussion »).
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserThread {
+    pub id: String,
+    #[serde(default)]
+    pub reply_count: i64,
+    #[serde(default)]
+    pub last_reply_at: i64,
+    #[serde(default)]
+    pub unread_replies: i64,
+    #[serde(default)]
+    pub unread_mentions: i64,
+    /// Participants (avec `extended=true`).
+    #[serde(default)]
+    pub participants: Vec<User>,
+    /// Message racine du fil.
+    pub post: Post,
+}
+
 /// Suggestion d'une commande « / » (format du serveur, en majuscules).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
@@ -375,6 +418,16 @@ struct PostList {
 }
 
 impl PostList {
+    /// Messages dans l'ordre donné par le serveur, sinon du plus récent au plus ancien.
+    fn into_newest_first(mut self) -> Vec<Post> {
+        let mut out: Vec<Post> = self.order.iter().filter_map(|id| self.posts.remove(id)).collect();
+        if out.is_empty() {
+            out = self.posts.into_values().collect();
+            out.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+        }
+        out
+    }
+
     /// Messages du plus ancien au plus récent.
     fn into_chronological(mut self) -> Vec<Post> {
         let mut out: Vec<Post> = self
@@ -714,6 +767,90 @@ impl Client {
             "command": command, "channel_id": channel_id, "team_id": team_id, "root_id": root_id
         });
         self.send_json(reqwest::Method::POST, "/commands/execute", Some(&body)).await
+    }
+
+    /// Messages épinglés d'un canal, du plus récent au plus ancien.
+    pub async fn pinned_posts(&self, channel_id: &str) -> Result<Vec<Post>> {
+        let list: PostList = self.get(&format!("/channels/{channel_id}/pinned")).await?;
+        Ok(list.into_newest_first())
+    }
+
+    /// Messages enregistrés par l'utilisateur, du plus récent au plus ancien.
+    pub async fn saved_posts(&self, user_id: &str) -> Result<Vec<Post>> {
+        let list: PostList = self.get(&format!("/users/{user_id}/posts/flagged?page=0&per_page=60")).await?;
+        Ok(list.into_newest_first())
+    }
+
+    /// Recherche dans les messages d'une équipe (syntaxe Mattermost : `from:`,
+    /// `in:`, guillemets…), du plus récent au plus ancien.
+    pub async fn search_posts(&self, team_id: &str, terms: &str) -> Result<Vec<Post>> {
+        let offset = chrono::Local::now().offset().local_minus_utc();
+        let body = serde_json::json!({
+            "terms": terms,
+            "is_or_search": false,
+            "time_zone_offset": offset,
+            "include_deleted_channels": false,
+            "page": 0,
+            "per_page": 60
+        });
+        let list: PostList = self.post(&format!("/teams/{team_id}/posts/search"), &body).await?;
+        Ok(list.into_newest_first())
+    }
+
+    /// Membres d'un canal (200 au plus), administrateurs du canal, et nombre total.
+    pub async fn channel_users(&self, channel_id: &str) -> Result<(Vec<User>, Vec<String>, i64)> {
+        #[derive(Deserialize)]
+        struct Stats {
+            #[serde(default)]
+            member_count: i64,
+        }
+        #[derive(Deserialize)]
+        struct Membership {
+            user_id: String,
+            #[serde(default)]
+            roles: String,
+            #[serde(default)]
+            scheme_admin: bool,
+        }
+        let users_path = format!("/users?in_channel={channel_id}&page=0&per_page=200");
+        let members_path = format!("/channels/{channel_id}/members?page=0&per_page=200");
+        let stats_path = format!("/channels/{channel_id}/stats");
+        let (users, members, stats): (Vec<User>, Vec<Membership>, Stats) =
+            tokio::try_join!(self.get(&users_path), self.get(&members_path), self.get(&stats_path))?;
+        let admins = members
+            .into_iter()
+            .filter(|m| m.scheme_admin || m.roles.split_whitespace().any(|r| r == "channel_admin"))
+            .map(|m| m.user_id)
+            .collect();
+        let total = stats.member_count.max(users.len() as i64);
+        Ok((users, admins, total))
+    }
+
+    pub async fn user_by_username(&self, username: &str) -> Result<User> {
+        self.get(&format!("/users/username/{username}")).await
+    }
+
+    /// Fils suivis dans une équipe, les plus récemment actifs d'abord.
+    pub async fn user_threads(&self, user_id: &str, team_id: &str) -> Result<Vec<UserThread>> {
+        #[derive(Deserialize)]
+        struct List {
+            #[serde(default)]
+            threads: Vec<UserThread>,
+        }
+        let list: List = self
+            .get(&format!("/users/{user_id}/teams/{team_id}/threads?extended=true&per_page=100"))
+            .await?;
+        Ok(list.threads)
+    }
+
+    pub async fn mark_thread_read(&self, user_id: &str, team_id: &str, thread_id: &str, at: i64) -> Result<()> {
+        let path = format!("/users/{user_id}/teams/{team_id}/threads/{thread_id}/read/{at}");
+        self.send_json::<()>(reqwest::Method::PUT, &path, None).await
+    }
+
+    /// Canal de message direct avec quelqu'un (créé s'il n'existe pas).
+    pub async fn direct_channel(&self, me: &str, other: &str) -> Result<Channel> {
+        self.post("/channels/direct", &[me, other]).await
     }
 
     /// « Marquer comme non lu » à partir de ce message.

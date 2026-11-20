@@ -28,6 +28,19 @@ fn user(id: &str, first: &str, last: &str) -> User {
         nickname: String::new(),
         last_picture_update: 0,
         notify_props: HashMap::from([("desktop".to_string(), "mention".to_string())]),
+        email: format!("{}.{}@exemple.org", first.to_lowercase(), last.to_lowercase()),
+        position: match first {
+            "Lucas" => "Responsable support".into(),
+            "Inès" => "Designer".into(),
+            "Nathan" => "Développeur backend".into(),
+            _ => String::new(),
+        },
+        roles: if first == "Lucas" { "system_user system_admin".into() } else { "system_user".into() },
+        timezone: serde_json::json!({
+            "useAutomaticTimezone": "true",
+            "automaticTimezone": if first == "Hugo" { "America/Montreal" } else { "Europe/Paris" },
+            "manualTimezone": ""
+        }),
     }
 }
 
@@ -68,6 +81,8 @@ struct Demo {
     replies: HashMap<String, Vec<Post>>,
     /// Fichiers envoyés pendant la démo, en attente d'être joints à un message.
     uploads: HashMap<String, FileInfo>,
+    /// Messages enregistrés pendant la démo.
+    saved: Vec<String>,
     next_id: u64,
 }
 
@@ -112,7 +127,7 @@ impl Demo {
             let kind = if i % 3 == 0 { "O" } else { "P" };
             channels.push(channel(&format!("x{i}"), kind, name, name, "", now - (40 + i as i64) * h));
         }
-        let mut demo = Self { users, channels, posts: HashMap::new(), replies: HashMap::new(), uploads: HashMap::new(), next_id: 1000 };
+        let mut demo = Self { users, channels, posts: HashMap::new(), replies: HashMap::new(), uploads: HashMap::new(), saved: Vec::new(), next_id: 1000 };
         let day = 24 * h;
         let m = 60_000;
 
@@ -517,12 +532,95 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         Command::PostAction { .. }
         | Command::ExecuteCommand { .. }
         | Command::MarkUnread { .. }
-        | Command::SavePost { .. }
         | Command::UpdateCategories { .. }
         | Command::SetMuted { .. }
         | Command::LeaveChannel { .. }
         | Command::MarkChannelsRead { .. } => {}
         Command::SetStatus { status } => send(Event::Statuses(vec![(ME.into(), status)])),
+        Command::LoadUserByName { username } => {
+            if let Some(u) = demo.users.iter().find(|u| u.username == username) {
+                send(Event::Users(vec![u.clone()]));
+            }
+        }
+        Command::LoadMembers { channel_id } => {
+            // Démo : tout le monde dans les canaux publics, deux personnes dans les autres.
+            let ids: Vec<String> = match channel_id.as_str() {
+                "general" | "backend" | "design" | "random" | "veille" => demo.users.iter().map(|u| u.id.clone()).collect(),
+                _ => vec![ME.to_string(), "u1".to_string(), "u4".to_string()],
+            };
+            let total = ids.len() as i64;
+            send(Event::Members { channel_id, user_ids: ids, admins: vec!["u4".into()], total });
+        }
+        Command::LoadThreads { .. } => {
+            let mut threads: Vec<crate::api::UserThread> = demo
+                .replies
+                .iter()
+                .filter_map(|(root, replies)| {
+                    let post = demo.posts.values().flatten().find(|p| &p.id == root)?.clone();
+                    let mut participants: Vec<User> = Vec::new();
+                    for r in replies {
+                        if let Some(u) = demo.users.iter().find(|u| u.id == r.user_id) {
+                            if !participants.iter().any(|p| p.id == u.id) {
+                                participants.push(u.clone());
+                            }
+                        }
+                    }
+                    Some(crate::api::UserThread {
+                        id: root.clone(),
+                        reply_count: replies.len() as i64,
+                        last_reply_at: replies.iter().map(|r| r.create_at).max().unwrap_or(post.create_at),
+                        unread_replies: if post.channel_id == "design" { 2 } else { 0 },
+                        unread_mentions: 0,
+                        participants,
+                        post,
+                    })
+                })
+                .collect();
+            threads.sort_by(|a, b| b.last_reply_at.cmp(&a.last_reply_at));
+            send(Event::Threads(threads));
+        }
+        Command::MarkThreadRead { .. } => {}
+        Command::OpenDirect { user_id } => {
+            let existing = demo.channels.iter().find(|c| c.is_direct() && c.name.split("__").any(|id| id == user_id));
+            let channel = match existing {
+                Some(c) => c.clone(),
+                None => {
+                    let c = channel(&format!("dm-{user_id}"), "D", &format!("{ME}__{user_id}"), "", "", now_ms());
+                    demo.channels.push(c.clone());
+                    c
+                }
+            };
+            send(Event::DirectOpened(channel));
+        }
+        Command::SavePost { post_id, save } => {
+            demo.saved.retain(|id| *id != post_id);
+            if save {
+                demo.saved.push(post_id);
+            }
+        }
+        Command::LoadSide { kind, channel_id, terms, .. } => {
+            use crate::backend::SideKind;
+            let terms = terms.to_lowercase();
+            let mut posts: Vec<Post> = demo
+                .posts
+                .values()
+                .chain(demo.replies.values())
+                .flatten()
+                .filter(|p| match kind {
+                    SideKind::Pinned => p.channel_id == channel_id && p.is_pinned,
+                    SideKind::Saved => demo.saved.contains(&p.id),
+                    SideKind::Threads => false,
+                    SideKind::Mentions => p.message.contains("@camille.martin"),
+                    SideKind::Search => {
+                        !terms.is_empty()
+                            && terms.split_whitespace().all(|t| p.message.to_lowercase().contains(t))
+                    }
+                })
+                .cloned()
+                .collect();
+            posts.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+            send(Event::SidePosts { kind, posts });
+        }
         Command::PinPost { post_id, pin } => {
             if let Some(post) = demo.find_mut(&post_id) {
                 post.is_pinned = pin;
