@@ -104,6 +104,14 @@ fn card_origin(at: Point<Pixels>, window: &Window) -> Point<Pixels> {
     point(x, y)
 }
 
+/// Onglets du panneau des fichiers d'un canal.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FilesTab {
+    Media,
+    Documents,
+    Links,
+}
+
 /// Où va l'emoji choisi dans le sélecteur.
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum PickerTarget {
@@ -208,6 +216,16 @@ pub struct ChatApp {
     /// Administrateurs de chaque canal chargé.
     channel_admins: HashMap<String, Vec<String>>,
     profile: Option<ProfileCard>,
+    /// Images sans aperçu possible (affichées en carte de fichier).
+    failed_previews: HashSet<String>,
+    /// Fichiers de chaque canal (recherche du serveur).
+    channel_files: HashMap<String, Vec<FileInfo>>,
+    files_tab: FilesTab,
+    /// Propositions de la recherche (filtres, historique) ouvertes.
+    search_open: bool,
+    search_focus_gen: u64,
+    /// Cache local des messages du serveur connecté (rien en démo).
+    cache_dir: Option<PathBuf>,
     /// Équipe des canaux d'autres équipes (mentions récentes).
     channel_teams: HashMap<String, String>,
     /// Message à ouvrir une fois l'équipe chargée.
@@ -348,10 +366,33 @@ impl ChatApp {
                     this.login_password(window, cx);
                 }
             }),
-            cx.subscribe_in(&search_input, window, |this, _, ev: &InputEvent, _, cx| {
-                if let InputEvent::PressEnter { .. } = ev {
+            cx.subscribe_in(&search_input, window, |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { .. } => {
                     this.run_search(cx);
+                    this.search_open = false;
+                    window.blur(cx);
+                    cx.notify();
                 }
+                InputEvent::Focus => {
+                    this.search_focus_gen += 1;
+                    this.search_open = true;
+                    cx.notify();
+                }
+                // Fermeture différée : laisse le temps au clic sur une proposition.
+                InputEvent::Blur => {
+                    let generation = this.search_focus_gen;
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor().timer(Duration::from_millis(220)).await;
+                        let _ = this.update(cx, |this, cx| {
+                            if this.search_focus_gen == generation {
+                                this.search_open = false;
+                                cx.notify();
+                            }
+                        });
+                    })
+                    .detach();
+                }
+                InputEvent::Change => cx.notify(),
             }),
             cx.subscribe_in(&switcher_input, window, |this, _, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
@@ -427,6 +468,12 @@ impl ChatApp {
             members: HashMap::new(),
             channel_admins: HashMap::new(),
             profile: None,
+            failed_previews: HashSet::new(),
+            channel_files: HashMap::new(),
+            files_tab: FilesTab::Media,
+            search_open: false,
+            search_focus_gen: 0,
+            cache_dir: None,
             channel_teams: HashMap::new(),
             pending_jump: None,
             threads: None,
@@ -736,6 +783,10 @@ impl ChatApp {
         self.commands = Some(backend.commands);
         self.pending_credentials = Some((url.clone(), token.clone(), kind));
         self.active_auth = Some((token, kind));
+        self.cache_dir = crate::cache::dir_for(&url);
+        if let Some(dir) = self.cache_dir.clone() {
+            std::thread::spawn(move || crate::cache::prune(&dir));
+        }
         self.server_url = Some(url);
         self.screen = Screen::Connecting;
         self.error = None;
@@ -747,6 +798,9 @@ impl ChatApp {
     /// Oublie le jeton mémorisé et revient à l'écran de connexion.
     /// Lâcher le canal des commandes arrête le backend et son WebSocket.
     fn logout(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(dir) = self.cache_dir.take() {
+            crate::cache::clear(&dir);
+        }
         if let (Some(url), false) = (self.server_url.clone(), self.demo) {
             credentials::forget(&url);
             // Une session (navigateur, mot de passe) est aussi fermée côté
@@ -825,6 +879,7 @@ impl ChatApp {
         if self.channel_id.as_deref() == Some(&channel_id) {
             return;
         }
+        self.store_cache();
         // Brouillons : on garde le texte du canal quitté, on reprend celui du nouveau.
         self.stash_draft(Pane::Channel, cx);
         self.stash_draft(Pane::Thread, cx);
@@ -865,6 +920,19 @@ impl ChatApp {
         self.editing = None;
         self.confirm_delete = None;
         self.scroller.update(cx, |s, cx| s.reset(0, cx));
+        // Messages connus : affichés tout de suite, remplacés par la réponse du serveur.
+        if let Some((posts, users)) = self.cache_dir.as_ref().and_then(|d| crate::cache::load(d, &channel_id)) {
+            for user in users {
+                self.users.entry(user.id.clone()).or_insert(user);
+            }
+            self.request_previews(&posts);
+            self.posts = posts.into_iter().filter(|p| p.delete_at == 0).map(PostView::new).collect();
+            let n = self.posts.len();
+            self.scroller.update(cx, |s, cx| s.reset(n, cx));
+        }
+        if self.side.as_ref().is_some_and(|s| s.kind == SideKind::Files) {
+            self.load_channel_files(&channel_id);
+        }
         self.send(Command::LoadChannel { channel_id: channel_id.clone() });
         if self.settings.show_members && !self.members.contains_key(&channel_id) {
             self.send(Command::LoadMembers { channel_id: channel_id.clone() });
@@ -1631,25 +1699,132 @@ impl ChatApp {
         }
     }
 
+    /// Enregistre les derniers messages du canal affiché dans le cache local.
+    fn store_cache(&self) {
+        let (Some(dir), Some(channel_id)) = (self.cache_dir.clone(), self.channel_id.clone()) else { return };
+        if self.posts.is_empty() || self.loading_posts {
+            return;
+        }
+        let start = self.posts.len().saturating_sub(crate::cache::MAX_POSTS);
+        let posts: Vec<Post> = self.posts[start..].iter().map(|v| v.post.clone()).collect();
+        let users: HashMap<String, User> = posts
+            .iter()
+            .filter_map(|p| self.users.get(&p.user_id).map(|u| (u.id.clone(), u.clone())))
+            .collect();
+        std::thread::spawn(move || crate::cache::store(&dir, &channel_id, &posts, &users));
+    }
+
+    /// Panneau des fichiers et liens du canal.
+    fn show_files(&mut self, cx: &mut Context<Self>) {
+        let Some(channel_id) = self.channel_id.clone() else { return };
+        if self.thread.is_some() {
+            self.close_thread(cx);
+        }
+        self.side = Some(SidePanel { kind: SideKind::Files, subject: String::new(), posts: Some(Vec::new()) });
+        self.load_channel_files(&channel_id);
+        cx.notify();
+    }
+
+    fn load_channel_files(&mut self, channel_id: &str) {
+        let Some(team_id) = self.team_id.clone() else { return };
+        let Some(state) = self.channels.get(channel_id) else { return };
+        // Recherche `in:` : le nom du canal, ou « @nom » pour un message direct.
+        let target = match state.channel.direct_partner(self.me_id()) {
+            Some(partner) => self.users.get(&partner).map(|u| format!("@{}", u.username)),
+            None => Some(state.channel.name.clone()),
+        };
+        if let Some(target) = target {
+            self.send(Command::LoadChannelFiles {
+                team_id,
+                channel_id: channel_id.to_string(),
+                terms: format!("in:{target}"),
+            });
+        }
+    }
+
+    fn set_files_tab(&mut self, tab: FilesTab, cx: &mut Context<Self>) {
+        self.files_tab = tab;
+        cx.notify();
+    }
+
+    fn toggle_formatting(&mut self, cx: &mut Context<Self>) {
+        self.settings.show_formatting = !self.settings.show_formatting;
+        if !self.demo {
+            self.settings.save();
+        }
+        cx.notify();
+    }
+
+    /// Recherche lancée depuis l'extérieur (étiquette cliquée, proposition).
+    fn search_for(&mut self, terms: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.search_input.update(cx, |s, cx| s.set_value(terms.clone(), window, cx));
+        self.run_search(cx);
+        self.search_open = false;
+        cx.notify();
+    }
+
+    /// Remplace le mot en cours de la recherche par `token` (filtre proposé).
+    fn insert_search_token(&mut self, token: String, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self.search_input.read(cx).value().to_string();
+        let head = match value.rfind(' ') {
+            Some(i) => value[..=i].to_string(),
+            None => String::new(),
+        };
+        let next = format!("{head}{token}{}", if token.ends_with(':') { "" } else { " " });
+        self.search_input.update(cx, |s, cx| {
+            s.set_value(next, window, cx);
+            s.focus(window, cx);
+        });
+        self.search_open = true;
+        cx.notify();
+    }
+
+    /// Retire un filtre de la recherche affichée et relance.
+    fn remove_search_token(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(side) = &self.side else { return };
+        let mut tokens = search_tokens(&side.subject);
+        if index < tokens.len() {
+            tokens.remove(index);
+        }
+        let terms = tokens.join(" ");
+        self.search_input.update(cx, |s, cx| s.set_value(terms.clone(), window, cx));
+        if terms.is_empty() {
+            self.side = Some(SidePanel { kind: SideKind::Search, subject: String::new(), posts: Some(Vec::new()) });
+            cx.notify();
+        } else {
+            self.run_search(cx);
+        }
+    }
+
+    fn forget_searches(&mut self, cx: &mut Context<Self>) {
+        self.settings.recent_searches.clear();
+        if !self.demo {
+            self.settings.save();
+        }
+        cx.notify();
+    }
+
     fn show_saved(&mut self, cx: &mut Context<Self>) {
         self.open_side(SideKind::Saved, String::new(), String::new(), cx);
     }
 
-    /// Ouvre le panneau de recherche, champ de saisie prêt.
+    /// Ctrl+F : place le curseur dans la recherche de l'en-tête (propositions ouvertes).
     fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.thread.is_some() {
-            self.close_thread(cx);
-        }
-        if !self.side.as_ref().is_some_and(|s| s.kind == SideKind::Search) {
-            self.side = Some(SidePanel { kind: SideKind::Search, subject: String::new(), posts: Some(Vec::new()) });
-        }
         self.search_input.update(cx, |s, cx| s.focus(window, cx));
+        self.search_open = true;
         cx.notify();
     }
 
     fn run_search(&mut self, cx: &mut Context<Self>) {
         let terms = self.search_input.read(cx).value().trim().to_string();
         if !terms.is_empty() {
+            // Historique : la plus récente d'abord, sans doublon, 8 au plus.
+            self.settings.recent_searches.retain(|t| t != &terms);
+            self.settings.recent_searches.insert(0, terms.clone());
+            self.settings.recent_searches.truncate(8);
+            if !self.demo {
+                self.settings.save();
+            }
             self.open_side(SideKind::Search, terms.clone(), terms, cx);
         }
     }
@@ -1919,6 +2094,23 @@ impl ChatApp {
                 self.channel_admins.insert(channel_id.clone(), admins);
                 self.members.insert(channel_id, (user_ids, total));
             }
+            Event::ChannelFiles { channel_id, files } => {
+                let wanted: Vec<String> = files
+                    .iter()
+                    .filter(|f| f.is_image() && !self.requested_previews.contains(&f.id))
+                    .map(|f| f.id.clone())
+                    .collect();
+                for file_id in wanted {
+                    self.requested_previews.insert(file_id.clone());
+                    self.send(Command::LoadPreview { file_id });
+                }
+                self.channel_files.insert(channel_id, files);
+            }
+            Event::PreviewFailed { file_id } => {
+                self.failed_previews.insert(file_id);
+                self.scroller.update(cx, |s, cx| s.remeasure(cx));
+                self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
+            }
             Event::ChannelTeams(list) => {
                 self.channel_teams.extend(list);
             }
@@ -2130,6 +2322,7 @@ impl ChatApp {
                     self.request_previews(&posts);
                     self.posts = posts.into_iter().filter(|p| p.delete_at == 0).map(PostView::new).collect();
                     self.loading_posts = false;
+                    self.store_cache();
                     let n = self.posts.len();
                     self.scroller.update(cx, |s, cx| s.reset(n, cx));
                     // Beaucoup de nouveaux messages : on ouvre sur la ligne
@@ -2546,5 +2739,44 @@ mod tests {
         assert!(!collapsed_threads_enabled(&cfg("default_off"), &[]));
         assert!(!collapsed_threads_enabled(&cfg("default_on"), &pref("off")));
         assert!(collapsed_threads_enabled(&cfg("default_off"), &pref("on")));
+    }
+}
+
+/// « from:lea in:general "mise en prod" #release » → jetons, guillemets gardés ensemble.
+pub(crate) fn search_tokens(terms: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for c in terms.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                current.push(c);
+            }
+            c if c.is_whitespace() && !quoted => {
+                if !current.is_empty() {
+                    out.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::search_tokens;
+
+    #[test]
+    fn jetons_de_recherche() {
+        assert_eq!(
+            search_tokens(r#"from:lea  in:general "mise en prod" #release"#),
+            vec!["from:lea", "in:general", "\"mise en prod\"", "#release"]
+        );
+        assert!(search_tokens("   ").is_empty());
     }
 }

@@ -19,11 +19,22 @@ pub struct UiSettings {
     pub last_channels: HashMap<String, String>,
     /// Liste des membres affichée à droite.
     pub show_members: bool,
+    /// Dernières recherches, la plus récente d'abord.
+    pub recent_searches: Vec<String>,
+    /// Barre de mise en forme visible au-dessus de la zone de saisie.
+    pub show_formatting: bool,
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { sidebar_width: 280., last_team: None, last_channels: HashMap::new(), show_members: true }
+        Self {
+            sidebar_width: 280.,
+            last_team: None,
+            last_channels: HashMap::new(),
+            show_members: true,
+            recent_searches: Vec::new(),
+            show_formatting: false,
+        }
     }
 }
 
