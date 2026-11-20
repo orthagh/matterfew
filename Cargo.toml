@@ -11,7 +11,7 @@ gpui-kit = "0.10"
 
 # Réseau
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 futures = "0.3"
 async-channel = "2"
@@ -35,7 +35,24 @@ dirs = "6"
 wry = "0.57"
 tao = "0.37"
 
+# Développement (`cargo run`) : notre code peu optimisé pour recompiler
+# vite, les bibliothèques (GPUI…) optimisées pour que l'interface reste fluide.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# `cargo run --release` : optimisé mais recompilation incrémentale rapide.
 [profile.release]
+incremental = true
+codegen-units = 16
+
+# Binaire à distribuer : `cargo build --profile dist` (plus long à compiler,
+# un peu plus petit et plus rapide).
+[profile.dist]
+inherits = "release"
 lto = "thin"
-codegen-units = 4
+codegen-units = 1
+incremental = false
 strip = true
