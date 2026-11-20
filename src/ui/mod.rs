@@ -1747,6 +1747,14 @@ impl ChatApp {
         cx.notify();
     }
 
+    fn toggle_gradients(&mut self, cx: &mut Context<Self>) {
+        self.settings.gradients = !self.settings.gradients;
+        if !self.demo {
+            self.settings.save();
+        }
+        cx.notify();
+    }
+
     fn toggle_formatting(&mut self, cx: &mut Context<Self>) {
         self.settings.show_formatting = !self.settings.show_formatting;
         if !self.demo {

@@ -24,7 +24,7 @@ use std::sync::{Arc, OnceLock};
 
 use super::{ChatApp, FilesTab, Pane, PanelKind, PickerTarget, Screen, SidebarResize, search_tokens};
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
-use crate::api::{FileInfo, Post, User, human_size};
+use crate::api::{Channel, FileInfo, Post, User, human_size};
 use crate::backend::group_reactions;
 use crate::sidebar::{self, Section};
 use crate::theme::Palette;
@@ -144,6 +144,14 @@ impl ChatApp {
             .items_center()
             .justify_center()
             .bg(p.sidebar_bg)
+            // Grand dégradé façon « hero », des couleurs du thème.
+            .when(self.settings.gradients, |el| {
+                el.bg(linear_gradient(
+                    135.,
+                    linear_color_stop(shade(p.sidebar_bg, -0.04, -0.06), 0.),
+                    linear_color_stop(p.button_bg, 1.),
+                ))
+            })
             .child(
                 v_flex()
                     .id("login-card")
@@ -224,6 +232,13 @@ impl ChatApp {
                 .gap_3()
                 .pt_4()
                 .bg(p.team_bar_bg)
+                .when(self.settings.gradients, |el| {
+                    el.bg(linear_gradient(
+                        180.,
+                        linear_color_stop(p.team_bar_bg, 0.),
+                        linear_color_stop(shade(p.team_bar_bg, 0.05, -0.04), 1.),
+                    ))
+                })
                 .children(self.teams.iter().map(|team| {
                     let active = current.as_deref() == Some(&team.id);
                     let id = team.id.clone();
@@ -358,24 +373,12 @@ impl ChatApp {
             p.sidebar_text.opacity(if state.muted { 0.4 } else { 0.64 })
         };
 
+        let ring = if selected { p.sidebar_hover } else { p.sidebar_bg };
         let icon: AnyElement = match channel.direct_partner(self.me_id()) {
-            Some(partner) => self
-                .avatar(&partner, 22., if selected { p.sidebar_hover } else { p.sidebar_bg })
-                .into_any_element(),
+            Some(partner) => self.avatar(&partner, 22., ring).into_any_element(),
             None => div()
-                .w(px(22.))
-                .flex_none()
-                .flex()
-                .justify_center()
-                .child(
-                    Icon::new(match channel.kind.as_str() {
-                        "P" => IconName::Lock,
-                        "G" => IconName::Users,
-                        _ => IconName::Hash,
-                    })
-                    .size(px(15.))
-                    .text_color(text_color.opacity(0.8)),
-                )
+                .when(state.muted, |el| el.opacity(0.45))
+                .child(self.channel_badge(channel, 22., ring))
                 .into_any_element(),
         };
 
@@ -560,6 +563,13 @@ impl ChatApp {
             .h_full()
             .flex_none()
             .bg(p.sidebar_bg)
+            .when(self.settings.gradients, |el| {
+                el.bg(linear_gradient(
+                    180.,
+                    linear_color_stop(p.sidebar_bg, 0.),
+                    linear_color_stop(shade(p.sidebar_bg, 0.05, -0.05), 1.),
+                ))
+            })
             .child(resize_handle)
             .text_color(p.sidebar_text)
             .child(
@@ -659,6 +669,7 @@ impl ChatApp {
         let entity = cx.entity();
         let current = self.status_of(self.me_id()).to_string();
         let p = self.palette;
+        let gradients = self.settings.gradients;
         Button::new("account-menu")
             .icon(Icon::new(IconName::EllipsisVertical).text_color(p.sidebar_text))
             .ghost()
@@ -672,6 +683,7 @@ impl ChatApp {
                         .checked(current == value)
                         .on_click(move |_, _, cx| entity.update(cx, |this, cx| this.set_status(value, cx)))
                 };
+                let toggle = entity.clone();
                 let entity = entity.clone();
                 menu.min_w(px(220.))
                     .label("Statut")
@@ -679,6 +691,11 @@ impl ChatApp {
                     .item(status("Absent", "away", IconName::Moon))
                     .item(status("Ne pas déranger", "dnd", IconName::CircleMinus))
                     .item(status("Hors ligne", "offline", IconName::Circle))
+                    .separator()
+                    .label("Apparence")
+                    .item(PopupMenuItem::new("Dégradés").checked(gradients).on_click(move |_, _, cx| {
+                        toggle.update(cx, |this, cx| this.toggle_gradients(cx))
+                    }))
                     .separator()
                     .item(PopupMenuItem::new("Se déconnecter").icon(Icon::new(IconName::LogOut)).on_click(
                         move |_, window, cx| entity.update(cx, |this, cx| this.logout(window, cx)),
@@ -1716,11 +1733,9 @@ impl ChatApp {
             (None, Some(c)) if !c.channel.header.is_empty() => Some(markdown::plain_text(&c.channel.header)),
             _ => None,
         };
-        let icon = state.and_then(|c| match c.channel.kind.as_str() {
-            "O" => Some(IconName::Hash),
-            "P" => Some(IconName::Lock),
-            _ => None,
-        });
+        let badge = state
+            .filter(|c| matches!(c.channel.kind.as_str(), "O" | "P"))
+            .map(|c| self.channel_badge(&c.channel, 32., p.center_bg));
         let actions = self.channel_id.clone().zip(state).map(|(channel_id, state)| {
             let side = self.side.as_ref().map(|s| s.kind.clone());
             let icon_button = |id: &'static str, icon: IconName, on: bool, tip: &'static str| {
@@ -1783,14 +1798,22 @@ impl ChatApp {
                 })
         });
 
-                h_flex()
+        h_flex()
             .h(px(62.))
             .flex_none()
             .px_5()
             .gap_3()
             .border_b_1()
             .border_color(p.border())
+            .when(self.settings.gradients, |el| {
+                el.bg(linear_gradient(
+                    90.,
+                    linear_color_stop(p.sidebar_bg.opacity(0.10), 0.),
+                    linear_color_stop(p.button_bg.opacity(0.02), 1.),
+                ))
+            })
             .when_some(partner.clone(), |el, partner| el.child(self.avatar(&partner, 32., p.center_bg)))
+            .children(badge)
             .child(
                 v_flex()
                     .flex_1()
@@ -1801,9 +1824,7 @@ impl ChatApp {
                             .min_w_0()
                             .text_size(px(16.))
                             .font_bold()
-                            .when_some(icon, |el, icon| {
-                                el.child(Icon::new(icon).size(px(16.)).text_color(p.muted()).flex_none())
-                            })
+
                             .child(div().min_w_0().truncate().child(title))
                             .children(flags),
                     )
@@ -2068,7 +2089,11 @@ impl ChatApp {
         let time = u.time_zone().and_then(|tz| local_time(&tz));
         let entity = cx.entity();
         v_flex()
-            .child(div().h(px(60.)).bg(p.sidebar_bg))
+            .child(div().h(px(60.)).bg(linear_gradient(
+                120.,
+                linear_color_stop(p.sidebar_bg, 0.),
+                linear_color_stop(p.button_bg, 1.),
+            )))
             .child(
                 v_flex()
                     .px_5()
@@ -2263,7 +2288,7 @@ impl ChatApp {
                                 .gap_1()
                                 .text_xs()
                                 .text_color(p.muted())
-                                .child(Icon::new(IconName::Hash).size(px(12.)))
+                                .child(self.channel_badge_by_id(&post.channel_id, 16.))
                                 .child(channel),
                         )
                         .child(
@@ -2409,7 +2434,7 @@ impl ChatApp {
                             .gap_1()
                             .text_xs()
                             .text_color(p.muted())
-                            .child(Icon::new(IconName::Hash).size(px(12.)))
+                            .child(self.channel_badge_by_id(&t.post.channel_id, 16.))
                             .child(div().flex_1().child(channel))
                             .when(unread, |el| {
                                 el.child(
@@ -2528,15 +2553,23 @@ impl ChatApp {
             }
             // Administrateurs : ceux en ligne d'abord.
             people.sort_by_key(|id| (status(id) == "offline", crate::fuzzy::fold(&self.user_name(id))));
+            let color = group_color(title, &p);
             list = list.child(
-                div()
-                    .px_4()
-                    .pt_4()
-                    .pb_1()
+                h_flex()
+                    .gap_2()
+                    .mx_2()
+                    .mt_3()
+                    .mb_1()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(6.))
+                    .bg(color.opacity(0.10))
                     .text_xs()
                     .font_semibold()
-                    .text_color(p.muted())
-                    .child(format!("{title} ({})", people.len())),
+                    .text_color(color)
+                    .child(div().size(px(8.)).rounded_full().bg(color))
+                    .child(div().flex_1().child(title))
+                    .child(people.len().to_string()),
             );
             for id in people {
                 let user_id = id.clone();
@@ -2560,7 +2593,14 @@ impl ChatApp {
                         .child(
                             v_flex()
                                 .min_w_0()
-                                .child(div().truncate().text_sm().font_semibold().child(self.user_name(id)))
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_sm()
+                                        .font_semibold()
+                                        .when(role.is_some(), |d| d.text_color(group_color("Administrateurs", &p)))
+                                        .child(self.user_name(id)),
+                                )
                                 .when_some(self.users.get(id).map(|u| u.username.clone()), |el, name| {
                                     el.child(div().truncate().text_xs().text_color(p.muted()).child(format!("@{name}")))
                                 }),
@@ -2632,6 +2672,38 @@ impl ChatApp {
     /// Champ de recherche permanent de l'en-tête, avec ses propositions.
     fn render_search_box(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = self.palette;
+        // Panneau ou fil ouvert : une loupe ; le champ apparaît dans les propositions.
+        let compact = self.side.is_some() || self.thread.is_some();
+        if compact {
+            return div()
+                .id("search-box")
+                .relative()
+                .flex_none()
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                    if ev.keystroke.key == "escape" && this.search_open {
+                        this.search_open = false;
+                        window.blur(cx);
+                        cx.notify();
+                    }
+                }))
+                .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                    if this.search_open {
+                        this.search_open = false;
+                        cx.notify();
+                    }
+                }))
+                .child(
+                    Button::new("hdr-search")
+                        .icon(Icon::new(IconName::Search))
+                        .ghost()
+                        .small()
+                        .toggled(self.search_open)
+                        .tooltip("Rechercher (Ctrl+F)")
+                        .on_click(cx.listener(|this, _, window, cx| this.open_search(window, cx))),
+                )
+                .when(self.search_open, |el| el.child(deferred(self.render_search_dropdown(cx)).with_priority(2)))
+                .into_any_element();
+        }
         div()
             .id("search-box")
             .relative()
@@ -2920,6 +2992,7 @@ impl ChatApp {
             }
         }
 
+        let compact = self.side.is_some() || self.thread.is_some();
         v_flex()
             .id("search-dropdown")
             .occlude()
@@ -2935,6 +3008,16 @@ impl ChatApp {
             .bg(p.center_bg)
             .text_color(p.center_color)
             .shadow_lg()
+            .when(compact, |el| {
+                el.child(
+                    div().p_2().border_b_1().border_color(p.border()).child(
+                        Input::new(&self.search_input)
+                            .small()
+                            .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(p.muted()))
+                            .cleanable(true),
+                    ),
+                )
+            })
             .child(list)
             .child(
                 div()
@@ -3065,49 +3148,41 @@ impl ChatApp {
                 empty(if loaded { "Aucune image ni vidéo dans ce canal." } else { "Chargement…" })
             }
             FilesTab::Media => {
-                // Grille de vignettes carrées ; un clic ouvre la visionneuse.
-                let tiles = media.into_iter().map(|f| {
-                    let thumb: AnyElement = match self.previews.get(&f.id) {
-                        Some(image) if f.is_image() => img(image.clone()).size_full().object_fit(ObjectFit::Cover).into_any_element(),
-                        _ => div()
-                            .size_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(px(28.))
-                            .child(file_icon(&f.extension))
-                            .into_any_element(),
-                    };
-                    let (entity, file) = (entity.clone(), f.clone());
-                    let tip: SharedString = f.name.clone().into();
-                    div()
-                        .id(SharedString::from(format!("media-{}", f.id)))
-                        .size(px(112.))
-                        .rounded(px(6.))
-                        .overflow_hidden()
-                        .bg(p.center_color.opacity(0.06))
-                        .cursor_pointer()
-                        .hover(|s| s.opacity(0.85))
-                        .child(thumb)
-                        .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
-                        .on_click(move |_, window, cx| {
-                            let file = file.clone();
-                            entity.update(cx, |this, cx| {
-                                if file.is_image() {
-                                    this.open_image(file, window, cx)
-                                } else {
-                                    this.download(file, true, cx)
-                                }
-                            });
-                        })
-                });
+                // Galerie justifiée : chaque ligne remplit la largeur, les images
+                // gardent leurs proportions (rien n'est rogné), groupées par mois.
+                let mut gallery = v_flex().gap_1p5();
+                let mut month = String::new();
+                let mut group: Vec<FileInfo> = Vec::new();
+                let flush = |gallery: Div, title: &str, group: &mut Vec<FileInfo>, cx: &mut Context<Self>| {
+                    if group.is_empty() {
+                        return gallery;
+                    }
+                    let gallery = gallery.child(
+                        div().pt_2().pb_0p5().text_xs().font_semibold().text_color(p.muted()).child(title.to_string()),
+                    );
+                    let rows = justify_rows(group, MEDIA_ROW_WIDTH, MEDIA_ROW_HEIGHT, 6.);
+                    group.clear();
+                    gallery.children(rows.into_iter().map(|row| {
+                        h_flex().gap(px(6.)).children(row.into_iter().map(|(f, w, h)| self.media_tile(f, w, h, cx)))
+                    }))
+                };
+                for f in media {
+                    let m = month_label(f.create_at);
+                    if m != month {
+                        gallery = flush(gallery, &month, &mut group, cx);
+                        month = m;
+                    }
+                    group.push(f);
+                }
+                gallery = flush(gallery, &month, &mut group, cx);
                 div()
                     .id("media-grid")
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .p_3()
-                    .child(h_flex().flex_wrap().gap_2().children(tiles))
+                    .px_3()
+                    .pb_3()
+                    .child(gallery)
                     .into_any_element()
             }
             FilesTab::Documents if documents.is_empty() => {
@@ -3218,6 +3293,129 @@ impl ChatApp {
         v_flex().flex_1().min_h_0().child(tabs).child(body).into_any_element()
     }
 
+    /// Pastille colorée d'un canal (lettres de son nom), cadenas si privé.
+    fn channel_badge(&self, channel: &Channel, size: f32, ring: Hsla) -> AnyElement {
+        let name = self.channel_title(channel);
+        let color = badge_color(&channel.name);
+        let radius = px((size * 0.28).round());
+        let face = div()
+            .size(px(size))
+            .flex_none()
+            .rounded(radius)
+            .flex()
+            .items_center()
+            .justify_center()
+            .bg(linear_gradient(
+                160.,
+                linear_color_stop(shade(color, 0.0, 0.06), 0.),
+                linear_color_stop(shade(color, 0.03, -0.06), 1.),
+            ))
+            .text_color(white())
+            .text_size(px((size * 0.42).round()))
+            .font_bold();
+        let face = if channel.kind == "G" {
+            face.child(Icon::new(IconName::Users).size(px(size * 0.6)))
+        } else {
+            face.child(abbreviation(&name))
+        };
+        let lock_size = (size * 0.5).max(10.);
+        div()
+            .relative()
+            .flex_none()
+            .size(px(size))
+            .child(face)
+            .when(channel.kind == "P", |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .right(-px(3.))
+                        .bottom(-px(3.))
+                        .size(px(lock_size))
+                        .rounded_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .border_1()
+                        .border_color(ring)
+                        .bg(ring)
+                        .child(Icon::new(IconName::Lock).size(px(lock_size - 4.)).text_color(color)),
+                )
+            })
+            .into_any_element()
+    }
+
+    /// Pastille d'un canal connu, sinon le « # » habituel.
+    fn channel_badge_by_id(&self, channel_id: &str, size: f32) -> AnyElement {
+        match self.channels.get(channel_id) {
+            Some(c) if c.channel.direct_partner(self.me_id()).is_none() => {
+                self.channel_badge(&c.channel, size, self.palette.center_bg)
+            }
+            _ => Icon::new(IconName::Hash).size(px(12.)).into_any_element(),
+        }
+    }
+
+    /// Vignette d'image ou de vidéo, aux proportions du fichier ; nom au survol.
+    fn media_tile(&self, f: FileInfo, w: f32, h: f32, cx: &mut Context<Self>) -> AnyElement {
+        let p = self.palette;
+        let entity = cx.entity();
+        let face: AnyElement = match self.previews.get(&f.id) {
+            Some(image) if f.is_image() => img(image.clone()).size_full().object_fit(ObjectFit::Cover).into_any_element(),
+            _ => div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(26.))
+                .child(file_icon(&f.extension))
+                .into_any_element(),
+        };
+        let group = SharedString::from(format!("media-g-{}", f.id));
+        let name = f.name.clone();
+        div()
+            .id(SharedString::from(format!("media-{}", f.id)))
+            .group(group.clone())
+            .relative()
+            .w(px(w))
+            .h(px(h))
+            .flex_none()
+            .rounded(px(6.))
+            .overflow_hidden()
+            .bg(p.center_color.opacity(0.06))
+            .cursor_pointer()
+            .child(face)
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .px_2()
+                    .pt_4()
+                    .pb_1()
+                    .invisible()
+                    .group_hover(group, |s| s.visible())
+                    .bg(linear_gradient(
+                        180.,
+                        linear_color_stop(black().opacity(0.0), 0.),
+                        linear_color_stop(black().opacity(0.65), 1.),
+                    ))
+                    .text_color(white())
+                    .text_xs()
+                    .child(div().truncate().child(name)),
+            )
+            .on_click(move |_, window, cx| {
+                let file = f.clone();
+                entity.update(cx, |this, cx| {
+                    if file.is_image() {
+                        this.open_image(file, window, cx)
+                    } else {
+                        this.download(file, true, cx)
+                    }
+                });
+            })
+            .into_any_element()
+    }
+
     /// Sélecteur de canaux (Ctrl+K).
     fn render_switcher(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let selected = self.switcher?;
@@ -3228,14 +3426,7 @@ impl ChatApp {
             let channel = &state.channel;
             let icon: AnyElement = match channel.direct_partner(self.me_id()) {
                 Some(partner) => self.avatar(&partner, 22., p.center_bg).into_any_element(),
-                None => Icon::new(match channel.kind.as_str() {
-                    "P" => IconName::Lock,
-                    "G" => IconName::Users,
-                    _ => IconName::Hash,
-                })
-                .size(px(16.))
-                .text_color(p.muted())
-                .into_any_element(),
+                None => self.channel_badge(channel, 22., p.center_bg),
             };
             let id = id.clone();
             Some(
@@ -3842,5 +4033,144 @@ mod link_tests {
     fn adresses_dans_le_texte() {
         let urls = extract_urls("Voir https://ex.org/a. et [doc](https://doc.ex.org/x?y=1), http://b.fr!");
         assert_eq!(urls, vec!["https://ex.org/a", "https://doc.ex.org/x?y=1", "http://b.fr"]);
+    }
+}
+
+/// Largeur utile de la galerie des médias (panneau moins ses marges).
+const MEDIA_ROW_WIDTH: f32 = THREAD_WIDTH - 2. * 12. - 2.;
+/// Hauteur visée d'une ligne de la galerie.
+const MEDIA_ROW_HEIGHT: f32 = 120.;
+
+/// Proportions d'un média (largeur / hauteur), bornées pour les formats extrêmes.
+fn media_ratio(f: &FileInfo) -> f32 {
+    if f.width > 0 && f.height > 0 {
+        (f.width as f32 / f.height as f32).clamp(0.5, 3.0)
+    } else if f.is_video() {
+        16. / 9.
+    } else {
+        1.
+    }
+}
+
+/// Répartit les médias en lignes qui remplissent `width` en gardant les
+/// proportions : chaque ligne est mise à l'échelle pour tomber juste. La
+/// dernière ligne, incomplète, garde la hauteur visée.
+fn justify_rows(files: &[FileInfo], width: f32, target: f32, gap: f32) -> Vec<Vec<(FileInfo, f32, f32)>> {
+    let mut rows = Vec::new();
+    let mut row: Vec<(FileInfo, f32)> = Vec::new();
+    let mut sum = 0.;
+    let height = |n: usize, sum: f32| (width - gap * (n - 1) as f32) / sum;
+    for f in files {
+        let r = media_ratio(f);
+        row.push((f.clone(), r));
+        sum += r;
+        let h = height(row.len(), sum);
+        if h <= target {
+            // Coupe avant ou après cette image : la hauteur la plus proche de la visée.
+            let before = (row.len() > 1).then(|| height(row.len() - 1, sum - r));
+            match before {
+                Some(hb) if (hb - target).abs() < (target - h) => {
+                    let last = row.pop().expect("ligne non vide");
+                    rows.push(row.drain(..).map(|(f, r)| (f, (r * hb).floor(), hb.floor())).collect());
+                    sum = last.1;
+                    row.push(last);
+                }
+                _ => {
+                    rows.push(row.drain(..).map(|(f, r)| (f, (r * h).floor(), h.floor())).collect());
+                    sum = 0.;
+                }
+            }
+        }
+    }
+    if !row.is_empty() {
+        rows.push(row.into_iter().map(|(f, r)| (f, (r * target).floor(), target)).collect());
+    }
+    rows
+}
+
+/// « Novembre 2026 ».
+fn month_label(ms: i64) -> String {
+    use chrono::Datelike as _;
+    const MONTHS: [&str; 12] = [
+        "Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre",
+        "Décembre",
+    ];
+    let Some(date) = chrono::DateTime::from_timestamp_millis(ms) else { return String::new() };
+    let date = date.with_timezone(&chrono::Local);
+    format!("{} {}", MONTHS[date.month0() as usize], date.year())
+}
+
+/// Couleur d'un groupe de la liste des membres.
+fn group_color(title: &str, p: &Palette) -> Hsla {
+    match title {
+        "Administrateurs" => hsla(0.74, 0.55, 0.58, 1.),
+        "En ligne" => p.online,
+        "Absent" => p.away,
+        "Ne pas déranger" => p.dnd,
+        _ => p.center_color.opacity(0.5),
+    }
+}
+
+/// Même teinte, décalée (`dh`) et plus claire ou plus foncée (`dl`).
+fn shade(c: Hsla, dh: f32, dl: f32) -> Hsla {
+    hsla((c.h + dh).rem_euclid(1.), c.s, (c.l + dl).clamp(0., 1.), c.a)
+}
+
+/// Couleur stable d'un canal, tirée de son nom, parmi des teintes lisibles
+/// avec du texte blanc.
+fn badge_color(name: &str) -> Hsla {
+    const HUES: [f32; 12] = [0.98, 0.04, 0.09, 0.30, 0.40, 0.48, 0.54, 0.60, 0.67, 0.74, 0.82, 0.90];
+    let mut hash: u32 = 0x811c9dc5;
+    for b in name.bytes() {
+        hash = (hash ^ b as u32).wrapping_mul(0x01000193);
+    }
+    let hue = HUES[(hash % HUES.len() as u32) as usize];
+    // Jaunes et verts plus sombres pour garder le texte blanc lisible.
+    let l = if (0.08..0.45).contains(&hue) { 0.40 } else { 0.50 };
+    hsla(hue, 0.58, l, 1.)
+}
+
+/// Deux lettres pour un nom de canal : initiales de deux mots, sinon les
+/// deux premières lettres (« Dev backend » → « DB », « général » → « GÉ »).
+fn abbreviation(name: &str) -> String {
+    let words: Vec<&str> = name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let letters: String = match words.as_slice() {
+        [] => "#".into(),
+        [one] => one.chars().take(2).collect(),
+        [a, b, ..] => a.chars().take(1).chain(b.chars().take(1)).collect(),
+    };
+    letters.to_uppercase()
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::{FileInfo, abbreviation, badge_color, justify_rows};
+
+    #[test]
+    fn abreviations() {
+        assert_eq!(abbreviation("Dev backend"), "DB");
+        assert_eq!(abbreviation("général"), "GÉ");
+        assert_eq!(abbreviation("support-n2"), "SN");
+        assert_eq!(abbreviation("🚀 lancement"), "LA");
+        assert_eq!(abbreviation("—"), "#");
+    }
+
+    #[test]
+    fn couleur_stable() {
+        assert_eq!(badge_color("town-square"), badge_color("town-square"));
+    }
+
+    #[test]
+    fn galerie_justifiee() {
+        let f = |w, h| FileInfo { width: w, height: h, ..Default::default() };
+        let files = vec![f(1600, 900), f(800, 800), f(900, 1600), f(1200, 800), f(1000, 1000)];
+        let rows = justify_rows(&files, 400., 120., 6.);
+        // Chaque ligne complète remplit la largeur (à l'arrondi près).
+        for row in &rows[..rows.len() - 1] {
+            let total: f32 = row.iter().map(|(_, w, _)| w).sum::<f32>() + 6. * (row.len() - 1) as f32;
+            assert!((total - 400.).abs() <= row.len() as f32, "{total}");
+            assert!(row.iter().all(|(_, _, h)| *h <= 180.));
+        }
+        assert_eq!(rows.iter().map(Vec::len).sum::<usize>(), 5);
     }
 }
