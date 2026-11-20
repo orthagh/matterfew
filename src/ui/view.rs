@@ -16,7 +16,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
-use super::{ChatApp, Pane, Screen};
+use super::{ChatApp, Pane, Screen, SidebarResize};
 use crate::api::{FileInfo, Post, User, human_size};
 use crate::backend::group_reactions;
 use crate::sidebar::{self, Section};
@@ -26,7 +26,6 @@ use crate::{emoji, markdown};
 /// Réactions proposées dans la barre d'actions d'un message.
 const QUICK_REACTIONS: [&str; 6] = ["+1", "heart", "joy", "tada", "eyes", "white_check_mark"];
 
-const SIDEBAR_WIDTH: f32 = 260.;
 const TEAM_BAR_WIDTH: f32 = 64.;
 const THREAD_WIDTH: f32 = 440.;
 const AVATAR: f32 = 32.;
@@ -254,7 +253,13 @@ impl ChatApp {
                         self.team_unreads.get(&team.id).copied().unwrap_or((false, 0))
                     };
                     let face: AnyElement = match self.team_icons.get(&team.id) {
-                        Some(icon) => img(icon.clone()).size_full().rounded(px(6.)).into_any_element(),
+                        Some(icon) => div()
+                            .size_full()
+                            .rounded(px(6.))
+                            .bg(white())
+                            .p(px(3.))
+                            .child(img(icon.clone()).size_full().object_fit(ObjectFit::Contain))
+                            .into_any_element(),
                         None => div()
                             .size_full()
                             .rounded(px(6.))
@@ -371,7 +376,7 @@ impl ChatApp {
         Some(
             h_flex()
                 .id(SharedString::from(format!("ch-{channel_id}")))
-                .h(px(36.))
+                .h(px(42.))
                 .gap(px(10.))
                 .pl(px(18.))
                 .pr_3()
@@ -431,8 +436,8 @@ impl ChatApp {
             let category_id = section.id.clone();
             let header = h_flex()
                 .id(SharedString::from(format!("cat-{}", section.id)))
-                .h(px(30.))
-                .mt_3()
+                .h(px(32.))
+                .mt_4()
                 .gap_1()
                 .px_3()
                 .text_size(px(13.))
@@ -459,11 +464,25 @@ impl ChatApp {
         let status = if self.connected { self.status_label(&me_id) } else { "Reconnexion…" };
         let logout = cx.listener(|this, _, window, cx| this.logout(window, cx));
 
+        let resize_handle = div()
+            .id("sidebar-resize")
+            .absolute()
+            .top_0()
+            .right_0()
+            .w(px(5.))
+            .h_full()
+            .cursor(CursorStyle::ResizeLeftRight)
+            .when(self.resizing, |el| el.bg(p.sidebar_active_border))
+            .hover(|s| s.bg(p.sidebar_active_border.opacity(0.7)))
+            .on_drag(SidebarResize, |_, _, _, cx| cx.new(|_| SidebarResize));
+
         v_flex()
-            .w(px(SIDEBAR_WIDTH))
+            .relative()
+            .w(px(self.settings.sidebar_width))
             .h_full()
             .flex_none()
             .bg(p.sidebar_bg)
+            .child(resize_handle)
             .text_color(p.sidebar_text)
             .child(
                 h_flex()
@@ -907,13 +926,9 @@ impl ChatApp {
                         .bg(p.center_color.opacity(0.04))
                         .cursor_pointer()
                         .child(preview)
-                        .tooltip({
-                            let tip: SharedString = format!("{} — cliquer pour ouvrir", file.name).into();
-                            move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
-                        })
-                        .on_click(move |_, _, cx| {
+                        .on_click(move |_, window, cx| {
                             let file = file.clone();
-                            entity.update(cx, |this, cx| this.download(file, true, cx));
+                            entity.update(cx, |this, cx| this.open_image(file, window, cx));
                         }),
                 );
             } else {
@@ -1200,13 +1215,113 @@ impl ChatApp {
                 .child(self.render_composer(Pane::Thread, cx))
         });
 
-        h_flex()
+        let team_bar = if self.teams.len() >= 2 { TEAM_BAR_WIDTH } else { 0. };
+        let layout = h_flex()
+            .id("chat-root")
             .size_full()
             .bg(p.center_bg)
+            .on_drag_move(cx.listener(move |this, ev: &DragMoveEvent<SidebarResize>, _, cx| {
+                let x = (ev.event.position.x - ev.bounds.left()) / px(1.) - team_bar;
+                this.resize_sidebar(x, cx);
+            }))
+            .on_drop(cx.listener(|this, _: &SidebarResize, _, _| this.end_resize()))
+            .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.end_resize()))
             .children(self.render_team_bar(cx))
             .child(self.render_sidebar(cx))
             .child(main)
-            .children(thread_panel)
+            .children(thread_panel);
+
+        div().relative().size_full().child(layout).children(self.render_viewer(cx))
+    }
+
+    /// Visionneuse d'images plein écran (Échap ou clic à côté pour fermer).
+    fn render_viewer(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let viewer = self.viewer.as_ref()?;
+        let file = viewer.file.clone();
+        let light = white();
+        let action = |id: &'static str, label: &'static str| {
+            div()
+                .id(id)
+                .px_3()
+                .py_1p5()
+                .rounded(px(4.))
+                .cursor_pointer()
+                .text_sm()
+                .text_color(light.opacity(0.85))
+                .hover(|s| s.bg(light.opacity(0.12)).text_color(light))
+                .child(label)
+        };
+
+        let content: AnyElement = match (&viewer.image, &viewer.error) {
+            (_, Some(err)) => div().text_color(light.opacity(0.8)).child(err.clone()).into_any_element(),
+            (Some(image), None) => div()
+                .id("viewer-image")
+                .size_full()
+                .child(img(image.clone()).size_full().object_fit(ObjectFit::Contain))
+                // Un clic sur l'image ne ferme pas la visionneuse.
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .into_any_element(),
+            (None, None) => div().text_color(light.opacity(0.8)).child("Chargement…").into_any_element(),
+        };
+
+        Some(
+            div()
+                .id("viewer")
+                // Bloque la souris pour ce qui est dessous (survols, infobulles).
+                .occlude()
+                .track_focus(&self.viewer_focus)
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .bg(black().opacity(0.9))
+                .text_color(light)
+                .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                    if ev.keystroke.key == "escape" {
+                        this.close_viewer(cx);
+                    }
+                }))
+                .on_click(cx.listener(|this, _, _, cx| this.close_viewer(cx)))
+                .child(
+                    v_flex()
+                        .size_full()
+                        .child(
+                            h_flex()
+                                .h(px(60.))
+                                .flex_none()
+                                .px_5()
+                                .gap_2()
+                                .child(
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .child(div().truncate().font_semibold().child(file.name.clone()))
+                                        .child(div().text_xs().text_color(light.opacity(0.6)).child(file.human_size())),
+                                )
+                                .child(action("viewer-download", "Télécharger").on_click(cx.listener({
+                                    let file = file.clone();
+                                    move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.download(file.clone(), false, cx);
+                                    }
+                                })))
+                                .child(action("viewer-close", "Fermer ✕").on_click(cx.listener(|this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.close_viewer(cx);
+                                }))),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_h_0()
+                                .p_6()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(content),
+                        ),
+                ),
+        )
     }
 }
 

@@ -38,6 +38,8 @@ pub enum Command {
     LoadTeamUnreads,
     /// Aperçu d'une image jointe.
     LoadPreview { file_id: String },
+    /// Image complète, pour la visionneuse.
+    LoadFullImage { file_id: String },
     /// Télécharge un fichier joint ; `open` : l'ouvrir ensuite (sinon,
     /// l'afficher dans l'explorateur).
     Download { file: FileInfo, open: bool },
@@ -59,6 +61,7 @@ pub enum Event {
     TeamIcon { team_id: String, bytes: Arc<Vec<u8>> },
     TeamUnreads(Vec<TeamUnread>),
     FilePreview { file_id: String, bytes: Arc<Vec<u8>> },
+    FullImage { file_id: String, result: Result<Arc<Vec<u8>>, String> },
     Downloaded { path: PathBuf, open: bool },
     Uploaded { local_id: u64, file: FileInfo },
     UploadFailed { local_id: u64, error: String },
@@ -293,6 +296,10 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::LoadPreview { file_id } => {
             let bytes = client.file_preview(&file_id).await?;
             ctx.emit(Event::FilePreview { file_id, bytes: Arc::new(bytes) }).await;
+        }
+        Command::LoadFullImage { file_id } => {
+            let result = client.file_content(&file_id).await.map(Arc::new).map_err(|e| format!("{e:#}"));
+            ctx.emit(Event::FullImage { file_id, result }).await;
         }
         Command::Download { file, open } => {
             let bytes = client.file_content(&file.id).await?;

@@ -14,8 +14,9 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 | Envoi | Entrée pour envoyer, Maj+Entrée pour aller à la ligne, « X est en train d'écrire… » dans les deux sens |
 | Actions sur un message | Au survol : réactions rapides, Répondre, et pour ses propres messages Modifier / Supprimer (avec confirmation) ; cliquer une réaction existante l'ajoute ou la retire |
 | Fils | Compteur « N réponses », panneau latéral avec réponse dans le fil |
-| Fichiers | Aperçu des images jointes (clic : ouverture), cartes pour les autres fichiers avec « Ouvrir » / « Télécharger » (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
+| Fichiers | Aperçu des images jointes (clic : visionneuse intégrée, Échap pour fermer), cartes pour les autres fichiers avec « Ouvrir » / « Télécharger » (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
 | Équipes | Barre des équipes avec leur logo, pastille de non-lus et compteur de mentions |
+| Mise en page | Barre latérale redimensionnable en glissant son bord droit (largeur mémorisée dans `%APPDATA%\mm-gpui\ui.json`) |
 | Temps réel | WebSocket : messages, éditions, suppressions, réactions, présence, frappe, catégories, préférences ; reconnexion automatique |
 | Notifications | Notification Windows pour les messages directs et les mentions (si la fenêtre n'a pas le focus ou si le canal n'est pas affiché) |
 | Markdown | Rendu complet (gras, italique, listes, code, tableaux, citations, liens cliquables), texte sélectionnable |
