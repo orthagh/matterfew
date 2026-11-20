@@ -24,6 +24,8 @@ pub struct ChannelState {
     pub unread_messages: bool,
     pub mentions: i64,
     pub muted: bool,
+    /// Niveau de notification de bureau propre au canal ("default", "all"…).
+    pub notify_desktop: String,
 }
 
 impl ChannelState {
@@ -107,7 +109,7 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
         if !ids.is_empty() {
             sections.push(Section {
                 id: "unreads".into(),
-                title: "NON LUS".into(),
+                title: "Non lus".into(),
                 collapsible: false,
                 collapsed: false,
                 channel_ids: ids.into_iter().map(|c| c.channel.id.clone()).collect(),
@@ -183,10 +185,10 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
 
 fn category_title(category: &SidebarCategory) -> String {
     match category.kind.as_str() {
-        "favorites" => "FAVORIS".into(),
-        "channels" => "CANAUX".into(),
-        "direct_messages" => "MESSAGES DIRECTS".into(),
-        _ => category.display_name.to_uppercase(),
+        "favorites" => "Favoris".into(),
+        "channels" => "Canaux".into(),
+        "direct_messages" => "Messages directs".into(),
+        _ => category.display_name.clone(),
     }
 }
 
@@ -255,6 +257,7 @@ mod tests {
             display_name: name.into(),
             purpose: String::new(),
             header: String::new(),
+            total_msg_count: 0,
             total_msg_count_root: 0,
             last_post_at: recency,
             last_root_post_at: recency,
@@ -264,7 +267,7 @@ mod tests {
     }
 
     fn state(c: Channel, unread: bool, mentions: i64, muted: bool) -> (String, ChannelState) {
-        (c.id.clone(), ChannelState { channel: c, unread_messages: unread, mentions, muted })
+        (c.id.clone(), ChannelState { channel: c, unread_messages: unread, mentions, muted, notify_desktop: String::new() })
     }
 
     fn category(id: &str, kind: &str, sorting: &str, ids: &[&str]) -> SidebarCategory {
@@ -393,8 +396,8 @@ mod tests {
     #[test]
     fn reads_preferences() {
         let prefs = SidebarPrefs::from_preferences(&[
-            Preference { category: "sidebar_settings".into(), name: "show_unread_section".into(), value: "true".into() },
-            Preference { category: "sidebar_settings".into(), name: "limit_visible_dms_gms".into(), value: "15".into() },
+            Preference { user_id: String::new(), category: "sidebar_settings".into(), name: "show_unread_section".into(), value: "true".into() },
+            Preference { user_id: String::new(), category: "sidebar_settings".into(), name: "limit_visible_dms_gms".into(), value: "15".into() },
         ]);
         assert_eq!(prefs, SidebarPrefs { show_unread_section: true, dm_limit: 15 });
     }

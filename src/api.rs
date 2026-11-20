@@ -22,6 +22,28 @@ pub struct User {
     /// Date de la dernière mise à jour de l'avatar (sert à invalider le cache).
     #[serde(default)]
     pub last_picture_update: i64,
+    /// Préférences de notification (renseignées pour l'utilisateur courant) :
+    /// `desktop` = all / mention / none, `channel`, `first_name`, `mention_keys`…
+    #[serde(default, deserialize_with = "string_map")]
+    pub notify_props: HashMap<String, String>,
+}
+
+/// Désérialise un objet JSON en ne gardant que les valeurs textuelles
+/// (certaines versions du serveur mettent des booléens dans `notify_props`).
+fn string_map<'de, D: serde::Deserializer<'de>>(d: D) -> Result<HashMap<String, String>, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(value
+        .as_object()
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, v)| match v {
+                    serde_json::Value::String(s) => Some((k.clone(), s.clone())),
+                    serde_json::Value::Bool(b) => Some((k.clone(), b.to_string())),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default())
 }
 
 impl User {
@@ -43,6 +65,9 @@ impl User {
 pub struct Team {
     pub id: String,
     pub display_name: String,
+    /// Nom court (dans les liens : `/{name}/pl/{id}`).
+    #[serde(default)]
+    pub name: String,
     /// Date de mise à jour du logo de l'équipe (0 : pas de logo).
     #[serde(default)]
     pub last_team_icon_update: i64,
@@ -124,6 +149,10 @@ pub struct Channel {
     /// En-tête du canal (Markdown, souvent des liens utiles).
     #[serde(default)]
     pub header: String,
+    /// Nombre total de messages (réponses comprises), pour le calcul du
+    /// non-lu sans fils réduits.
+    #[serde(default)]
+    pub total_msg_count: i64,
     /// Messages racine (hors réponses de fil), pour le calcul du non-lu.
     #[serde(default)]
     pub total_msg_count_root: i64,
@@ -167,8 +196,15 @@ impl Channel {
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChannelMember {
     pub channel_id: String,
+    /// Dernière lecture du canal (ms) : sert à placer la ligne « Nouveaux messages ».
+    #[serde(default)]
+    pub last_viewed_at: i64,
+    #[serde(default)]
+    pub msg_count: i64,
     #[serde(default)]
     pub msg_count_root: i64,
+    #[serde(default)]
+    pub mention_count: i64,
     #[serde(default)]
     pub mention_count_root: i64,
     #[serde(default)]
@@ -186,6 +222,10 @@ impl ChannelMember {
 pub struct NotifyProps {
     #[serde(default)]
     pub mark_unread: String,
+    /// Niveau de notification de bureau pour ce canal :
+    /// "default" (celui de l'utilisateur), "all", "mention" ou "none".
+    #[serde(default)]
+    pub desktop: String,
 }
 
 /// Catégorie de la barre latérale (Favoris, Canaux, Messages directs,
@@ -221,8 +261,10 @@ struct OrderedCategories {
     order: Vec<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Preference {
+    #[serde(default)]
+    pub user_id: String,
     pub category: String,
     pub name: String,
     #[serde(default)]
@@ -248,6 +290,36 @@ pub struct PostMetadata {
     pub reactions: Vec<Reaction>,
     #[serde(default)]
     pub files: Vec<FileInfo>,
+    /// Aperçus de liens préparés par le serveur (voir `rich.rs`).
+    #[serde(default)]
+    pub embeds: serde_json::Value,
+    /// Dimensions des images citées : url → {width, height, format}.
+    #[serde(default)]
+    pub images: HashMap<String, serde_json::Value>,
+    /// Emojis personnalisés utilisés dans le message ou ses réactions.
+    #[serde(default)]
+    pub emojis: Vec<CustomEmoji>,
+}
+
+/// Emoji propre au serveur (image téléversée par un utilisateur).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct CustomEmoji {
+    pub id: String,
+    pub name: String,
+}
+
+/// Suggestion d'une commande « / » (format du serveur, en majuscules).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct CommandSuggestion {
+    #[serde(rename = "Complete")]
+    pub complete: String,
+    #[serde(rename = "Suggestion")]
+    pub suggestion: String,
+    #[serde(rename = "Hint")]
+    pub hint: String,
+    #[serde(rename = "Description")]
+    pub description: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -270,10 +342,21 @@ pub struct Post {
     #[serde(default)]
     pub reply_count: i64,
     #[serde(default)]
+    pub is_pinned: bool,
+    #[serde(default)]
+    pub update_at: i64,
+    #[serde(default)]
     pub metadata: PostMetadata,
+    /// Propriétés libres (`from_webhook`, `attachments`…).
+    #[serde(default)]
+    pub props: serde_json::Value,
 }
 
 impl Post {
+    pub fn from_webhook(&self) -> bool {
+        self.props.get("from_webhook").and_then(|v| v.as_str()) == Some("true")
+    }
+
     pub fn is_system(&self) -> bool {
         self.kind.starts_with("system_")
     }
@@ -307,6 +390,9 @@ impl PostList {
 #[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
+    /// Client sans jeton, pour les ressources hors du serveur (images des
+    /// aperçus de liens) : le jeton ne doit jamais partir ailleurs.
+    plain: reqwest::Client,
     base: String,
     token: String,
 }
@@ -327,8 +413,15 @@ impl Client {
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
+        let plain = reqwest::Client::builder()
+            .user_agent(concat!("mm-gpui/", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()?;
+
         Ok(Self {
             http,
+            plain,
             base: server_url.trim_end_matches('/').to_string(),
             token: token.to_string(),
         })
@@ -348,6 +441,16 @@ impl Client {
             format!("wss://{}", self.base)
         };
         format!("{ws}/api/v4/websocket")
+    }
+
+    /// URL WebSocket « fiable » : en redonnant l'identifiant de connexion et
+    /// le prochain numéro attendu, le serveur rejoue les événements manqués.
+    pub fn websocket_resume_url(&self, connection_id: &str, next_seq: u64) -> String {
+        if connection_id.is_empty() {
+            self.websocket_url()
+        } else {
+            format!("{}?connection_id={connection_id}&sequence_number={next_seq}", self.websocket_url())
+        }
     }
 
     fn url(&self, path: &str) -> String {
@@ -419,21 +522,42 @@ impl Client {
         self.get(&format!("/channels/{channel_id}")).await
     }
 
+    /// Profils par identifiants, par lots de 100 (limite du serveur).
     pub async fn users_by_ids(&self, ids: &[String]) -> Result<Vec<User>> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
+        let mut users = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(100) {
+            let mut part: Vec<User> = self.post("/users/ids", chunk).await?;
+            users.append(&mut part);
         }
-        self.post("/users/ids", ids).await
+        Ok(users)
     }
 
-    /// Derniers messages racine d'un canal (les réponses sont dans les fils).
-    pub async fn channel_posts(&self, channel_id: &str, per_page: u32) -> Result<Vec<Post>> {
+    /// Configuration publique du serveur (fils réduits, brouillons…).
+    pub async fn client_config(&self) -> Result<HashMap<String, String>> {
+        self.get("/config/client?format=old").await
+    }
+
+    /// Derniers messages d'un canal. Avec les fils réduits, seulement les
+    /// messages racine (les réponses sont dans les fils).
+    pub async fn channel_posts(&self, channel_id: &str, per_page: u32, crt: bool) -> Result<Vec<Post>> {
         let list: PostList = self
             .get(&format!(
-                "/channels/{channel_id}/posts?page=0&per_page={per_page}&collapsedThreads=true"
+                "/channels/{channel_id}/posts?page=0&per_page={per_page}&collapsedThreads={crt}"
             ))
             .await?;
         Ok(list.into_chronological())
+    }
+
+    /// Messages créés, modifiés ou supprimés depuis `since` (ms) : sert à
+    /// rattraper ce qui a été manqué pendant une coupure.
+    pub async fn channel_posts_since(&self, channel_id: &str, since: i64, crt: bool) -> Result<Vec<Post>> {
+        let list: PostList = self
+            .get(&format!("/channels/{channel_id}/posts?since={since}&collapsedThreads={crt}"))
+            .await?;
+        // `order` peut omettre les messages supprimés : on prend tout.
+        let mut posts: Vec<Post> = list.posts.into_values().collect();
+        posts.sort_by_key(|p| p.create_at);
+        Ok(posts)
     }
 
     /// Message racine + toutes ses réponses.
@@ -511,6 +635,146 @@ impl Client {
         uploaded.file_infos.into_iter().next().context("le serveur n'a pas renvoyé le fichier")
     }
 
+    /// Image désignée par une URL complète. Sur le serveur Mattermost (proxy
+    /// d'images) : avec le jeton ; ailleurs : sans. Taille limitée à 15 Mo.
+    pub async fn image_at(&self, url: &str) -> Result<Vec<u8>> {
+        const MAX: usize = 15 * 1024 * 1024;
+        let same_server = url.starts_with(&format!("{}/", self.base));
+        let http = if same_server { &self.http } else { &self.plain };
+        let resp = http.get(url).send().await.map_err(|e| network_error(&self.base, e))?;
+        if !resp.status().is_success() {
+            anyhow::bail!("{url} : HTTP {}", resp.status());
+        }
+        if resp.content_length().is_some_and(|n| n as usize > MAX) {
+            anyhow::bail!("{url} : image trop lourde");
+        }
+        let bytes = resp.bytes().await?;
+        anyhow::ensure!(bytes.len() <= MAX, "{url} : image trop lourde");
+        Ok(bytes.to_vec())
+    }
+
+    pub async fn emoji_image(&self, emoji_id: &str) -> Result<Vec<u8>> {
+        self.get_bytes(&format!("/emoji/{emoji_id}/image")).await
+    }
+
+    async fn get_query<T: for<'de> Deserialize<'de>>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {
+        let resp = self
+            .http
+            .get(self.url(path))
+            .query(query)
+            .send()
+            .await
+            .map_err(|e| network_error(&self.base, e))?;
+        Self::decode(resp, path).await
+    }
+
+    /// Personnes dont le nom commence par `name` (membres du canal d'abord).
+    pub async fn autocomplete_users(&self, team_id: &str, channel_id: &str, name: &str) -> Result<Vec<User>> {
+        #[derive(Deserialize)]
+        struct Found {
+            #[serde(default)]
+            users: Vec<User>,
+            #[serde(default)]
+            out_of_channel: Vec<User>,
+        }
+        let found: Found = self
+            .get_query(
+                "/users/autocomplete",
+                &[("in_team", team_id), ("in_channel", channel_id), ("name", name), ("limit", "20")],
+            )
+            .await?;
+        Ok(found.users.into_iter().chain(found.out_of_channel).collect())
+    }
+
+    pub async fn autocomplete_channels(&self, team_id: &str, name: &str) -> Result<Vec<Channel>> {
+        self.get_query(&format!("/teams/{team_id}/channels/autocomplete"), &[("name", name)]).await
+    }
+
+    pub async fn autocomplete_emoji(&self, name: &str) -> Result<Vec<CustomEmoji>> {
+        self.get_query("/emoji/autocomplete", &[("name", name)]).await
+    }
+
+    pub async fn command_suggestions(
+        &self,
+        team_id: &str,
+        channel_id: &str,
+        root_id: &str,
+        input: &str,
+    ) -> Result<Vec<CommandSuggestion>> {
+        self.get_query(
+            &format!("/teams/{team_id}/commands/autocomplete_suggestions"),
+            &[("user_input", input), ("team_id", team_id), ("channel_id", channel_id), ("root_id", root_id)],
+        )
+        .await
+    }
+
+    /// Exécute une commande « / » (comme si on l'envoyait dans le client web).
+    pub async fn execute_command(&self, channel_id: &str, team_id: &str, root_id: &str, command: &str) -> Result<()> {
+        let body = serde_json::json!({
+            "command": command, "channel_id": channel_id, "team_id": team_id, "root_id": root_id
+        });
+        self.send_json(reqwest::Method::POST, "/commands/execute", Some(&body)).await
+    }
+
+    /// « Marquer comme non lu » à partir de ce message.
+    pub async fn set_unread(&self, user_id: &str, post_id: &str) -> Result<()> {
+        let body = serde_json::json!({ "collapsed_threads_supported": true });
+        self.send_json(reqwest::Method::POST, &format!("/users/{user_id}/posts/{post_id}/set_unread"), Some(&body))
+            .await
+    }
+
+    pub async fn save_preferences(&self, user_id: &str, prefs: &[Preference]) -> Result<()> {
+        self.send_json(reqwest::Method::PUT, &format!("/users/{user_id}/preferences"), Some(prefs)).await
+    }
+
+    pub async fn delete_preferences(&self, user_id: &str, prefs: &[Preference]) -> Result<()> {
+        self.send_json(reqwest::Method::POST, &format!("/users/{user_id}/preferences/delete"), Some(prefs))
+            .await
+    }
+
+    pub async fn set_pinned(&self, post_id: &str, pinned: bool) -> Result<()> {
+        let action = if pinned { "pin" } else { "unpin" };
+        self.send_json::<()>(reqwest::Method::POST, &format!("/posts/{post_id}/{action}"), None).await
+    }
+
+    /// Met à jour plusieurs catégories d'un coup (ex. déplacer un canal en favori).
+    pub async fn update_categories(&self, team_id: &str, categories: &[SidebarCategory]) -> Result<()> {
+        let path = format!("/users/me/teams/{team_id}/channels/categories");
+        self.send_json(reqwest::Method::PUT, &path, Some(categories)).await
+    }
+
+    /// Sourdine d'un canal : `mark_unread` = "mention" (sourdine) ou "all".
+    pub async fn set_channel_mark_unread(&self, channel_id: &str, user_id: &str, mark_unread: &str) -> Result<()> {
+        let body = serde_json::json!({ "channel_id": channel_id, "user_id": user_id, "mark_unread": mark_unread });
+        let path = format!("/channels/{channel_id}/members/{user_id}/notify_props");
+        self.send_json(reqwest::Method::PUT, &path, Some(&body)).await
+    }
+
+    pub async fn leave_channel(&self, channel_id: &str, user_id: &str) -> Result<()> {
+        self.send_json::<()>(reqwest::Method::DELETE, &format!("/channels/{channel_id}/members/{user_id}"), None)
+            .await
+    }
+
+    pub async fn mark_channels_read(&self, channel_ids: &[String]) -> Result<()> {
+        self.send_json(reqwest::Method::POST, "/channels/members/me/mark_read", Some(channel_ids)).await
+    }
+
+    /// Statut : "online", "away", "dnd" ou "offline".
+    pub async fn set_status(&self, user_id: &str, status: &str) -> Result<()> {
+        let body = serde_json::json!({ "user_id": user_id, "status": status });
+        self.send_json(reqwest::Method::PUT, &format!("/users/{user_id}/status"), Some(&body)).await
+    }
+
+    /// Clic sur un bouton d'un message interactif.
+    pub async fn post_action(&self, post_id: &str, action_id: &str) -> Result<()> {
+        self.send_json(
+            reqwest::Method::POST,
+            &format!("/posts/{post_id}/actions/{action_id}"),
+            Some(&serde_json::json!({})),
+        )
+        .await
+    }
+
     async fn get_bytes(&self, path: &str) -> Result<Vec<u8>> {
         let resp = self
             .http
@@ -530,17 +794,17 @@ impl Client {
         let _: serde_json::Value = self
             .post(
                 "/channels/members/me/view",
-                &serde_json::json!({ "channel_id": channel_id }),
+                &serde_json::json!({ "channel_id": channel_id, "collapsed_threads_supported": true }),
             )
             .await?;
         Ok(())
     }
 
     /// Messages racine antérieurs à `before` (pour remonter l'historique).
-    pub async fn channel_posts_before(&self, channel_id: &str, before: &str, per_page: u32) -> Result<Vec<Post>> {
+    pub async fn channel_posts_before(&self, channel_id: &str, before: &str, per_page: u32, crt: bool) -> Result<Vec<Post>> {
         let list: PostList = self
             .get(&format!(
-                "/channels/{channel_id}/posts?before={before}&per_page={per_page}&collapsedThreads=true"
+                "/channels/{channel_id}/posts?before={before}&per_page={per_page}&collapsedThreads={crt}"
             ))
             .await?;
         Ok(list.into_chronological())
@@ -568,11 +832,14 @@ impl Client {
         self.get("/users/me/preferences").await
     }
 
+    /// Statuts de présence, par lots de 200 (limite du serveur).
     pub async fn statuses(&self, ids: &[String]) -> Result<Vec<UserStatus>> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
+        let mut out = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(200) {
+            let mut part: Vec<UserStatus> = self.post("/users/status/ids", chunk).await?;
+            out.append(&mut part);
         }
-        self.post("/users/status/ids", ids).await
+        Ok(out)
     }
 
     /// Image de profil (octets bruts, PNG en général).

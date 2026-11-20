@@ -1,6 +1,7 @@
 //! Préférences d'affichage locales (largeur de la barre latérale…),
 //! enregistrées dans `%APPDATA%\mm-gpui\ui.json`.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -12,11 +13,15 @@ pub const SIDEBAR_MAX: f32 = 520.;
 #[serde(default)]
 pub struct UiSettings {
     pub sidebar_width: f32,
+    /// Dernière équipe ouverte, rouverte au lancement.
+    pub last_team: Option<String>,
+    /// Dernier canal ouvert, par équipe.
+    pub last_channels: HashMap<String, String>,
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { sidebar_width: 280. }
+        Self { sidebar_width: 280., last_team: None, last_channels: HashMap::new() }
     }
 }
 

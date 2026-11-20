@@ -8,22 +8,32 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 
 | Fonction | Détail |
 |---|---|
-| Connexion | Jeton d'accès personnel, par formulaire ou variables d'environnement ; mémorisé dans le gestionnaire d'identifiants Windows, bouton « Déconnexion » pour l'oublier |
+| Connexion | Via la page de connexion du serveur (GitLab, mot de passe, double authentification), par e-mail et mot de passe, ou par jeton ; mémorisée dans le gestionnaire d'identifiants Windows, bouton « Déconnexion » pour l'oublier. Dernière équipe et dernier canal de chaque équipe rouverts au lancement |
 | Barre latérale | Catégories de l'utilisateur récupérées depuis l'API (Favoris, Canaux, Messages directs, catégories personnelles) dans son ordre, tri propre à chaque catégorie (alphabétique, récents, manuel), section « Non lus » si activée dans les préférences, limite de messages directs visibles, catégories repliables (synchronisé avec le serveur), canaux en sourdine atténués, mises à jour en temps réel |
-| Messages | Historique infini (remonter charge la page précédente), regroupement par auteur, avatars et présence (en ligne, absent, ne pas déranger), « (modifié) », messages système |
-| Envoi | Entrée pour envoyer, Maj+Entrée pour aller à la ligne, « X est en train d'écrire… » dans les deux sens |
-| Actions sur un message | Au survol : réactions rapides, Répondre, et pour ses propres messages Modifier / Supprimer (avec confirmation) ; cliquer une réaction existante l'ajoute ou la retire |
+| Messages | Historique infini (remonter charge la page précédente), ligne « Nouveaux messages » à l'ouverture d'un canal non lu, regroupement par auteur, avatars et présence (en ligne, absent, ne pas déranger), messages qui vous mentionnent surlignés, « (modifié) », messages système |
+| Intégrations et liens | Messages des intégrations (GitLab, webhooks…) en cartes : barre de couleur, auteur, titre cliquable, texte, champs, image, pied, boutons interactifs ; étiquette « BOT ». Aperçus de liens (site, titre, description, image), images liées, citations de messages. Les images externes sont chargées sans jamais envoyer le jeton |
+| Envoi | Entrée pour envoyer, Maj+Entrée pour aller à la ligne, « X est en train d'écrire… » dans les deux sens. Autocomplétion : `@` personnes, `~` canaux, `:` emojis (standard et personnalisés), `/` commandes ; ↑ ↓ pour choisir, Entrée ou Tab pour insérer, Échap pour fermer. Les commandes « / » sont exécutées par le serveur |
+| Actions sur un message | Au survol : réactions rapides, Répondre et « ⋯ » : Marquer comme non lu, Enregistrer, Épingler au canal, Copier le lien, Copier le texte, et pour ses propres messages Modifier / Supprimer (avec confirmation). Étiquettes « Épinglé » et « Enregistré ». Cliquer une réaction existante l'ajoute ou la retire |
+| Options des canaux | En-tête : favori, sourdine et « ⋯ ». Clic droit sur un canal de la barre latérale : marquer comme lu, favori, sourdine, copier le lien, quitter. « ⋯ » d'une catégorie : tri (alphabétique, activité récente, manuel) et « marquer la catégorie comme lue ». Menu du compte : statut (en ligne, absent, ne pas déranger, hors ligne) et déconnexion |
+| Éditeur | Barre de mise en forme (gras, italique, barré, titre, lien, code, bloc de code, citation, listes), raccourcis Ctrl+B, Ctrl+I, Ctrl+Maj+X, Ctrl+Alt+K, Ctrl+Alt+C, aperçu du rendu. Brouillon conservé par canal et par fil (crayon dans la barre latérale) |
 | Fils | Compteur « N réponses », panneau latéral avec réponse dans le fil |
 | Fichiers | Aperçu des images jointes (clic : visionneuse intégrée, Échap pour fermer), cartes pour les autres fichiers avec « Ouvrir » / « Télécharger » (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
 | Équipes | Barre des équipes avec leur logo, pastille de non-lus et compteur de mentions |
 | Mise en page | Barre latérale redimensionnable en glissant son bord droit (largeur mémorisée dans `%APPDATA%\mm-gpui\ui.json`) |
-| Temps réel | WebSocket : messages, éditions, suppressions, réactions, présence, frappe, catégories, préférences ; reconnexion automatique |
-| Notifications | Notification Windows pour les messages directs et les mentions (si la fenêtre n'a pas le focus ou si le canal n'est pas affiché) |
+| Temps réel | WebSocket « fiable » : en cas de coupure, le serveur rejoue les événements manqués ; s'il ne le peut plus, rattrapage ciblé (canaux, non-lus, messages modifiés depuis le dernier connu, fil ouvert). Présence rafraîchie chaque minute |
+| Notifications | Notification Windows selon vos préférences Mattermost, comme le client web : niveau « tous / mentions / aucun » de l'utilisateur ou du canal, canaux en sourdine, « Ne pas déranger », fils suivis ; rien pour ce qui est déjà affiché. Au nom de l'application, une par canal ; un clic ouvre le canal ; le bouton de la barre des tâches clignote |
+| Intégration Windows | Pastille sur l'icône de la barre des tâches (nombre de mentions, point pour les non-lus, « ! » si la session a expiré), icône dans la zone de notification (état, menu Ouvrir / Quitter) ; fermer la fenêtre la réduit dans cette zone ; une seule instance (relancer ramène la fenêtre) |
 | Markdown | Rendu complet (gras, italique, listes, code, tableaux, citations, liens cliquables), texte sélectionnable |
-| Emojis | `:smile:` → 😄 dans le texte et les réactions |
+| Emojis | `:smile:` → 😄 dans le texte et les réactions ; emojis personnalisés du serveur affichés en image |
 
-Non couvert : recherche, coller une image depuis le presse-papiers, autocomplétion, appels,
-plugins, réorganisation des canaux par glisser-déposer.
+Non couvert : recherche, liste des messages épinglés et enregistrés, coller une image depuis le presse-papiers,
+appels, plugins, réorganisation des canaux par glisser-déposer, cache local.
+
+> **Au premier lancement sous Windows**, l'application crée un raccourci
+> « Mattermost (mm-gpui) » dans le menu Démarrer et une entrée
+> `HKCU\Software\Classes\AppUserModelId\MmGpui.Client` : Windows n'affiche
+> les notifications d'une application non installée qu'à cette condition.
+> Les supprimer suffit pour tout retirer.
 
 ## Lancer
 
@@ -68,6 +78,7 @@ qu'une fois.
 |---|---|
 | `--demo` | Faux serveur avec des données fictives (aucune connexion réseau) |
 | `--login` | Affiche l'écran de connexion sans utiliser la connexion mémorisée |
+| `--demo --theme fichier.json` | Mode démo avec un thème Mattermost (JSON obtenu par « Copier le thème » dans Paramètres › Affichage › Thème) |
 
 ```bash
 cargo run --release -- --demo
@@ -92,6 +103,12 @@ src/
 │   ├── mod.rs   état de l'application et réaction aux événements
 │   └── view.rs  rendu des écrans
 ├── sidebar.rs   regroupement et tri des canaux (catégories, non lus) — testé
+├── notify_rules.rs  quand afficher une notification — testé
+├── desktop.rs   intégration Windows (notifications, pastille, zone de notification)
+├── icons.rs     icônes dessinées par le code (application, pastilles) — testé
+├── rich.rs      intégrations et aperçus de liens — testé
+├── editor.rs    mise en forme Markdown de la zone de saisie — testé
+├── settings.rs  préférences locales (largeur, dernière équipe et canaux)
 ├── theme.rs     thème Mattermost de l'utilisateur → couleurs de l'interface
 ├── sso.rs       fenêtre de connexion « via Mattermost » (WebView2)
 ├── credentials.rs  mémorisation de la connexion

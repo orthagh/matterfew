@@ -13,12 +13,13 @@ use gpui_kit::component::message_scroller::MessageScrollerState;
 use gpui_kit::*;
 
 use crate::api::{Channel, FileInfo, Post, Preference, Reaction, SidebarCategory, Team, User};
-use crate::backend::{self, Command, Event, PAGE_SIZE};
+use crate::backend::{self, AcKind, Command, Event, PAGE_SIZE, Suggestion};
 use crate::sidebar::{ChannelState, SidebarPrefs};
 use crate::settings::{SIDEBAR_MAX, SIDEBAR_MIN, UiSettings};
 use crate::theme::{MattermostTheme, Palette};
 use crate::api::{LoginError, login_with_password};
 use crate::credentials::AuthKind;
+use crate::desktop::{self, ClickTarget, TrayAction, Tray};
 use crate::{credentials, demo, markdown, sso};
 
 /// Un message et son Markdown déjà préparé (emojis, mentions).
@@ -29,7 +30,8 @@ struct PostView {
 
 impl PostView {
     fn new(post: Post) -> Self {
-        let md = markdown::prepare(&post.message).into();
+        let custom: Vec<String> = post.metadata.emojis.iter().map(|e| e.name.clone()).collect();
+        let md = markdown::prepare_with(&post.message, &custom).into();
         Self { post, md }
     }
 }
@@ -61,6 +63,16 @@ impl Render for SidebarResize {
     }
 }
 
+/// Propositions d'autocomplétion affichées au-dessus d'une zone de saisie.
+struct Autocomplete {
+    pane: Pane,
+    kind: AcKind,
+    /// Début (octets) du mot remplacé par la proposition choisie.
+    start: usize,
+    items: Vec<Suggestion>,
+    selected: usize,
+}
+
 struct ThreadView {
     root_id: String,
     posts: Vec<PostView>,
@@ -80,7 +92,7 @@ enum Screen {
     Chat,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Pane {
     Channel,
     Thread,
@@ -117,6 +129,10 @@ pub struct ChatApp {
     channels: HashMap<String, ChannelState>,
     categories: Vec<SidebarCategory>,
     raw_prefs: Vec<Preference>,
+    /// Configuration publique du serveur.
+    server_config: HashMap<String, String>,
+    /// Fils réduits actifs (réponses rangées dans les fils, pas dans le canal).
+    crt: bool,
     prefs: SidebarPrefs,
     palette: Palette,
     demo: bool,
@@ -129,6 +145,28 @@ pub struct ChatApp {
     /// Aperçus des images jointes, et ceux déjà demandés.
     previews: HashMap<String, Arc<Image>>,
     requested_previews: HashSet<String>,
+    /// Images externes (aperçus de liens, intégrations), par URL.
+    external_images: HashMap<String, Arc<Image>>,
+    /// Images des emojis personnalisés, par nom (partagées avec le rendu
+    /// Markdown, d'où l'`Arc`).
+    custom_emojis: Arc<HashMap<String, Arc<Image>>>,
+    requested_emojis: HashSet<String>,
+    autocomplete: Option<Autocomplete>,
+    /// Brouillons : (canal, message racine du fil ou vide) → texte.
+    drafts: HashMap<(String, String), String>,
+    /// Textes à placer dans les zones de saisie au prochain rendu (il faut
+    /// la fenêtre pour modifier une zone de saisie).
+    pending_text: Vec<(Pane, String)>,
+    /// Canal marqué « non lu » à la main : on ne le marque plus lu
+    /// automatiquement tant qu'on ne l'a pas quitté.
+    manually_unread: Option<String>,
+    /// Aperçu du Markdown à la place de la zone de saisie.
+    preview: HashSet<Pane>,
+    /// Canal pour lequel l'invite de la zone de saisie a été écrite.
+    placeholder_for: Option<String>,
+    /// Numéro de la dernière demande d'autocomplétion (les réponses plus
+    /// anciennes sont ignorées).
+    ac_seq: u64,
     attachments: Vec<Attachment>,
     next_local_id: u64,
     /// Message d'information temporaire (ex. fichier téléchargé).
@@ -138,11 +176,24 @@ pub struct ChatApp {
     settings: UiSettings,
     /// Redimensionnement de la barre latérale en cours.
     resizing: bool,
+    /// Poignée Win32 de la fenêtre (pastille, clignotement, masquage).
+    hwnd: Option<isize>,
+    /// Icône de la zone de notification.
+    tray: Option<Tray>,
+    /// Dernier état affiché sur la pastille : (mentions, non-lus, session expirée).
+    badge: (i64, bool, bool),
+    /// Le serveur a refusé le jeton en cours d'utilisation.
+    session_expired: bool,
     statuses: HashMap<String, String>,
     typing: Vec<Typing>,
     last_typing_sent: Option<Instant>,
 
     channel_id: Option<String>,
+    /// Dernière lecture connue de chaque canal (ms).
+    last_viewed: HashMap<String, i64>,
+    /// Ligne « Nouveaux messages » du canal affiché : messages postérieurs à
+    /// cette date (lecture précédente), fixée à l'ouverture du canal.
+    new_since: Option<i64>,
     posts: Vec<PostView>,
     loading_posts: bool,
     has_more: bool,
@@ -200,7 +251,7 @@ impl ChatApp {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
                 .submit_on_enter(true)
-                .placeholder("Écrire un message…   (Maj+Entrée : nouvelle ligne)")
+                .placeholder("Écrire un message")
         });
         let thread_composer = cx.new(|cx| {
             TextareaState::new(window, cx)
@@ -215,7 +266,10 @@ impl ChatApp {
             move |this: &mut Self, _: &Entity<TextareaState>, ev: &InputEvent, window: &mut Window, cx: &mut Context<Self>| {
                 match ev {
                     InputEvent::PressEnter { .. } => this.send_from(pane, window, cx),
-                    InputEvent::Change => this.signal_typing(pane),
+                    InputEvent::Change => {
+                        this.signal_typing(pane);
+                        this.update_autocomplete(pane, cx);
+                    }
                     _ => {}
                 }
             }
@@ -270,6 +324,8 @@ impl ChatApp {
             channels: HashMap::new(),
             categories: Vec::new(),
             raw_prefs: Vec::new(),
+            server_config: HashMap::new(),
+            crt: true,
             prefs: SidebarPrefs::default(),
             palette: Palette::from_theme(&MattermostTheme::default()),
             demo: false,
@@ -280,6 +336,16 @@ impl ChatApp {
             team_unreads: HashMap::new(),
             previews: HashMap::new(),
             requested_previews: HashSet::new(),
+            external_images: HashMap::new(),
+            custom_emojis: Arc::default(),
+            requested_emojis: HashSet::new(),
+            autocomplete: None,
+            drafts: HashMap::new(),
+            pending_text: Vec::new(),
+            manually_unread: None,
+            preview: HashSet::new(),
+            placeholder_for: None,
+            ac_seq: 0,
             attachments: Vec::new(),
             next_local_id: 0,
             info: None,
@@ -287,10 +353,16 @@ impl ChatApp {
             viewer_focus: cx.focus_handle(),
             settings: UiSettings::load(),
             resizing: false,
+            hwnd: desktop::hwnd(window),
+            tray: Tray::new(),
+            badge: (0, false, false),
+            session_expired: false,
             statuses: HashMap::new(),
             typing: Vec::new(),
             last_typing_sent: None,
             channel_id: None,
+            last_viewed: HashMap::new(),
+            new_since: None,
             posts: Vec::new(),
             loading_posts: false,
             has_more: false,
@@ -309,12 +381,97 @@ impl ChatApp {
             _event_task: None,
         };
         this.palette.apply(cx);
+        this.listen_desktop(window, cx);
         if std::env::args().any(|a| a == "--demo") {
             this.start_demo(window, cx);
         } else if let Some((url, token, kind)) = auto.filter(|_| !std::env::args().any(|a| a == "--login")) {
             this.connect_with(url, token, kind, window, cx);
         }
         this
+    }
+
+    /// Clics sur les notifications et actions de l'icône de la zone de
+    /// notification ; fermeture de la fenêtre → réduction dans cette zone.
+    fn listen_desktop(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let clicks = desktop::clicks();
+        cx.spawn_in(window, async move |this, cx| {
+            while let Ok(target) = clicks.recv().await {
+                if this.update_in(cx, |this, window, cx| this.open_target(target, window, cx)).is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        let actions = desktop::tray_actions();
+        cx.spawn_in(window, async move |this, cx| {
+            while let Ok(action) = actions.recv().await {
+                let alive = this.update_in(cx, |this, window, cx| match action {
+                    TrayAction::Show => this.bring_to_front(window),
+                    TrayAction::Quit => cx.quit(),
+                });
+                if alive.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+        // Avec une icône dans la zone de notification, fermer la fenêtre la
+        // masque (comme le client officiel) ; « Quitter » est dans son menu.
+        if self.tray.is_some() {
+            if let Some(hwnd) = self.hwnd {
+                window.on_window_should_close(cx, move |_, _| {
+                    desktop::hide_window(hwnd);
+                    false
+                });
+            }
+        }
+    }
+
+    fn bring_to_front(&mut self, window: &mut Window) {
+        if let Some(hwnd) = self.hwnd {
+            desktop::show_window(hwnd);
+        }
+        window.activate_window();
+    }
+
+    /// Clic sur une notification : fenêtre au premier plan, bonne équipe,
+    /// bon canal.
+    fn open_target(&mut self, target: ClickTarget, window: &mut Window, cx: &mut Context<Self>) {
+        self.bring_to_front(window);
+        let other_team = !target.team_id.is_empty() && self.team_id.as_deref() != Some(target.team_id.as_str());
+        if other_team {
+            // Le canal sera ouvert quand les canaux de l'équipe seront chargés.
+            self.settings.last_channels.insert(target.team_id.clone(), target.channel_id);
+            self.select_team(target.team_id, cx);
+        } else {
+            self.select_channel(target.channel_id, cx);
+        }
+        self.focus_composer(window, cx);
+    }
+
+    /// Pastille de la barre des tâches et icône de la zone de notification :
+    /// mentions et non-lus de toutes les équipes.
+    fn update_badge(&mut self) {
+        let current_team = self.team_id.clone().unwrap_or_default();
+        let mut mentions: i64 = self.channels.values().map(|c| c.mentions).sum();
+        let mut unread = self.channels.values().any(|c| c.shows_unread());
+        for (team, (team_unread, team_mentions)) in &self.team_unreads {
+            if *team != current_team {
+                mentions += team_mentions;
+                unread |= *team_unread;
+            }
+        }
+        let state = (mentions, unread, self.session_expired);
+        if state == self.badge {
+            return;
+        }
+        self.badge = state;
+        if let Some(hwnd) = self.hwnd {
+            desktop::set_taskbar_badge(hwnd, mentions, unread, self.session_expired);
+        }
+        if let Some(tray) = self.tray.as_mut() {
+            tray.update(mentions, unread);
+        }
     }
 
     /// Mode démo : faux serveur local, rien n'est enregistré.
@@ -340,6 +497,22 @@ impl ChatApp {
 
     /// Recalcule réglages de barre latérale et thème depuis les préférences.
     fn refresh_preferences(&mut self, cx: &mut Context<Self>) {
+        let crt = collapsed_threads_enabled(&self.server_config, &self.raw_prefs);
+        if crt != self.crt {
+            self.crt = crt;
+            self.send(Command::SetCollapsedThreads(crt));
+            // Compteurs et liste des messages changent de nature : on recharge.
+            if self.screen == Screen::Chat {
+                self.thread = None;
+                if let Some(team_id) = self.team_id.clone() {
+                    self.send(Command::LoadTeam { team_id });
+                }
+                if let Some(channel_id) = self.channel_id.clone() {
+                    self.loading_posts = true;
+                    self.send(Command::LoadChannel { channel_id });
+                }
+            }
+        }
         self.prefs = SidebarPrefs::from_preferences(&self.raw_prefs);
         let theme = MattermostTheme::from_preferences(&self.raw_prefs, self.team_id.as_deref());
         self.palette = Palette::from_theme(&theme);
@@ -534,6 +707,10 @@ impl ChatApp {
             return;
         }
         self.team_id = Some(team_id.clone());
+        if !self.demo {
+            self.settings.last_team = Some(team_id.clone());
+            self.settings.save();
+        }
         self.attachments.clear();
         self.send(Command::LoadTeamUnreads);
         // Le thème peut être propre à l'équipe.
@@ -553,12 +730,29 @@ impl ChatApp {
         if self.channel_id.as_deref() == Some(&channel_id) {
             return;
         }
+        // Brouillons : on garde le texte du canal quitté, on reprend celui du nouveau.
+        self.stash_draft(Pane::Channel, cx);
+        self.stash_draft(Pane::Thread, cx);
+        let draft = self.drafts.get(&(channel_id.clone(), String::new())).cloned().unwrap_or_default();
+        self.pending_text.push((Pane::Channel, draft));
+        self.pending_text.push((Pane::Thread, String::new()));
+        self.manually_unread = None;
+        self.preview.clear();
+        if let (Some(team_id), false) = (self.team_id.clone(), self.demo) {
+            self.settings.last_channels.insert(team_id, channel_id.clone());
+            self.settings.save();
+        }
         // Un canal non lu reste dans « Non lus » tant qu'on ne le quitte pas.
         self.sticky_unread = self
             .channels
             .get(&channel_id)
             .filter(|c| c.shows_unread())
             .map(|_| channel_id.clone());
+        self.new_since = self
+            .channels
+            .get(&channel_id)
+            .filter(|c| c.shows_unread())
+            .and_then(|_| self.last_viewed.get(&channel_id).copied());
         if let Some(state) = self.channels.get_mut(&channel_id) {
             state.unread_messages = false;
             state.mentions = 0;
@@ -579,7 +773,7 @@ impl ChatApp {
     }
 
     fn mark_current_read(&mut self) {
-        if let Some(id) = self.channel_id.clone() {
+        if let Some(id) = self.channel_id.clone().filter(|id| self.manually_unread.as_ref() != Some(id)) {
             if let Some(state) = self.channels.get_mut(&id) {
                 state.unread_messages = false;
                 state.mentions = 0;
@@ -614,6 +808,11 @@ impl ChatApp {
     }
 
     fn open_thread(&mut self, root_id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.stash_draft(Pane::Thread, cx);
+        if let Some(channel_id) = self.channel_id.clone() {
+            let draft = self.drafts.get(&(channel_id, root_id.clone())).cloned().unwrap_or_default();
+            self.pending_text.push((Pane::Thread, draft));
+        }
         // Affiche tout de suite le message racine, le reste arrive ensuite.
         let seed: Vec<PostView> = self
             .posts
@@ -634,6 +833,8 @@ impl ChatApp {
     }
 
     fn close_thread(&mut self, cx: &mut Context<Self>) {
+        self.stash_draft(Pane::Thread, cx);
+        self.pending_text.push((Pane::Thread, String::new()));
         self.thread = None;
         if self.editing.as_ref().is_some_and(|(pane, _)| *pane == Pane::Thread) {
             self.editing = None;
@@ -684,11 +885,45 @@ impl ChatApp {
             (Pane::Thread, Some(thread)) => thread.root_id.clone(),
             (Pane::Thread, None) => return,
         };
+        self.autocomplete = None;
+        // « /commande » : exécutée par le serveur (« //texte » s'envoie tel quel).
+        if message.starts_with('/') && !message.starts_with("//") && file_ids.is_empty() {
+            let team_id = self.team_id.clone().unwrap_or_default();
+            self.send(Command::ExecuteCommand { channel_id, team_id, root_id, command: message });
+            state.update(cx, |s, cx| s.set_value("", window, cx));
+            cx.notify();
+            return;
+        }
         self.send(Command::Send { channel_id, root_id, message, file_ids });
         self.attachments.retain(|a| a.pane != pane);
         self.last_typing_sent = None;
         state.update(cx, |s, cx| s.set_value("", window, cx));
         cx.notify();
+    }
+
+    /// Rattrapage après une coupure où des événements ont été perdus :
+    /// canaux, membres et catégories de l'équipe, pastilles des équipes,
+    /// messages du canal affiché modifiés depuis le plus récent connu, fil ouvert.
+    fn resync(&mut self) {
+        if let Some(team_id) = self.team_id.clone() {
+            self.send(Command::LoadTeam { team_id });
+        }
+        self.send(Command::LoadTeamUnreads);
+        self.send(Command::LoadPreferences);
+        if let Some(channel_id) = self.channel_id.clone() {
+            let since = self
+                .posts
+                .iter()
+                .map(|p| p.post.create_at.max(p.post.update_at).max(p.post.edit_at))
+                .max();
+            match since {
+                Some(since) => self.send(Command::SyncChannel { channel_id, since }),
+                None => self.send(Command::LoadChannel { channel_id }),
+            }
+        }
+        if let Some(root_id) = self.thread.as_ref().map(|t| t.root_id.clone()) {
+            self.send(Command::LoadThread { root_id });
+        }
     }
 
     // ------------------------------------------------------------------
@@ -773,8 +1008,29 @@ impl ChatApp {
         }
     }
 
+    /// Index du premier message « nouveau » (après la lecture précédente,
+    /// et pas de soi), s'il y en a un.
+    fn first_new_index(&self) -> Option<usize> {
+        let since = self.new_since?;
+        let me = self.me_id();
+        self.posts.iter().position(|p| p.post.create_at > since && p.post.user_id != me)
+    }
+
     /// Demande les aperçus des images jointes pas encore chargées.
-    fn request_previews<'a>(&mut self, posts: impl IntoIterator<Item = &'a Post>) {
+    fn request_previews<'a>(&mut self, posts: impl IntoIterator<Item = &'a Post> + Clone) {
+        self.request_external_images(posts.clone());
+        let emojis: Vec<(String, String)> = posts
+            .clone()
+            .into_iter()
+            .flat_map(|p| p.metadata.emojis.iter())
+            .filter(|e| !self.requested_emojis.contains(&e.name))
+            .map(|e| (e.id.clone(), e.name.clone()))
+            .collect();
+        for (id, name) in emojis {
+            if self.requested_emojis.insert(name.clone()) {
+                self.send(Command::LoadEmoji { id, name });
+            }
+        }
         let wanted: Vec<String> = posts
             .into_iter()
             .flat_map(|p| p.metadata.files.iter())
@@ -785,6 +1041,377 @@ impl ChatApp {
             self.requested_previews.insert(file_id.clone());
             self.send(Command::LoadPreview { file_id });
         }
+    }
+
+    /// Demande les images externes (aperçus de liens, intégrations) des messages.
+    fn request_external_images<'a>(&mut self, posts: impl IntoIterator<Item = &'a Post>) {
+        let mut urls = Vec::new();
+        for post in posts {
+            for a in crate::rich::attachments(post) {
+                urls.extend([a.image_url, a.thumb_url].into_iter().filter(|u| !u.is_empty()));
+            }
+            for e in crate::rich::embeds(post) {
+                match e {
+                    crate::rich::Embed::Link { image: Some(url), .. } | crate::rich::Embed::Image { url, .. } => urls.push(url),
+                    _ => {}
+                }
+            }
+        }
+        for url in urls {
+            // Même ensemble que les aperçus de fichiers : une URL n'est
+            // jamais un identifiant de fichier.
+            if self.requested_previews.insert(url.clone()) {
+                self.send(Command::LoadExternalImage { url });
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Autocomplétion
+    // ------------------------------------------------------------------
+
+    /// Analyse le mot en cours (juste avant le curseur) et demande des
+    /// propositions : `@personne`, `~canal`, `:emoji`, `/commande`.
+    fn update_autocomplete(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        let state = self.composer_for(pane);
+        let (text, cursor) = {
+            let s = state.read(cx);
+            let text = s.value().to_string();
+            let cursor = s.cursor().min(text.len());
+            (text, cursor)
+        };
+        let Some((kind, start, term)) = autocomplete_trigger(&text, cursor) else {
+            if self.autocomplete.as_ref().is_some_and(|a| a.pane == pane) {
+                self.autocomplete = None;
+                cx.notify();
+            }
+            return;
+        };
+        let (Some(team_id), Some(channel_id)) = (self.team_id.clone(), self.channel_id.clone()) else { return };
+        let root_id = match (pane, &self.thread) {
+            (Pane::Thread, Some(t)) => t.root_id.clone(),
+            _ => String::new(),
+        };
+
+        self.ac_seq += 1;
+        // Emojis standard : proposés tout de suite, sans attendre le serveur.
+        let local: Vec<Suggestion> = if kind == AcKind::Emoji {
+            crate::emoji::search(&term, 8)
+                .into_iter()
+                .map(|(code, glyph)| Suggestion {
+                    label: format!(":{code}:"),
+                    detail: String::new(),
+                    insert: format!("{glyph} "),
+                    user_id: None,
+                    glyph: Some(glyph),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let keep = self.autocomplete.as_ref().filter(|a| a.pane == pane && a.kind == kind && a.start == start);
+        let items = if kind == AcKind::Emoji { local } else { keep.map(|a| a.items.clone()).unwrap_or_default() };
+        self.autocomplete = Some(Autocomplete { pane, kind, start, items, selected: 0 });
+        self.send(Command::Autocomplete { seq: self.ac_seq, kind, term, team_id, channel_id, root_id });
+        cx.notify();
+    }
+
+    /// Remplace le mot en cours par la proposition `index`.
+    fn accept_suggestion(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(ac) = self.autocomplete.take() else { return };
+        let Some(item) = ac.items.get(index).cloned() else { return };
+        let state = self.composer_for(ac.pane);
+        state.update(cx, |s, cx| {
+            let end = s.cursor();
+            s.set_selected_range(ac.start..end.max(ac.start), cx);
+            s.replace(item.insert.clone(), window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// Touches de navigation dans les propositions. Renvoie `true` si la
+    /// touche a été utilisée (elle ne doit alors pas aller à la zone de saisie).
+    fn autocomplete_key(&mut self, pane: Pane, key: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(ac) = self.autocomplete.as_mut().filter(|a| a.pane == pane && !a.items.is_empty()) else {
+            return false;
+        };
+        match key {
+            "up" => ac.selected = ac.selected.checked_sub(1).unwrap_or(ac.items.len() - 1),
+            "down" => ac.selected = (ac.selected + 1) % ac.items.len(),
+            "enter" | "tab" => {
+                let index = ac.selected;
+                self.accept_suggestion(index, window, cx);
+            }
+            "escape" => self.autocomplete = None,
+            _ => return false,
+        }
+        cx.notify();
+        true
+    }
+
+    // ------------------------------------------------------------------
+    // Brouillons et éditeur
+    // ------------------------------------------------------------------
+
+    /// Range le texte en cours d'une zone de saisie dans les brouillons.
+    fn stash_draft(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        let Some(channel_id) = self.channel_id.clone() else { return };
+        let root = match (pane, &self.thread) {
+            (Pane::Channel, _) => String::new(),
+            (Pane::Thread, Some(t)) => t.root_id.clone(),
+            (Pane::Thread, None) => return,
+        };
+        // Un message en cours de modification n'est pas un brouillon.
+        if self.editing.as_ref().is_some_and(|(p, _)| *p == pane) {
+            return;
+        }
+        let text = self.composer_for(pane).read(cx).value().to_string();
+        if text.trim().is_empty() {
+            self.drafts.remove(&(channel_id, root));
+        } else {
+            self.drafts.insert((channel_id, root), text);
+        }
+    }
+
+    /// Canal avec un brouillon (indiqué dans la barre latérale).
+    fn has_draft(&self, channel_id: &str) -> bool {
+        self.drafts.keys().any(|(c, _)| c == channel_id)
+    }
+
+    /// Place les textes en attente dans les zones de saisie (appelé au rendu),
+    /// et adapte l'invite au canal affiché (« Écrire dans Général »).
+    fn apply_pending_text(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for (pane, text) in std::mem::take(&mut self.pending_text) {
+            let end = text.len();
+            self.composer_for(pane).update(cx, |s, cx| {
+                s.set_value(text, window, cx);
+                // Curseur en fin de brouillon, prêt à continuer.
+                s.set_selected_range(end..end, cx);
+            });
+        }
+        if self.placeholder_for != self.channel_id {
+            self.placeholder_for = self.channel_id.clone();
+            let title = self
+                .channel_id
+                .as_ref()
+                .and_then(|id| self.channels.get(id))
+                .map(|c| self.channel_title(&c.channel));
+            if let Some(title) = title {
+                self.composer.update(cx, |s, cx| s.set_placeholder(format!("Écrire dans {title}"), window, cx));
+            } else {
+                // Canaux pas encore chargés : on réessaiera au prochain rendu.
+                self.placeholder_for = None;
+            }
+        }
+    }
+
+    /// Mise en forme depuis la barre d'outils ou un raccourci.
+    fn format(&mut self, pane: Pane, format: crate::editor::Format, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.composer_for(pane);
+        state.update(cx, |s, cx| {
+            let text = s.value().to_string();
+            let (new_text, selection) = crate::editor::apply(&text, s.selected_range(), format);
+            s.set_selected_range(0..text.len(), cx);
+            s.replace(new_text, window, cx);
+            s.set_selected_range(selection, cx);
+            s.focus(window, cx);
+        });
+        self.preview.remove(&pane);
+        cx.notify();
+    }
+
+    fn toggle_preview(&mut self, pane: Pane, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.preview.remove(&pane) {
+            self.preview.insert(pane);
+        } else {
+            self.composer_for(pane).update(cx, |s, cx| s.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    // ------------------------------------------------------------------
+    // Options des messages, canaux, catégories et du statut
+    // ------------------------------------------------------------------
+
+    fn team_name(&self) -> String {
+        let id = self.team_id.as_deref().unwrap_or_default();
+        self.teams.iter().find(|t| t.id == id).map(|t| t.name.clone()).unwrap_or_default()
+    }
+
+    fn copy(&mut self, text: String, what: &str, cx: &mut Context<Self>) {
+        cx.write_to_clipboard(ClipboardItem::new_string(text));
+        self.flash(format!("{what} copié dans le presse-papiers."), cx);
+    }
+
+    fn copy_post_link(&mut self, post_id: &str, cx: &mut Context<Self>) {
+        let server = self.server_url.clone().unwrap_or_default();
+        let link = format!("{server}/{}/pl/{post_id}", self.team_name());
+        self.copy(link, "Lien du message", cx);
+    }
+
+    fn copy_post_text(&mut self, post_id: &str, cx: &mut Context<Self>) {
+        let text = self.find_post(post_id).map(|p| p.message.clone()).unwrap_or_default();
+        self.copy(text, "Texte du message", cx);
+    }
+
+    fn copy_channel_link(&mut self, channel_id: &str, cx: &mut Context<Self>) {
+        let server = self.server_url.clone().unwrap_or_default();
+        let name = self.channels.get(channel_id).map(|c| c.channel.name.clone()).unwrap_or_default();
+        let link = format!("{server}/{}/channels/{name}", self.team_name());
+        self.copy(link, "Lien du canal", cx);
+    }
+
+    fn find_post(&self, post_id: &str) -> Option<&Post> {
+        self.posts
+            .iter()
+            .chain(self.thread.iter().flat_map(|t| t.posts.iter()))
+            .map(|v| &v.post)
+            .find(|p| p.id == post_id)
+    }
+
+    /// Message enregistré (« flagged » dans l'API).
+    fn is_saved(&self, post_id: &str) -> bool {
+        self.raw_prefs
+            .iter()
+            .any(|p| p.category == "flagged_post" && p.name == post_id && p.value == "true")
+    }
+
+    fn toggle_saved(&mut self, post_id: String, cx: &mut Context<Self>) {
+        let save = !self.is_saved(&post_id);
+        if save {
+            self.raw_prefs.push(Preference {
+                user_id: self.me_id().to_string(),
+                category: "flagged_post".into(),
+                name: post_id.clone(),
+                value: "true".into(),
+            });
+        } else {
+            self.raw_prefs.retain(|p| !(p.category == "flagged_post" && p.name == post_id));
+        }
+        self.send(Command::SavePost { post_id, save });
+        self.flash(if save { "Message enregistré.".into() } else { "Message retiré des enregistrés.".into() }, cx);
+    }
+
+    fn toggle_pinned(&mut self, post_id: String) {
+        let pin = !self.find_post(&post_id).is_some_and(|p| p.is_pinned);
+        self.send(Command::PinPost { post_id, pin });
+    }
+
+    /// « Marquer comme non lu » : le canal redevient non lu à partir de ce
+    /// message, et le reste tant qu'on ne le quitte pas.
+    fn mark_unread_from(&mut self, post_id: String, cx: &mut Context<Self>) {
+        let Some(post) = self.find_post(&post_id).cloned() else { return };
+        self.send(Command::MarkUnread { post_id });
+        self.manually_unread = Some(post.channel_id.clone());
+        self.new_since = Some(post.create_at - 1);
+        if let Some(state) = self.channels.get_mut(&post.channel_id) {
+            state.unread_messages = true;
+        }
+        cx.notify();
+    }
+
+    fn is_favorite(&self, channel_id: &str) -> bool {
+        self.categories
+            .iter()
+            .any(|c| c.kind == "favorites" && c.channel_ids.iter().any(|id| id == channel_id))
+    }
+
+    /// Ajoute aux favoris ou retire des favoris (déplace le canal entre la
+    /// catégorie Favoris et sa catégorie d'origine).
+    fn toggle_favorite(&mut self, channel_id: String, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id.clone() else { return };
+        let favorite = !self.is_favorite(&channel_id);
+        let is_dm = self.channels.get(&channel_id).is_some_and(|c| c.channel.is_direct() || c.channel.is_group());
+        let home = if is_dm { "direct_messages" } else { "channels" };
+        let mut changed = Vec::new();
+        for category in self.categories.iter_mut() {
+            let had = category.channel_ids.iter().any(|id| *id == channel_id);
+            let wants = if favorite { category.kind == "favorites" } else { category.kind == home };
+            if had && !wants {
+                category.channel_ids.retain(|id| *id != channel_id);
+                changed.push(category.clone());
+            } else if !had && wants {
+                category.channel_ids.insert(0, channel_id.clone());
+                changed.push(category.clone());
+            }
+        }
+        if !changed.is_empty() {
+            self.send(Command::UpdateCategories { team_id, categories: changed });
+        }
+        cx.notify();
+    }
+
+    fn toggle_muted(&mut self, channel_id: String, cx: &mut Context<Self>) {
+        if let Some(state) = self.channels.get_mut(&channel_id) {
+            state.muted = !state.muted;
+            let muted = state.muted;
+            self.send(Command::SetMuted { channel_id, muted });
+            cx.notify();
+        }
+    }
+
+    fn leave_channel(&mut self, channel_id: String, cx: &mut Context<Self>) {
+        self.send(Command::LeaveChannel { channel_id: channel_id.clone() });
+        self.channels.remove(&channel_id);
+        for category in self.categories.iter_mut() {
+            category.channel_ids.retain(|id| *id != channel_id);
+        }
+        if self.channel_id.as_deref() == Some(channel_id.as_str()) {
+            let next = self
+                .channels
+                .values()
+                .find(|c| c.channel.name == "town-square")
+                .or_else(|| self.channels.values().next())
+                .map(|c| c.channel.id.clone());
+            self.channel_id = None;
+            if let Some(next) = next {
+                self.select_channel(next, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    fn mark_channels_read(&mut self, channel_ids: Vec<String>, cx: &mut Context<Self>) {
+        for id in &channel_ids {
+            if let Some(state) = self.channels.get_mut(id) {
+                state.unread_messages = false;
+                state.mentions = 0;
+            }
+        }
+        self.send(Command::MarkChannelsRead { channel_ids });
+        cx.notify();
+    }
+
+    fn mark_category_read(&mut self, category_id: &str, cx: &mut Context<Self>) {
+        let ids = self
+            .categories
+            .iter()
+            .find(|c| c.id == category_id)
+            .map(|c| c.channel_ids.clone())
+            .unwrap_or_default();
+        self.mark_channels_read(ids, cx);
+    }
+
+    fn set_category_sorting(&mut self, category_id: &str, sorting: &str, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id.clone() else { return };
+        if let Some(category) = self.categories.iter_mut().find(|c| c.id == category_id) {
+            category.sorting = sorting.to_string();
+            let category = category.clone();
+            self.send(Command::UpdateCategories { team_id, categories: vec![category] });
+            cx.notify();
+        }
+    }
+
+    fn set_status(&mut self, status: &str, cx: &mut Context<Self>) {
+        let me = self.me_id().to_string();
+        self.statuses.insert(me, status.to_string());
+        self.send(Command::SetStatus { status: status.to_string() });
+        cx.notify();
+    }
+
+    fn post_action(&mut self, post_id: String, action_id: String) {
+        self.send(Command::PostAction { post_id, action_id });
     }
 
     /// Affiche une information quelques secondes.
@@ -874,7 +1501,11 @@ impl ChatApp {
 
     fn on_event(&mut self, event: Event, window: &mut Window, cx: &mut Context<Self>) {
         match event {
-            Event::Ready { me, teams } => {
+            Event::Ready { me, teams, config, prefs } => {
+                self.server_config = config;
+                self.raw_prefs = prefs;
+                self.crt = collapsed_threads_enabled(&self.server_config, &self.raw_prefs);
+                self.send(Command::SetCollapsedThreads(self.crt));
                 if let Some((url, token, kind)) = self.pending_credentials.take() {
                     if let Err(err) = credentials::save(&url, &token, kind) {
                         eprintln!("connexion non mémorisée : {err:#}");
@@ -884,8 +1515,9 @@ impl ChatApp {
                 self.me = Some(me);
                 self.teams = teams;
                 self.screen = Screen::Chat;
-                if let Some(team) = self.teams.first() {
-                    let id = team.id.clone();
+                // Dernière équipe ouverte si elle existe encore, sinon la première.
+                let remembered = self.settings.last_team.clone().filter(|id| self.teams.iter().any(|t| &t.id == id));
+                if let Some(id) = remembered.or_else(|| self.teams.first().map(|t| t.id.clone())) {
                     self.select_team(id, cx);
                 }
             }
@@ -916,6 +1548,39 @@ impl ChatApp {
                 if let Some(format) = image_format(&bytes) {
                     self.previews.insert(file_id, Arc::new(Image::from_bytes(format, bytes.to_vec())));
                     // Les messages concernés changent de hauteur.
+                    self.scroller.update(cx, |s, cx| s.remeasure(cx));
+                    self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
+                }
+            }
+            Event::Suggestions { seq, kind, items } => {
+                if seq == self.ac_seq {
+                    match self.autocomplete.as_mut().filter(|a| a.kind == kind) {
+                        // Emojis : les personnalisés complètent les standards déjà proposés.
+                        Some(ac) if kind == AcKind::Emoji => {
+                            ac.items.extend(items);
+                            ac.items.truncate(12);
+                        }
+                        Some(ac) => {
+                            ac.items = items;
+                            ac.selected = 0;
+                        }
+                        None => {}
+                    }
+                    if self.autocomplete.as_ref().is_some_and(|a| a.items.is_empty()) {
+                        self.autocomplete = None;
+                    }
+                }
+            }
+            Event::CustomEmoji { name, bytes } => {
+                if let Some(format) = image_format(&bytes) {
+                    let mut map = (*self.custom_emojis).clone();
+                    map.insert(name, Arc::new(Image::from_bytes(format, bytes.to_vec())));
+                    self.custom_emojis = Arc::new(map);
+                }
+            }
+            Event::ExternalImage { url, bytes } => {
+                if let Some(format) = image_format(&bytes) {
+                    self.external_images.insert(url, Arc::new(Image::from_bytes(format, bytes.to_vec())));
                     self.scroller.update(cx, |s, cx| s.remeasure(cx));
                     self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
                 }
@@ -962,19 +1627,34 @@ impl ChatApp {
                 if self.team_id.as_deref() != Some(&team_id) {
                     return;
                 }
+                for m in &members {
+                    self.last_viewed.insert(m.channel_id.clone(), m.last_viewed_at);
+                }
                 let members: HashMap<_, _> = members.into_iter().map(|m| (m.channel_id.clone(), m)).collect();
                 self.channels = channels
                     .into_iter()
                     .filter(|c| c.delete_at == 0)
                     .map(|channel| {
                         let state = match members.get(&channel.id) {
+                            // Avec les fils réduits, seuls les messages racine comptent.
                             Some(m) => ChannelState {
-                                unread_messages: channel.total_msg_count_root > m.msg_count_root,
-                                mentions: m.mention_count_root,
+                                unread_messages: if self.crt {
+                                    channel.total_msg_count_root > m.msg_count_root
+                                } else {
+                                    channel.total_msg_count > m.msg_count
+                                },
+                                mentions: if self.crt { m.mention_count_root } else { m.mention_count },
                                 muted: m.is_muted(),
+                                notify_desktop: m.notify_props.desktop.clone(),
                                 channel,
                             },
-                            None => ChannelState { channel, unread_messages: false, mentions: 0, muted: false },
+                            None => ChannelState {
+                                channel,
+                                unread_messages: false,
+                                mentions: 0,
+                                muted: false,
+                                notify_desktop: String::new(),
+                            },
                         };
                         (state.channel.id.clone(), state)
                     })
@@ -986,12 +1666,20 @@ impl ChatApp {
                 }
                 let current_ok = self.channel_id.as_ref().is_some_and(|id| self.channels.contains_key(id));
                 if !current_ok {
-                    let default = self
-                        .channels
-                        .values()
-                        .find(|c| c.channel.name == "town-square")
-                        .or_else(|| self.channels.values().next())
-                        .map(|c| c.channel.id.clone());
+                    // Dernier canal ouvert dans cette équipe, sinon « Town Square ».
+                    let remembered = self
+                        .settings
+                        .last_channels
+                        .get(&team_id)
+                        .filter(|id| self.channels.contains_key(*id))
+                        .cloned();
+                    let default = remembered.or_else(|| {
+                        self.channels
+                            .values()
+                            .find(|c| c.channel.name == "town-square")
+                            .or_else(|| self.channels.values().next())
+                            .map(|c| c.channel.id.clone())
+                    });
                     if let Some(id) = default {
                         self.select_channel(id, cx);
                     }
@@ -1020,6 +1708,7 @@ impl ChatApp {
                     unread_messages: true,
                     mentions: 1,
                     muted: false,
+                    notify_desktop: String::new(),
                 });
                 // La catégorie « Messages directs » côté serveur l'inclut désormais.
                 if let Some(team_id) = self.team_id.clone() {
@@ -1034,6 +1723,19 @@ impl ChatApp {
                     self.loading_posts = false;
                     let n = self.posts.len();
                     self.scroller.update(cx, |s, cx| s.reset(n, cx));
+                    // Beaucoup de nouveaux messages : on ouvre sur la ligne
+                    // « Nouveaux messages » plutôt qu'en bas.
+                    if let Some(ix) = self.first_new_index() {
+                        if n - ix > 8 {
+                            self.scroller.update(cx, |s, cx| {
+                                s.scroll_to_item(ix.saturating_sub(1), cx);
+                            });
+                        }
+                    }
+                    // Le canal est lu : la prochaine ouverture partira d'ici.
+                    if let Some(last) = self.posts.last() {
+                        self.last_viewed.insert(channel_id.clone(), last.post.create_at);
+                    }
                 }
             }
             Event::OlderPosts { channel_id, posts } => {
@@ -1061,8 +1763,8 @@ impl ChatApp {
                     self.thread_scroller.update(cx, |s, cx| s.reset(n, cx));
                 }
             }
-            Event::Posted { post, mentions_me, channel_type } => {
-                self.on_posted(post, mentions_me, &channel_type, window, cx);
+            Event::Posted { post, mentions_me, followed, channel_type, team_id } => {
+                self.on_posted(post, mentions_me, followed, &channel_type, &team_id, window, cx);
             }
             Event::PostEdited(post) => {
                 self.request_previews([&post]);
@@ -1099,22 +1801,33 @@ impl ChatApp {
                 .detach();
             }
             Event::Connection(up) => {
-                let reconnected = up && !self.connected && self.was_connected;
                 self.connected = up;
                 self.was_connected |= up;
-                // Après une coupure, on recharge pour récupérer ce qui a été manqué.
-                if reconnected {
-                    if let Some(team_id) = self.team_id.clone() {
-                        self.send(Command::LoadTeam { team_id });
+            }
+            // Le serveur n'a pas pu rejouer les événements manqués pendant une
+            // coupure : on rattrape ce qui a changé (comme le client web).
+            Event::Resync => self.resync(),
+            Event::ChannelSince { channel_id, posts } => {
+                if self.channel_id.as_deref() == Some(&channel_id) {
+                    self.request_previews(&posts);
+                    for post in posts {
+                        if post.delete_at > 0 {
+                            self.remove_post(&post.id, cx);
+                        } else if self.posts.iter().any(|p| p.post.id == post.id) {
+                            self.replace_post(post, cx);
+                        } else if !self.crt || !post.is_reply() {
+                            let ix = self.posts.partition_point(|p| p.post.create_at <= post.create_at);
+                            self.posts.insert(ix, PostView::new(post));
+                            self.scroller.update(cx, |s, cx| s.splice(ix..ix, 1, cx));
+                        }
                     }
-                    if let Some(channel_id) = self.channel_id.clone() {
-                        self.send(Command::LoadChannel { channel_id });
-                    }
-                    self.send(Command::LoadTeamUnreads);
                 }
             }
             Event::Error(message) => {
                 eprintln!("erreur : {message}");
+                if self.screen == Screen::Chat && message.contains("Jeton refusé") {
+                    self.session_expired = true;
+                }
                 if self.screen == Screen::Connecting {
                     self.screen = Screen::Login;
                     self.commands = None;
@@ -1127,7 +1840,17 @@ impl ChatApp {
         cx.notify();
     }
 
-    fn on_posted(&mut self, post: Post, mentions_me: bool, channel_type: &str, window: &mut Window, cx: &mut Context<Self>) {
+    #[allow(clippy::too_many_arguments)]
+    fn on_posted(
+        &mut self,
+        post: Post,
+        mentions_me: bool,
+        followed: bool,
+        channel_type: &str,
+        team_id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let me_id = self.me.as_ref().map(|u| u.id.clone()).unwrap_or_default();
         let from_me = post.user_id == me_id;
         let is_current = self.channel_id.as_deref() == Some(&post.channel_id);
@@ -1148,6 +1871,8 @@ impl ChatApp {
             }
         }
 
+        // Sans fils réduits, les réponses s'affichent aussi dans le canal.
+        let in_channel_list = !post.is_reply() || !self.crt;
         if post.is_reply() {
             if let Some(ix) = self.posts.iter().position(|p| p.post.id == post.root_id) {
                 self.posts[ix].post.reply_count += 1;
@@ -1159,7 +1884,8 @@ impl ChatApp {
                     self.thread_scroller.update(cx, |s, cx| s.append(1, cx));
                 }
             }
-        } else if is_current && !self.posts.iter().any(|p| p.post.id == post.id) {
+        }
+        if in_channel_list && is_current && !self.posts.iter().any(|p| p.post.id == post.id) {
             self.posts.push(PostView::new(post.clone()));
             self.scroller.update(cx, |s, cx| s.append(1, cx));
         }
@@ -1172,8 +1898,8 @@ impl ChatApp {
                 state.channel.last_root_post_at = post.create_at;
             }
             if !seen && !from_me {
-                // Une réponse dans un fil ne compte que si elle nous mentionne.
-                if !post.is_reply() {
+                // Fils réduits : une réponse ne rend pas le canal non lu.
+                if in_channel_list {
                     state.unread_messages = true;
                 }
                 if mentions_me || channel_type == "D" {
@@ -1181,11 +1907,29 @@ impl ChatApp {
                 }
             }
         }
-        if seen {
+        if seen && self.manually_unread.as_deref() != Some(post.channel_id.as_str()) {
             self.send(Command::MarkRead { channel_id: post.channel_id.clone() });
         }
 
-        let notify = !from_me && !seen && (mentions_me || channel_type == "D");
+        let state = self.channels.get(&post.channel_id);
+        let me = self.me.as_ref();
+        let notify = crate::notify_rules::should_notify(&crate::notify_rules::Input {
+            from_me,
+            from_webhook: post.from_webhook(),
+            is_system: post.is_system(),
+            channel_type,
+            channel_muted: state.is_some_and(|s| s.muted),
+            channel_level: state.map(|s| s.notify_desktop.as_str()).unwrap_or(""),
+            user_level: me.and_then(|m| m.notify_props.get("desktop")).map(String::as_str).unwrap_or(""),
+            my_status: self.statuses.get(&me_id).map(String::as_str).unwrap_or(""),
+            mentions_me,
+            follows_thread: followed,
+            is_reply: post.is_reply(),
+            collapsed_threads: self.crt,
+            window_active: active,
+            channel_visible: is_current,
+            thread_visible: self.thread.as_ref().is_some_and(|t| t.root_id == post.root_id),
+        });
         if notify {
             let sender = self.user_name(&post.user_id);
             let title = match self.channels.get(&post.channel_id) {
@@ -1195,7 +1939,16 @@ impl ChatApp {
                 _ => sender,
             };
             let body = markdown::plain_text(&post.message);
-            self.send(Command::Notify { title, body });
+            let target = ClickTarget {
+                team_id: if team_id.is_empty() { self.team_id.clone().unwrap_or_default() } else { team_id.to_string() },
+                channel_id: post.channel_id.clone(),
+            };
+            self.send(Command::Notify { title, body, target: Some(target) });
+            if !active {
+                if let Some(hwnd) = self.hwnd {
+                    desktop::flash(hwnd);
+                }
+            }
         }
     }
 
@@ -1302,6 +2055,27 @@ fn image_format(bytes: &[u8]) -> Option<ImageFormat> {
     }
 }
 
+/// Mot déclenchant l'autocomplétion juste avant le curseur :
+/// (type, début du mot en octets, terme recherché).
+fn autocomplete_trigger(text: &str, cursor: usize) -> Option<(AcKind, usize, String)> {
+    let before = text.get(..cursor)?;
+    let start = before.rfind(char::is_whitespace).map(|i| i + before[i..].chars().next().map_or(1, char::len_utf8)).unwrap_or(0);
+    let word = &before[start..];
+    let mut chars = word.chars();
+    let first = chars.next()?;
+    let rest = chars.as_str();
+    match first {
+        '@' if !rest.is_empty() => Some((AcKind::User, start, rest.to_string())),
+        '~' if !rest.is_empty() => Some((AcKind::Channel, start, rest.to_string())),
+        ':' if rest.chars().count() >= 2 && !rest.contains(':') => Some((AcKind::Emoji, start, rest.to_lowercase())),
+        // Commande : seulement en tout début de message, sur la première ligne.
+        '/' if start == 0 && !before.contains('\n') && !rest.starts_with('/') => {
+            Some((AcKind::Command, 0, before.to_string()))
+        }
+        _ => None,
+    }
+}
+
 /// Exécute une tâche bloquante sur un thread à part ; le résultat arrive
 /// sur le canal renvoyé (à attendre depuis une tâche GPUI).
 fn in_background<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> async_channel::Receiver<T> {
@@ -1310,4 +2084,58 @@ fn in_background<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> a
         let _ = tx.send_blocking(f());
     });
     rx
+}
+
+/// Fils réduits (« Collapsed Reply Threads ») actifs ? Même règle que le
+/// client web : autorisés par le serveur, et activés par l'utilisateur ou
+/// imposés / activés par défaut par le serveur.
+fn collapsed_threads_enabled(config: &HashMap<String, String>, prefs: &[Preference]) -> bool {
+    let server = config.get("CollapsedThreads").map(String::as_str).unwrap_or("default_on");
+    if server == "disabled" {
+        return false;
+    }
+    if server == "always_on" {
+        return true;
+    }
+    let pref = prefs
+        .iter()
+        .find(|p| p.category == "display_settings" && p.name == "collapsed_reply_threads")
+        .map(|p| p.value.as_str());
+    match pref {
+        Some(v) => v == "on",
+        None => server == "default_on",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{HashMap, Preference, collapsed_threads_enabled};
+
+    fn pref(v: &str) -> Vec<Preference> {
+        vec![Preference { user_id: String::new(), category: "display_settings".into(), name: "collapsed_reply_threads".into(), value: v.into() }]
+    }
+
+    #[test]
+    fn autocomplete_triggers() {
+        use super::{AcKind, autocomplete_trigger};
+        assert_eq!(autocomplete_trigger("salut @je", 9), Some((AcKind::User, 6, "je".into())));
+        assert_eq!(autocomplete_trigger("voir ~glp", 9), Some((AcKind::Channel, 5, "glp".into())));
+        assert_eq!(autocomplete_trigger("bravo :th", 9), Some((AcKind::Emoji, 6, "th".into())));
+        assert_eq!(autocomplete_trigger("/aw", 3), Some((AcKind::Command, 0, "/aw".into())));
+        assert_eq!(autocomplete_trigger("a /aw", 5), None);
+        assert_eq!(autocomplete_trigger("12:30", 5), None);
+        assert_eq!(autocomplete_trigger("mail a@b", 8), None);
+        assert_eq!(autocomplete_trigger("@", 1), None);
+    }
+
+    #[test]
+    fn collapsed_threads_rules() {
+        let cfg = |v: &str| HashMap::from([("CollapsedThreads".to_string(), v.to_string())]);
+        assert!(!collapsed_threads_enabled(&cfg("disabled"), &pref("on")));
+        assert!(collapsed_threads_enabled(&cfg("always_on"), &pref("off")));
+        assert!(collapsed_threads_enabled(&cfg("default_on"), &[]));
+        assert!(!collapsed_threads_enabled(&cfg("default_off"), &[]));
+        assert!(!collapsed_threads_enabled(&cfg("default_on"), &pref("off")));
+        assert!(collapsed_threads_enabled(&cfg("default_off"), &pref("on")));
+    }
 }

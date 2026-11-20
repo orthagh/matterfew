@@ -86,6 +86,10 @@ impl MattermostTheme {
     }
 }
 
+/// Police d'interface de Windows 11 : un client natif adopte la police du
+/// système plutôt que d'imiter celle du client web.
+const NATIVE_FONT: &str = "Segoe UI Variable Text";
+
 /// Palette prête à l'emploi pour le rendu.
 #[derive(Debug, Clone, Copy)]
 pub struct Palette {
@@ -105,6 +109,7 @@ pub struct Palette {
     pub mention_color: Hsla,
     pub center_bg: Hsla,
     pub center_color: Hsla,
+    pub new_separator: Hsla,
     pub link: Hsla,
     pub button_bg: Hsla,
     pub button_color: Hsla,
@@ -134,6 +139,7 @@ impl Palette {
             mention_color: c(&t.mention_color, &d.mention_color),
             center_bg: c(&t.center_channel_bg, &d.center_channel_bg),
             center_color: c(&t.center_channel_color, &d.center_channel_color),
+            new_separator: c(&t.new_message_separator, &d.new_message_separator),
             link: c(&t.link_color, &d.link_color),
             button_bg: c(&t.button_bg, &d.button_bg),
             button_color: c(&t.button_color, &d.button_color),
@@ -167,7 +173,14 @@ impl Palette {
         // `Theme::update` resynchronise les jetons de style dérivés des
         // couleurs (sinon les boutons garderaient leur couleur d'origine).
         let p = *self;
-        Theme::update(cx, move |theme| p.write_colors(theme));
+        // Police native de Windows 11 si elle est installée (sinon, celle du système).
+        let native = cx.text_system().all_font_names().iter().any(|n| n == NATIVE_FONT);
+        Theme::update(cx, move |theme| {
+            p.write_colors(theme);
+            if native {
+                theme.font_family = NATIVE_FONT.into();
+            }
+        });
     }
 
     fn write_colors(&self, theme: &mut Theme) {
@@ -248,8 +261,8 @@ mod tests {
     #[test]
     fn team_theme_overrides_global() {
         let prefs = vec![
-            Preference { category: "theme".into(), name: "".into(), value: r##"{"sidebarBg":"#111111"}"##.into() },
-            Preference { category: "theme".into(), name: "team1".into(), value: r##"{"sidebarBg":"#222222"}"##.into() },
+            Preference { user_id: String::new(), category: "theme".into(), name: "".into(), value: r##"{"sidebarBg":"#111111"}"##.into() },
+            Preference { user_id: String::new(), category: "theme".into(), name: "team1".into(), value: r##"{"sidebarBg":"#222222"}"##.into() },
         ];
         assert_eq!(MattermostTheme::from_preferences(&prefs, Some("team1")).sidebar_bg, "#222222");
         assert_eq!(MattermostTheme::from_preferences(&prefs, Some("autre")).sidebar_bg, "#111111");

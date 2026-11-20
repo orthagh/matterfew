@@ -5,9 +5,14 @@ mod api;
 mod backend;
 mod credentials;
 mod demo;
+mod desktop;
+mod editor;
 mod emoji;
+mod icons;
 mod markdown;
 mod notify;
+mod notify_rules;
+mod rich;
 mod settings;
 mod sidebar;
 mod sso;
@@ -16,6 +21,38 @@ mod ui;
 
 use gpui_kit::*;
 
+// Icônes Lucide utilisées par l'application, en plus de celles des composants
+// (seules celles-ci sont embarquées dans l'exécutable).
+gpui_kit::assets::icon_assets!(
+    ExtraIcons,
+    [
+        Bold, Italic, Strikethrough, Code, Link, Heading, TextQuote, List, ListOrdered, SquareCode, Paperclip,
+        SendHorizontal, Eye, EyeOff, Reply, Ellipsis, EllipsisVertical, Star, Bell, BellOff, Pin, Bookmark, Copy,
+        Pencil, Trash, MailOpen, Hash, Lock, Users, ChevronDown, ChevronRight, X, LogOut, Moon, CircleMinus,
+        CircleCheck, Circle, ArrowUpDown, CheckCheck
+    ]
+);
+
+/// Icônes de l'application + icônes par défaut de GPUI Kit.
+struct AppAssets;
+
+impl AssetSource for AppAssets {
+    fn load(&self, path: &str) -> Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        if let Some(bytes) = ExtraIcons.load(path)? {
+            return Ok(Some(bytes));
+        }
+        gpui_kit::assets::Assets.load(path)
+    }
+
+    fn list(&self, path: &str) -> Result<Vec<SharedString>> {
+        let mut paths = gpui_kit::assets::Assets.list(path)?;
+        paths.extend(ExtraIcons.list(path)?);
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+}
+
 fn main() {
     // Fenêtre de connexion « via Mattermost » (processus séparé, voir sso.rs).
     let args: Vec<String> = std::env::args().collect();
@@ -23,11 +60,17 @@ fn main() {
         let url = args.get(ix + 1).cloned().unwrap_or_default();
         sso::run_login_window(&url);
     }
+    // Déjà lancée : on ramène l'instance existante au premier plan.
+    if !args.iter().any(|a| a == "--demo") && !desktop::single_instance() {
+        return;
+    }
 
     gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(AppAssets)
         .run(|cx| {
             gpui_kit::init(cx);
+            // Identité de l'application pour Windows (notifications, barre des tâches).
+            desktop::init();
             // Thème clair ou sombre selon le réglage du système.
             gpui_kit::component::Theme::sync_system_appearance(None, cx);
 
@@ -35,7 +78,7 @@ fn main() {
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Mattermost — client GPUI".into()),
+                    title: Some(desktop::WINDOW_TITLE.into()),
                     ..Default::default()
                 }),
                 ..Default::default()
