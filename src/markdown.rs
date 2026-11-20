@@ -52,8 +52,29 @@ fn text_ranges(source: &str) -> Vec<Range<usize>> {
     ranges
 }
 
+/// Préfixe des images d'emojis personnalisés (résolues par l'interface).
+pub const CUSTOM_EMOJI_SCHEME: &str = "mm-emoji:";
+
 /// Markdown prêt pour l'affichage.
 pub fn prepare(source: &str) -> String {
+    prepare_with(source, &[])
+}
+
+/// Comme [`prepare`], et `:nom:` d'un emoji personnalisé connu devient une
+/// petite image en ligne (20 px), résolue par l'interface.
+pub fn prepare_with(source: &str, custom_emojis: &[String]) -> String {
+    let mut prepared = prepare_text(source);
+    for name in custom_emojis {
+        let code = format!(":{name}:");
+        if prepared.contains(&code) {
+            let tag = format!(r#"<img src="{CUSTOM_EMOJI_SCHEME}{name}" alt="{code}" width="20" height="20" />"#);
+            prepared = prepared.replace(&code, &tag);
+        }
+    }
+    prepared
+}
+
+fn prepare_text(source: &str) -> String {
     let mut out = String::with_capacity(source.len() + 16);
     let mut cursor = 0;
     for range in text_ranges(source) {
@@ -156,6 +177,14 @@ mod tests {
     fn emails_and_existing_links_untouched() {
         assert_eq!(prepare("écrire à a@b.fr"), "écrire à a@b.fr");
         assert_eq!(prepare("[@x](https://x.org)"), "[@x](https://x.org)");
+    }
+
+    #[test]
+    fn custom_emojis_become_inline_images() {
+        let out = prepare_with("bravo :glpi: !", &["glpi".to_string()]);
+        assert_eq!(out, r#"bravo <img src="mm-emoji:glpi" alt=":glpi:" width="20" height="20" /> !"#);
+        // Inconnu : laissé tel quel.
+        assert_eq!(prepare_with(":autre:", &["glpi".to_string()]), ":autre:");
     }
 
     #[test]

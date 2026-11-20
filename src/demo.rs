@@ -27,6 +27,7 @@ fn user(id: &str, first: &str, last: &str) -> User {
         last_name: last.into(),
         nickname: String::new(),
         last_picture_update: 0,
+        notify_props: HashMap::from([("desktop".to_string(), "mention".to_string())]),
     }
 }
 
@@ -38,6 +39,7 @@ fn channel(id: &str, kind: &str, name: &str, display: &str, purpose: &str, recen
         display_name: display.into(),
         purpose: purpose.into(),
         header: String::new(),
+        total_msg_count: 10,
         total_msg_count_root: 10,
         last_post_at: recency,
         last_root_post_at: recency,
@@ -95,6 +97,21 @@ impl Demo {
             channel("gm1", "G", "gm", "Chloé Durand, Inès Laurent", "", now - 8 * h),
         ];
 
+        // Beaucoup de canaux, comme sur un vrai serveur : la barre latérale
+        // doit défiler sans écraser ses lignes.
+        let mut channels = channels;
+        for (i, name) in [
+            "marketplace", "partners-day", "itil-process", "glpi-ai", "securite", "tech-marketing", "equipe-caen",
+            "proservices", "cloud", "services-dev", "rd-edition", "matos-studio", "sportifs-du-jeudi", "green-it",
+            "articles", "formation", "agent-inventory", "mobile", "documentation", "qualite", "support-n1",
+            "commercial", "rh", "evenements", "infra", "recrutement", "traduction", "communaute",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let kind = if i % 3 == 0 { "O" } else { "P" };
+            channels.push(channel(&format!("x{i}"), kind, name, name, "", now - (40 + i as i64) * h));
+        }
         let mut demo = Self { users, channels, posts: HashMap::new(), replies: HashMap::new(), uploads: HashMap::new(), next_id: 1000 };
         let day = 24 * h;
         let m = 60_000;
@@ -122,6 +139,10 @@ impl Demo {
 
         demo.add("veille", "u2", now - 3 * day, "Article intéressant sur GPUI, le framework d'interface de Zed :rocket:", &[("+1", &["u6"])], 0);
         demo.add("random", "u3", now - 30 * h, "Qui vient au repas d'équipe vendredi ? :pizza:", &[("raised_hand", &["u1", "u2", "u4", ME])], 0);
+        demo.add("random", "u5", now - 29 * h, "Moi ! Et vive :glpi: :tada:", &[("glpi", &["u1", "u3"])], 0);
+        if let Some(post) = demo.posts.get_mut("random").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 29 * h)) {
+            post.metadata.emojis = vec![crate::api::CustomEmoji { id: "e-glpi".into(), name: "glpi".into() }];
+        }
 
         demo.add("dm1", "u1", now - 40 * m, "Tu as deux minutes pour la démo de jeudi ?", &[], 0);
         demo.add("dm1", "u1", now - 20 * m, "Je voudrais caler l'ordre de passage :slightly_smiling_face:", &[], 0);
@@ -148,6 +169,42 @@ impl Demo {
                 file("f-csv1", "mesures.csv", "text/csv", 18_300, 0, 0),
             ],
         );
+
+        // Intégration (GitLab) et aperçu de lien.
+        demo.add("backend", "u6", now - 90 * m, "", &[], 0);
+        if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 90 * m)) {
+            post.props = serde_json::json!({
+                "from_webhook": "true",
+                "override_username": "GitLab",
+                "attachments": [{
+                    "color": "#fc6d26",
+                    "pretext": "Nathan Simon a fusionné une demande de fusion",
+                    "author_name": "glpi / glpi",
+                    "title": "!1842 Correction de l'export CSV des tickets",
+                    "title_link": "https://example.org/glpi/glpi/-/merge_requests/1842",
+                    "text": "Corrige les filtres perdus lors de l'export. Ajoute des tests sur `Search::export`.",
+                    "fields": [
+                        {"title": "Branche", "value": "fix/csv-export", "short": true},
+                        {"title": "Pipeline", "value": "✅ réussi", "short": true}
+                    ],
+                    "footer": "GitLab",
+                    "actions": [{"id": "deploy", "name": "Déployer en recette", "type": "button", "style": "primary"}]
+                }]
+            });
+        }
+        demo.add("veille", "u2", now - 2 * day, "À lire : https://example.org/gpui-zed", &[], 0);
+        if let Some(post) = demo.posts.get_mut("veille").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * day)) {
+            post.metadata.embeds = serde_json::json!([{
+                "type": "opengraph",
+                "url": "https://example.org/gpui-zed",
+                "data": {
+                    "site_name": "Le blog tech",
+                    "title": "GPUI : le moteur d'interface de Zed",
+                    "description": "Comment Zed dessine son interface directement sur la carte graphique, et pourquoi Discord l'a choisi pour sa réécriture.",
+                    "images": [{"secure_url": "demo://og-gpui"}]
+                }
+            }]);
+        }
 
         // Réponses de quelques fils.
         let root = demo.posts["general"][0].id.clone();
@@ -221,9 +278,11 @@ pub fn start() -> Backend {
             send(Event::Ready {
                 me: demo.users[0].clone(),
                 teams: vec![
-                    Team { id: "t1".into(), display_name: "Équipe démo".into(), last_team_icon_update: 1 },
-                    Team { id: "t2".into(), display_name: "Projets clients".into(), last_team_icon_update: 0 },
+                    Team { id: "t1".into(), name: "demo".into(), display_name: "Équipe démo".into(), last_team_icon_update: 1 },
+                    Team { id: "t2".into(), name: "clients".into(), display_name: "Projets clients".into(), last_team_icon_update: 0 },
                 ],
+                config: HashMap::from([("CollapsedThreads".to_string(), "default_on".to_string())]),
+                prefs: demo_preferences(),
             });
             send(Event::TeamIcon { team_id: "t1".into(), bytes: Arc::new(bmp(64, 64, 0x2f6fd8, 0x30c4a0)) });
             send(Event::TeamUnreads(vec![TeamUnread {
@@ -243,11 +302,6 @@ pub fn start() -> Backend {
                 ("u5".into(), "online".into()),
                 ("u6".into(), "online".into()),
             ]));
-            send(Event::Prefs(vec![Preference {
-                category: "sidebar_settings".into(),
-                name: "show_unread_section".into(),
-                value: "true".into(),
-            }]));
             send(Event::Connection(true));
 
             let mut tick = 0u32;
@@ -267,10 +321,11 @@ pub fn start() -> Backend {
                                 create_at: now_ms(),
                                 user_id: "u5".into(),
                                 channel_id: "random".into(),
-                                message: "Nouveau message en temps réel (démo) :sparkles:".into(),
+                                message: "@camille.martin nouveau message en temps réel (démo) :sparkles:".into(),
                                 ..Default::default()
                             };
-                            send(Event::Posted { post, mentions_me: false, channel_type: "O".into() });
+                            demo.posts.entry("random".into()).or_default().push(post.clone());
+                            send(Event::Posted { post, mentions_me: true, followed: false, channel_type: "O".into(), team_id: "t1".into() });
                         }
                     }
                     Err(()) => return,
@@ -319,19 +374,32 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                         _ => (10, 0),
                     };
                     let mark_unread = if c.id == "veille" { "mention" } else { "all" };
+                    // Lu jusqu'à… : les messages plus récents sont « nouveaux ».
+                    let last_viewed_at = match c.id.as_str() {
+                        "dm1" => now_ms() - 3_600_000,
+                        "support" => now_ms() - 5 * 3_600_000 - 1_800_000,
+                        "design" => now_ms() - 30 * 3_600_000,
+                        _ => now_ms(),
+                    };
                     ChannelMember {
                         channel_id: c.id.clone(),
+                        last_viewed_at,
+                        msg_count: read,
                         msg_count_root: read,
+                        mention_count: mentions,
                         mention_count_root: mentions,
-                        notify_props: NotifyProps { mark_unread: mark_unread.into() },
+                        notify_props: NotifyProps { mark_unread: mark_unread.into(), desktop: "default".into() },
                     }
                 })
                 .collect();
+            let mut channel_ids = vec!["backend", "design", "veille", "random"];
+            let extra: Vec<String> = demo.channels.iter().filter(|c| c.id.starts_with('x')).map(|c| c.id.clone()).collect();
+            channel_ids.extend(extra.iter().map(String::as_str));
             send(Event::Categories {
                 team_id: team_id.clone(),
                 categories: vec![
                     category("fav", "favorites", "Favoris", "", &["general"]),
-                    category("ch", "channels", "Canaux", "alpha", &["backend", "design", "veille", "random"]),
+                    category("ch", "channels", "Canaux", "alpha", &channel_ids),
                     category("clients", "custom", "Clients", "manual", &["support"]),
                     category("dm", "direct_messages", "Messages directs", "recent", &["dm1", "dm2", "dm3", "gm1"]),
                 ],
@@ -376,7 +444,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                     root.reply_count += 1;
                 }
             }
-            send(Event::Posted { post, mentions_me: false, channel_type: "O".into() });
+            send(Event::Posted { post, mentions_me: false, followed: false, channel_type: "O".into(), team_id: "t1".into() });
         }
         Command::Edit { post_id, message } => {
             if let Some(post) = demo.find_mut(&post_id) {
@@ -440,12 +508,103 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             demo.uploads.insert(id, info.clone());
             send(Event::Uploaded { local_id, file: info });
         }
+        Command::SyncChannel { channel_id, .. } => send(Event::ChannelSince { channel_id, posts: Vec::new() }),
+        Command::LoadExternalImage { url } => {
+            if url.starts_with("demo://") {
+                send(Event::ExternalImage { url, bytes: Arc::new(bmp(200, 200, 0x7b2ff7, 0x1c58d9)) });
+            }
+        }
+        Command::PostAction { .. }
+        | Command::ExecuteCommand { .. }
+        | Command::MarkUnread { .. }
+        | Command::SavePost { .. }
+        | Command::UpdateCategories { .. }
+        | Command::SetMuted { .. }
+        | Command::LeaveChannel { .. }
+        | Command::MarkChannelsRead { .. } => {}
+        Command::SetStatus { status } => send(Event::Statuses(vec![(ME.into(), status)])),
+        Command::PinPost { post_id, pin } => {
+            if let Some(post) = demo.find_mut(&post_id) {
+                post.is_pinned = pin;
+                send(Event::PostEdited(post.clone()));
+            }
+        }
+        Command::LoadEmoji { name, .. } => {
+            send(Event::CustomEmoji { name, bytes: Arc::new(bmp(32, 32, 0xfec400, 0xe5007d)) });
+        }
+        Command::Autocomplete { seq, kind, term, .. } => {
+            use crate::backend::{AcKind, Suggestion};
+            let term = term.to_lowercase();
+            let items: Vec<Suggestion> = match kind {
+                AcKind::User => demo
+                    .users
+                    .iter()
+                    .filter(|u| u.username.starts_with(&term) || u.first_name.to_lowercase().starts_with(&term))
+                    .map(|u| Suggestion {
+                        label: format!("@{}", u.username),
+                        detail: u.display_name(),
+                        insert: format!("@{} ", u.username),
+                        user_id: Some(u.id.clone()),
+                        glyph: None,
+                    })
+                    .collect(),
+                AcKind::Channel => demo
+                    .channels
+                    .iter()
+                    .filter(|c| (c.kind == "O" || c.kind == "P") && c.name.starts_with(&term))
+                    .take(10)
+                    .map(|c| Suggestion {
+                        label: format!("~{}", c.name),
+                        detail: c.display_name.clone(),
+                        insert: format!("~{} ", c.name),
+                        user_id: None,
+                        glyph: None,
+                    })
+                    .collect(),
+                AcKind::Emoji => ["glpi", "teclib"]
+                    .iter()
+                    .filter(|n| n.starts_with(&term))
+                    .map(|n| Suggestion {
+                        label: format!(":{n}:"),
+                        detail: "emoji personnalisé".into(),
+                        insert: format!(":{n}: "),
+                        user_id: None,
+                        glyph: Some(n.to_string()),
+                    })
+                    .collect(),
+                AcKind::Command => [
+                    ("/away", "Passer en « Absent »"),
+                    ("/dnd", "Ne pas déranger"),
+                    ("/online", "Passer en ligne"),
+                    ("/me", "Message à la troisième personne"),
+                    ("/shrug", "¯\\_(ツ)_/¯"),
+                ]
+                .iter()
+                .filter(|(c, _)| c.starts_with(&term))
+                .map(|(c, d)| Suggestion {
+                    label: c.to_string(),
+                    detail: d.to_string(),
+                    insert: format!("{c} "),
+                    user_id: None,
+                    glyph: None,
+                })
+                .collect(),
+            };
+            for s in &items {
+                if let (AcKind::Emoji, Some(name)) = (kind, &s.glyph) {
+                    send(Event::CustomEmoji { name: name.clone(), bytes: Arc::new(bmp(32, 32, 0xfec400, 0xe5007d)) });
+                }
+            }
+            send(Event::Suggestions { seq, kind, items });
+        }
         Command::LoadPreferences
+        | Command::SetCollapsedThreads(_)
         | Command::SetCategoryCollapsed { .. }
         | Command::Typing { .. }
         | Command::MarkRead { .. }
         | Command::FetchChannel { .. }
-        | Command::Notify { .. } => {}
+        => {}
+        Command::Notify { title, body, target } => crate::notify::show(&title, &body, target),
     }
 }
 
@@ -488,4 +647,24 @@ fn bmp(width: u32, height: u32, from: u32, to: u32) -> Vec<u8> {
         out.extend(std::iter::repeat_n(0u8, (row - width * 3) as usize));
     }
     out
+}
+
+/// Préférences de la démo. `--theme fichier.json` applique un thème
+/// Mattermost (le JSON copié depuis Paramètres › Affichage › Thème ›
+/// « Copier le thème » du client web) pour vérifier le rendu avec ses couleurs.
+fn demo_preferences() -> Vec<Preference> {
+    let mut prefs = vec![Preference {
+        user_id: String::new(),
+        category: "sidebar_settings".into(),
+        name: "show_unread_section".into(),
+        value: "true".into(),
+    }];
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(path) = args.iter().position(|a| a == "--theme").and_then(|i| args.get(i + 1)) {
+        match std::fs::read_to_string(path) {
+            Ok(value) => prefs.push(Preference { user_id: String::new(), category: "theme".into(), name: String::new(), value }),
+            Err(err) => eprintln!("thème illisible ({path}) : {err}"),
+        }
+    }
+    prefs
 }

@@ -37,9 +37,30 @@ pub fn replace_shortcodes(text: &str) -> String {
     out
 }
 
+/// Emojis standard dont un nom court commence par `prefix` : (nom, caractère).
+/// Les noms les plus courts d'abord (« smile » avant « smiley_cat »).
+pub fn search(prefix: &str, limit: usize) -> Vec<(String, String)> {
+    let prefix = prefix.to_lowercase();
+    let mut found: Vec<(String, String)> = emojis::iter()
+        .flat_map(|e| e.shortcodes().map(move |code| (code.to_string(), e.as_str().to_string())))
+        .filter(|(code, _)| code.starts_with(&prefix))
+        .collect();
+    found.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then_with(|| a.0.cmp(&b.0)));
+    found.dedup_by(|a, b| a.1 == b.1);
+    found.truncate(limit);
+    found
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_by_prefix() {
+        let found = search("thumbs", 5);
+        assert!(found.iter().any(|(code, glyph)| code == "thumbsup" && glyph == "👍"));
+        assert!(search("zzzz", 5).is_empty());
+    }
 
     #[test]
     fn replaces_known_codes() {

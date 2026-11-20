@@ -9,7 +9,9 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -25,6 +27,32 @@ use crate::api::{
 /// Taille d'une page de messages.
 pub const PAGE_SIZE: usize = 60;
 
+/// Type d'autocomplétion selon le caractère tapé.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AcKind {
+    /// `@` : personnes.
+    User,
+    /// `~` : canaux.
+    Channel,
+    /// `:` : emojis.
+    Emoji,
+    /// `/` en début de message : commandes.
+    Command,
+}
+
+/// Une proposition de l'autocomplétion.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Suggestion {
+    pub label: String,
+    pub detail: String,
+    /// Texte inséré à la place du mot en cours.
+    pub insert: String,
+    /// Personne proposée (pour afficher son avatar).
+    pub user_id: Option<String>,
+    /// Emoji : caractère Unicode, ou nom d'emoji personnalisé.
+    pub glyph: Option<String>,
+}
+
 #[derive(Debug)]
 pub enum Command {
     LoadTeam { team_id: String },
@@ -33,6 +61,11 @@ pub enum Command {
     SetCategoryCollapsed { team_id: String, category: SidebarCategory },
     LoadChannel { channel_id: String },
     LoadOlder { channel_id: String, before: String },
+    /// Rattrape les messages créés, modifiés ou supprimés depuis `since`.
+    SyncChannel { channel_id: String, since: i64 },
+    /// Fils réduits actifs ou non (décidé par l'interface d'après la
+    /// configuration du serveur et les préférences).
+    SetCollapsedThreads(bool),
     LoadThread { root_id: String },
     Send { channel_id: String, root_id: String, message: String, file_ids: Vec<String> },
     LoadTeamUnreads,
@@ -40,6 +73,24 @@ pub enum Command {
     LoadPreview { file_id: String },
     /// Image complète, pour la visionneuse.
     LoadFullImage { file_id: String },
+    /// Image d'un aperçu de lien ou d'une intégration (URL complète).
+    LoadExternalImage { url: String },
+    /// Bouton d'un message interactif.
+    PostAction { post_id: String, action_id: String },
+    /// Propositions pour le mot en cours de saisie (`seq` : numéro de la demande).
+    Autocomplete { seq: u64, kind: AcKind, term: String, team_id: String, channel_id: String, root_id: String },
+    /// Image d'un emoji personnalisé.
+    LoadEmoji { id: String, name: String },
+    MarkUnread { post_id: String },
+    SavePost { post_id: String, save: bool },
+    PinPost { post_id: String, pin: bool },
+    UpdateCategories { team_id: String, categories: Vec<SidebarCategory> },
+    SetMuted { channel_id: String, muted: bool },
+    LeaveChannel { channel_id: String },
+    MarkChannelsRead { channel_ids: Vec<String> },
+    SetStatus { status: String },
+    /// Commande « / » envoyée depuis la zone de saisie.
+    ExecuteCommand { channel_id: String, team_id: String, root_id: String, command: String },
     /// Télécharge un fichier joint ; `open` : l'ouvrir ensuite (sinon,
     /// l'afficher dans l'explorateur).
     Download { file: FileInfo, open: bool },
@@ -52,16 +103,24 @@ pub enum Command {
     MarkRead { channel_id: String },
     /// Charge un canal inconnu (ex. nouveau message direct reçu en temps réel).
     FetchChannel { channel_id: String },
-    Notify { title: String, body: String },
+    Notify { title: String, body: String, target: Option<crate::desktop::ClickTarget> },
 }
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    Ready { me: User, teams: Vec<Team> },
+    /// Connexion établie. `config` : configuration publique du serveur ;
+    /// `prefs` : préférences de l'utilisateur (thème, barre latérale, fils…).
+    Ready { me: User, teams: Vec<Team>, config: HashMap<String, String>, prefs: Vec<Preference> },
+    ChannelSince { channel_id: String, posts: Vec<Post> },
+    /// Des événements temps réel ont été perdus : tout resynchroniser.
+    Resync,
     TeamIcon { team_id: String, bytes: Arc<Vec<u8>> },
     TeamUnreads(Vec<TeamUnread>),
     FilePreview { file_id: String, bytes: Arc<Vec<u8>> },
     FullImage { file_id: String, result: Result<Arc<Vec<u8>>, String> },
+    ExternalImage { url: String, bytes: Arc<Vec<u8>> },
+    Suggestions { seq: u64, kind: AcKind, items: Vec<Suggestion> },
+    CustomEmoji { name: String, bytes: Arc<Vec<u8>> },
     Downloaded { path: PathBuf, open: bool },
     Uploaded { local_id: u64, file: FileInfo },
     UploadFailed { local_id: u64, error: String },
@@ -76,7 +135,8 @@ pub enum Event {
     ChannelPosts { channel_id: String, posts: Vec<Post> },
     OlderPosts { channel_id: String, posts: Vec<Post> },
     Thread { root_id: String, posts: Vec<Post> },
-    Posted { post: Post, mentions_me: bool, channel_type: String },
+    /// `followed` : l'utilisateur suit le fil de cette réponse.
+    Posted { post: Post, mentions_me: bool, followed: bool, channel_type: String, team_id: String },
     PostEdited(Post),
     PostDeleted(Post),
     ReactionAdded(Reaction, String),
@@ -131,6 +191,14 @@ struct Ctx {
     known_users: Arc<Mutex<HashSet<String>>>,
     /// Messages à envoyer sur le WebSocket (ex. « en train d'écrire »).
     ws_out: mpsc::UnboundedSender<Value>,
+    /// Fils réduits actifs (paramètre des requêtes de messages).
+    crt: Arc<AtomicBool>,
+}
+
+impl Ctx {
+    fn crt(&self) -> bool {
+        self.crt.load(Ordering::Relaxed)
+    }
 }
 
 impl Ctx {
@@ -198,8 +266,12 @@ async fn run(
     ev: async_channel::Sender<Event>,
 ) -> Result<()> {
     let client = Client::new(&server_url, &token)?;
-    let me = client.me().await?;
-    let teams = client.my_teams().await?;
+    let (me, teams, config, prefs) = tokio::try_join!(
+        client.me(),
+        client.my_teams(),
+        client.client_config(),
+        client.preferences(),
+    )?;
     let (ws_out, ws_out_rx) = mpsc::unbounded_channel();
     let ctx = Ctx {
         client,
@@ -207,6 +279,7 @@ async fn run(
         ev,
         known_users: Arc::default(),
         ws_out,
+        crt: Arc::new(AtomicBool::new(true)),
     };
     ctx.ensure_users([me.id.clone()]).await;
     // Logos des équipes, en arrière-plan.
@@ -219,18 +292,22 @@ async fn run(
             }
         });
     }
-    ctx.emit(Event::Ready { me, teams }).await;
+    ctx.emit(Event::Ready { me, teams, config, prefs }).await;
     if let Some(unreads) = ctx.report(ctx.client.team_unreads().await).await {
         ctx.emit(Event::TeamUnreads(unreads)).await;
-    }
-    if let Some(prefs) = ctx.report(ctx.client.preferences().await).await {
-        ctx.emit(Event::Prefs(prefs)).await;
     }
 
     // Temps réel : boucle WebSocket indépendante, avec reconnexion.
     tokio::spawn(websocket_loop(ctx.clone(), ws_out_rx));
+    // Présence : rafraîchie chaque minute pour les utilisateurs connus.
+    tokio::spawn(status_polling(ctx.clone()));
 
     while let Ok(cmd) = commands.recv().await {
+        // Réglage immédiat, avant les commandes qui en dépendent.
+        if let Command::SetCollapsedThreads(on) = cmd {
+            ctx.crt.store(on, Ordering::Relaxed);
+            continue;
+        }
         let ctx = ctx.clone();
         // Chaque commande est traitée en parallèle : un chargement lent
         // ne bloque pas l'envoi d'un message.
@@ -269,15 +346,21 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             client.update_category(&team_id, &category).await?;
         }
         Command::LoadChannel { channel_id } => {
-            let posts = client.channel_posts(&channel_id, PAGE_SIZE as u32).await?;
+            let posts = client.channel_posts(&channel_id, PAGE_SIZE as u32, ctx.crt()).await?;
             ctx.ensure_users(posts.iter().map(|p| p.user_id.clone())).await;
             ctx.emit(Event::ChannelPosts { channel_id, posts }).await;
         }
         Command::LoadOlder { channel_id, before } => {
-            let posts = client.channel_posts_before(&channel_id, &before, PAGE_SIZE as u32).await?;
+            let posts = client.channel_posts_before(&channel_id, &before, PAGE_SIZE as u32, ctx.crt()).await?;
             ctx.ensure_users(posts.iter().map(|p| p.user_id.clone())).await;
             ctx.emit(Event::OlderPosts { channel_id, posts }).await;
         }
+        Command::SyncChannel { channel_id, since } => {
+            let posts = client.channel_posts_since(&channel_id, since, ctx.crt()).await?;
+            ctx.ensure_users(posts.iter().map(|p| p.user_id.clone())).await;
+            ctx.emit(Event::ChannelSince { channel_id, posts }).await;
+        }
+        Command::SetCollapsedThreads(_) => {}
         Command::LoadThread { root_id } => {
             let posts = client.thread(&root_id).await?;
             ctx.ensure_users(posts.iter().map(|p| p.user_id.clone())).await;
@@ -300,6 +383,104 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::LoadFullImage { file_id } => {
             let result = client.file_content(&file_id).await.map(Arc::new).map_err(|e| format!("{e:#}"));
             ctx.emit(Event::FullImage { file_id, result }).await;
+        }
+        Command::LoadExternalImage { url } => {
+            // Échec silencieux : un aperçu manquant n'est pas une erreur à afficher.
+            if let Ok(bytes) = client.image_at(&url).await {
+                ctx.emit(Event::ExternalImage { url, bytes: Arc::new(bytes) }).await;
+            }
+        }
+        Command::PostAction { post_id, action_id } => client.post_action(&post_id, &action_id).await?,
+        Command::Autocomplete { seq, kind, term, team_id, channel_id, root_id } => {
+            let items = match kind {
+                AcKind::User => client
+                    .autocomplete_users(&team_id, &channel_id, &term)
+                    .await?
+                    .into_iter()
+                    .take(10)
+                    .map(|u| Suggestion {
+                        label: format!("@{}", u.username),
+                        detail: u.display_name(),
+                        insert: format!("@{} ", u.username),
+                        user_id: Some(u.id.clone()),
+                        glyph: None,
+                    })
+                    .collect(),
+                AcKind::Channel => client
+                    .autocomplete_channels(&team_id, &term)
+                    .await?
+                    .into_iter()
+                    .take(10)
+                    .map(|c| Suggestion {
+                        label: format!("~{}", c.name),
+                        detail: c.display_name.clone(),
+                        insert: format!("~{} ", c.name),
+                        user_id: None,
+                        glyph: None,
+                    })
+                    .collect(),
+                AcKind::Emoji => {
+                    let found = client.autocomplete_emoji(&term).await?;
+                    for e in &found {
+                        load_emoji(ctx, e.id.clone(), e.name.clone());
+                    }
+                    found
+                        .into_iter()
+                        .take(10)
+                        .map(|e| Suggestion {
+                            label: format!(":{}:", e.name),
+                            detail: "emoji personnalisé".into(),
+                            insert: format!(":{}: ", e.name),
+                            user_id: None,
+                            glyph: Some(e.name),
+                        })
+                        .collect()
+                }
+                AcKind::Command => client
+                    .command_suggestions(&team_id, &channel_id, &root_id, &term)
+                    .await?
+                    .into_iter()
+                    .take(12)
+                    .map(|c| Suggestion {
+                        label: format!("{} {}", c.suggestion, c.hint).trim().to_string(),
+                        detail: c.description,
+                        insert: format!("{} ", c.complete),
+                        user_id: None,
+                        glyph: None,
+                    })
+                    .collect(),
+            };
+            ctx.emit(Event::Suggestions { seq, kind, items }).await;
+        }
+        Command::LoadEmoji { id, name } => {
+            let bytes = client.emoji_image(&id).await?;
+            ctx.emit(Event::CustomEmoji { name, bytes: Arc::new(bytes) }).await;
+        }
+        Command::MarkUnread { post_id } => client.set_unread(&ctx.me_id, &post_id).await?,
+        Command::SavePost { post_id, save } => {
+            let pref = [Preference {
+                user_id: ctx.me_id.clone(),
+                category: "flagged_post".into(),
+                name: post_id,
+                value: "true".into(),
+            }];
+            if save {
+                client.save_preferences(&ctx.me_id, &pref).await?;
+            } else {
+                client.delete_preferences(&ctx.me_id, &pref).await?;
+            }
+        }
+        Command::PinPost { post_id, pin } => client.set_pinned(&post_id, pin).await?,
+        Command::UpdateCategories { team_id, categories } => client.update_categories(&team_id, &categories).await?,
+        Command::SetMuted { channel_id, muted } => {
+            let value = if muted { "mention" } else { "all" };
+            client.set_channel_mark_unread(&channel_id, &ctx.me_id, value).await?;
+        }
+        Command::LeaveChannel { channel_id } => client.leave_channel(&channel_id, &ctx.me_id).await?,
+        Command::MarkChannelsRead { channel_ids } => client.mark_channels_read(&channel_ids).await?,
+        Command::SetStatus { status } => client.set_status(&ctx.me_id, &status).await?,
+        Command::ExecuteCommand { channel_id, team_id, root_id, command } => {
+            client.execute_command(&channel_id, &team_id, &root_id, &command).await?;
         }
         Command::Download { file, open } => {
             let bytes = client.file_content(&file.id).await?;
@@ -343,17 +524,29 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             }
             ctx.emit(Event::ChannelAdded(channel)).await;
         }
-        Command::Notify { title, body } => {
-            tokio::task::spawn_blocking(move || crate::notify::show(&title, &body)).await?;
+        Command::Notify { title, body, target } => {
+            tokio::task::spawn_blocking(move || crate::notify::show(&title, &body, target)).await?;
         }
     }
     Ok(())
 }
 
+/// État conservé d'une connexion WebSocket à l'autre, pour la reprise.
+#[derive(Default)]
+struct WsState {
+    /// Identifiant de connexion donné par le serveur (événement `hello`).
+    connection_id: String,
+    /// Numéro du prochain événement attendu.
+    next_seq: u64,
+    /// Au moins une connexion a abouti.
+    connected_once: bool,
+}
+
 async fn websocket_loop(ctx: Ctx, mut outgoing: mpsc::UnboundedReceiver<Value>) {
     let mut delay = Duration::from_secs(1);
+    let mut state = WsState::default();
     loop {
-        match websocket_session(&ctx, &mut outgoing).await {
+        match websocket_session(&ctx, &mut outgoing, &mut state).await {
             Ok(()) => delay = Duration::from_secs(1),
             Err(err) => ctx.emit(Event::Error(format!("temps réel : {err:#}"))).await,
         }
@@ -366,8 +559,15 @@ async fn websocket_loop(ctx: Ctx, mut outgoing: mpsc::UnboundedReceiver<Value>) 
     }
 }
 
-async fn websocket_session(ctx: &Ctx, outgoing: &mut mpsc::UnboundedReceiver<Value>) -> Result<()> {
-    let (mut socket, _) = tokio_tungstenite::connect_async(ctx.client.websocket_url()).await?;
+/// Une connexion WebSocket. Chaque événement du serveur porte un numéro
+/// (`seq`) : un trou dans la suite veut dire qu'on a perdu des événements,
+/// on se reconnecte alors en redonnant `connection_id` + numéro attendu et le
+/// serveur rejoue ce qui manque. S'il ne peut pas (nouvel identifiant dans
+/// `hello`), on signale une resynchronisation complète.
+async fn websocket_session(ctx: &Ctx, outgoing: &mut mpsc::UnboundedReceiver<Value>, state: &mut WsState) -> Result<()> {
+    let url = ctx.client.websocket_resume_url(&state.connection_id, state.next_seq);
+    let (mut socket, _) = tokio_tungstenite::connect_async(url).await?;
+    let mut last_activity = std::time::Instant::now();
 
     // Authentification par « challenge » : le jeton part dans le premier
     // message, jamais dans l'URL.
@@ -385,6 +585,10 @@ async fn websocket_session(ctx: &Ctx, outgoing: &mut mpsc::UnboundedReceiver<Val
     loop {
         tokio::select! {
             _ = ping.tick() => {
+                // Plus rien reçu (même pas les réponses aux pings) : connexion morte.
+                if last_activity.elapsed() > Duration::from_secs(75) {
+                    anyhow::bail!("le serveur ne répond plus");
+                }
                 socket.send(Message::Ping(Vec::new().into())).await?;
             }
             Some(mut out) = outgoing.recv() => {
@@ -394,11 +598,35 @@ async fn websocket_session(ctx: &Ctx, outgoing: &mut mpsc::UnboundedReceiver<Val
             }
             msg = socket.next() => {
                 let Some(msg) = msg else { return Ok(()) };
+                last_activity = std::time::Instant::now();
                 match msg? {
                     Message::Text(text) => {
-                        if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                            on_ws_event(value, ctx).await;
+                        let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
+                        // Réponses à nos propres requêtes : hors numérotation.
+                        if value.get("seq_reply").is_some() {
+                            continue;
                         }
+                        let seq = value.get("seq").and_then(Value::as_u64).unwrap_or(state.next_seq);
+                        if value.get("event").and_then(Value::as_str) == Some("hello") {
+                            let id = str_field(&value, "/data/connection_id");
+                            // Nouvel identifiant (ou serveur sans reprise) après une
+                            // première connexion : des événements ont été perdus.
+                            let lost = state.connected_once && (id.is_empty() || id != state.connection_id);
+                            // Session reprise : la numérotation continue, on n'y touche pas.
+                            if id.is_empty() || id != state.connection_id {
+                                state.next_seq = seq + 1;
+                            }
+                            state.connection_id = id;
+                            state.connected_once = true;
+                            if lost {
+                                ctx.emit(Event::Resync).await;
+                            }
+                        } else if seq != state.next_seq {
+                            anyhow::bail!("événements manqués ({} attendu, {seq} reçu), reprise", state.next_seq);
+                        } else {
+                            state.next_seq = seq + 1;
+                        }
+                        on_ws_event(value, ctx).await;
                     }
                     Message::Close(_) => return Ok(()),
                     _ => {}
@@ -430,11 +658,21 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
         "hello" => Some(Event::Connection(true)),
         "posted" => nested::<Post>(&data, "post").map(|post| {
             let mentions: Vec<String> = nested(&data, "mentions").unwrap_or_default();
+            let followers: Vec<String> = nested(&data, "followers").unwrap_or_default();
             Event::Posted {
                 post,
                 mentions_me: mentions.iter().any(|m| *m == ctx.me_id),
+                followed: followers.iter().any(|m| *m == ctx.me_id),
                 channel_type: str_field(&data, "/channel_type"),
+                team_id: str_field(&data, "/team_id"),
             }
+        }),
+        "ephemeral_message" => nested::<Post>(&data, "post").map(|post| Event::Posted {
+            post,
+            mentions_me: false,
+            followed: false,
+            channel_type: String::new(),
+            team_id: String::new(),
         }),
         "post_edited" => nested::<Post>(&data, "post").map(Event::PostEdited),
         "post_deleted" => nested::<Post>(&data, "post").map(Event::PostDeleted),
@@ -501,6 +739,32 @@ pub fn group_reactions(reactions: &[Reaction], me: &str) -> Vec<(String, usize, 
         }
     }
     out
+}
+
+/// Charge l'image d'un emoji personnalisé en arrière-plan.
+fn load_emoji(ctx: &Ctx, id: String, name: String) {
+    let ctx = ctx.clone();
+    tokio::spawn(async move {
+        if let Ok(bytes) = ctx.client.emoji_image(&id).await {
+            ctx.emit(Event::CustomEmoji { name, bytes: Arc::new(bytes) }).await;
+        }
+    });
+}
+
+/// Rafraîchit la présence des utilisateurs connus chaque minute.
+async fn status_polling(ctx: Ctx) {
+    let mut tick = tokio::time::interval(Duration::from_secs(60));
+    tick.tick().await;
+    loop {
+        tick.tick().await;
+        if ctx.ev.is_closed() {
+            return;
+        }
+        let ids: Vec<String> = ctx.known_users.lock().await.iter().cloned().collect();
+        if let Ok(statuses) = ctx.client.statuses(&ids).await {
+            ctx.emit(Event::Statuses(statuses.into_iter().map(|s| (s.user_id, s.status)).collect())).await;
+        }
+    }
 }
 
 /// `dossier/nom.ext`, ou `nom (1).ext`, `nom (2).ext`… si le nom est pris.

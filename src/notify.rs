@@ -1,13 +1,12 @@
-//! Notifications de bureau natives (toasts Windows, D-Bus sous Linux…).
+//! Notifications de bureau. Sous Windows : notification avec l'identité de
+//! l'application, dont le clic ouvre le canal (voir `desktop.rs`).
 
-pub fn show(title: &str, body: &str) {
-    // Corps tronqué : les toasts Windows coupent de toute façon les longs textes.
+use crate::desktop::{self, ClickTarget};
+
+pub fn show(title: &str, body: &str, target: Option<ClickTarget>) {
+    // Corps tronqué : les notifications Windows coupent de toute façon les longs textes.
     let body: String = body.chars().take(200).collect();
-    if let Err(err) = notify_rust::Notification::new()
-        .summary(title)
-        .body(&body)
-        .show()
-    {
-        eprintln!("notification impossible : {err}");
+    if let Err(err) = desktop::show_notification(title, &body, target) {
+        eprintln!("notification impossible : {err:#}");
     }
 }
