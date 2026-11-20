@@ -102,6 +102,8 @@ pub struct Palette {
     pub sidebar_active_text: Hsla,
     pub sidebar_header_bg: Hsla,
     pub sidebar_header_text: Hsla,
+    /// Fond de la barre des équipes du thème (la barre est dérivée de la barre latérale).
+    #[allow(dead_code)]
     pub team_bar_bg: Hsla,
     pub online: Hsla,
     pub away: Hsla,

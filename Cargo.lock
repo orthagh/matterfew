@@ -4395,6 +4395,7 @@ dependencies = [
  "notify-rust",
  "pulldown-cmark",
  "raw-window-handle",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -4402,6 +4403,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tray-icon",
+ "twemoji-assets",
  "windows 0.62.2",
  "windows-registry 0.6.1",
  "winresource",
@@ -7953,6 +7955,12 @@ dependencies = [
  "thiserror 2.0.21",
  "utf-8",
 ]
+
+[[package]]
+name = "twemoji-assets"
+version = "1.5.1+17.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6857896b4a287e70f8197ab8fb9d68b3c43bb7ae97595aceaf2d11c21b93d9e9"
 
 [[package]]
 name = "typenum"

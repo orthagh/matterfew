@@ -66,40 +66,74 @@ pub fn prepare(source: &str) -> String {
 /// Comme [`prepare`], et `:nom:` d'un emoji personnalisé connu devient une
 /// petite image en ligne (20 px), résolue par l'interface.
 pub fn prepare_with(source: &str, custom_emojis: &[String]) -> String {
-    let mut prepared = prepare_text(source);
+    // Message fait seulement d'emojis : affichés en grand, comme Mattermost.
+    let jumbo = {
+        let mut shown = emoji::replace_shortcodes(source);
+        for name in custom_emojis {
+            shown = shown.replace(&format!(":{name}:"), "😀");
+        }
+        emoji::only_emojis(&shown)
+    };
+    let size = if jumbo { 34 } else { 20 };
+    let mut prepared = prepare_text(source, size);
     for name in custom_emojis {
         let code = format!(":{name}:");
         if prepared.contains(&code) {
-            let tag = format!(r#"<img src="{CUSTOM_EMOJI_SCHEME}{name}" alt="{code}" width="20" height="20" />"#);
+            let tag = format!(r#"<img src="{CUSTOM_EMOJI_SCHEME}{name}" alt="{code}" width="{size}" height="{size}" />"#);
             prepared = prepared.replace(&code, &tag);
         }
     }
     prepared
 }
 
-fn prepare_text(source: &str) -> String {
+fn prepare_text(source: &str, emoji_size: u32) -> String {
     let mut out = String::with_capacity(source.len() + 16);
     let mut cursor = 0;
     for range in text_ranges(source) {
         out.push_str(&source[cursor..range.start]);
-        out.push_str(&transform_text(&source[range.clone()]));
+        out.push_str(&transform_text(&source[range.clone()], emoji_size));
         cursor = range.end;
     }
     out.push_str(&source[cursor..]);
     out
 }
 
-fn transform_text(text: &str) -> String {
+fn transform_text(text: &str, emoji_size: u32) -> String {
     let text = emoji::replace_shortcodes(text);
     let mut out = String::with_capacity(text.len());
     for (chunk, kind) in split_tokens(&text) {
         match kind {
             Token::Mention => out.push_str(&format!("[{chunk}]({MENTION_SCHEME}{})", &chunk[1..])),
             Token::Hashtag => out.push_str(&format!("[{chunk}]({HASHTAG_SCHEME}{})", &chunk[1..])),
-            Token::Text => out.push_str(chunk),
+            // Emojis Unicode → images Twemoji (même rendu partout, plus moderne
+            // que la police emoji du système).
+            Token::Text => {
+                for (piece, is_link) in crate::autolink::apply(chunk) {
+                    if is_link {
+                        out.push_str(&piece);
+                        continue;
+                    }
+                    push_with_emojis(&mut out, &piece, emoji_size);
+                }
+            }
         }
     }
     out
+}
+
+/// Texte avec ses emojis Unicode en images Twemoji.
+fn push_with_emojis(out: &mut String, text: &str, emoji_size: u32) {
+    for (part, is_emoji) in emoji::split_emojis(text) {
+        if is_emoji {
+            out.push_str(&format!(
+                r#"<img src="{}{}" alt="{part}" width="{emoji_size}" height="{emoji_size}" />"#,
+                emoji::TWEMOJI_SCHEME,
+                emoji::to_hex(part)
+            ));
+        } else {
+            out.push_str(part);
+        }
+    }
 }
 
 /// Étiquettes (`#sujet`, sans le `#`) présentes dans un message.
@@ -225,10 +259,12 @@ mod tests {
 
     #[test]
     fn emojis_outside_code_only() {
-        assert_eq!(prepare("bravo :tada:"), "bravo 🎉");
+        assert_eq!(prepare("bravo :tada: !"), r#"bravo <img src="mm-twemoji:1f389" alt="🎉" width="20" height="20" /> !"#);
         assert_eq!(prepare("`:tada:`"), "`:tada:`");
         assert_eq!(prepare("```\n:tada:\n```"), "```\n:tada:\n```");
-        assert_eq!(prepare("ok :white_check_mark:"), "ok ✅");
+        assert!(prepare("ok :white_check_mark:").contains("mm-twemoji:2705"));
+        // Seulement des emojis : en grand.
+        assert!(prepare(":tada::tada:").contains(r#"width="34""#));
     }
 
     #[test]

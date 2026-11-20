@@ -64,6 +64,30 @@ impl Render for SidebarResize {
     }
 }
 
+/// Canal déplacé dans la barre latérale (catégorie triée à la main).
+#[derive(Clone)]
+pub(crate) struct DraggedChannel {
+    pub channel_id: String,
+    pub title: SharedString,
+    pub bg: Hsla,
+    pub fg: Hsla,
+}
+
+impl Render for DraggedChannel {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_3()
+            .py_1()
+            .rounded(px(6.))
+            .bg(self.bg)
+            .text_color(self.fg)
+            .text_sm()
+            .font_weight(FontWeight::SEMIBOLD)
+            .shadow_md()
+            .child(self.title.clone())
+    }
+}
+
 /// Propositions d'autocomplétion affichées au-dessus d'une zone de saisie.
 struct Autocomplete {
     pane: Pane,
@@ -102,6 +126,22 @@ fn card_origin(at: Point<Pixels>, window: &Window) -> Point<Pixels> {
     let x = (at.x + px(14.)).min(size.width - px(PROFILE_CARD_WIDTH + 12.)).max(px(8.));
     let y = at.y.min(size.height - px(PROFILE_CARD_HEIGHT)).max(px(8.));
     point(x, y)
+}
+
+/// Nombre de membres d'une équipe et droit de la modifier.
+#[derive(Clone, Copy)]
+pub(crate) struct TeamInfo {
+    pub total: i64,
+    pub active: i64,
+    pub admin: bool,
+}
+
+/// Fenêtre « Ajouter des membres » d'un canal.
+pub(crate) struct AddMembers {
+    pub channel_id: String,
+    /// `None` pendant la recherche.
+    pub results: Option<Vec<User>>,
+    pub added: HashSet<String>,
 }
 
 /// Onglets du panneau des fichiers d'un canal.
@@ -216,6 +256,19 @@ pub struct ChatApp {
     /// Administrateurs de chaque canal chargé.
     channel_admins: HashMap<String, Vec<String>>,
     profile: Option<ProfileCard>,
+    /// Carte de l'équipe ouverte (clic sur son nom), en modification ou non.
+    team_card: Option<bool>,
+    team_info: HashMap<String, TeamInfo>,
+    team_desc_input: Entity<InputState>,
+    add_members: Option<AddMembers>,
+    member_search_input: Entity<InputState>,
+    /// Messages de bots dépliés (sinon réduits à quelques lignes).
+    expanded_bots: HashSet<String>,
+    /// Correcteur orthographique de Windows, et mots signalés par zone de saisie.
+    spell: Option<crate::spell::Checker>,
+    misspellings: HashMap<Pane, Vec<crate::spell::Misspelling>>,
+    /// Règles Autolink du serveur (en plus de celles de ui.json).
+    server_autolinks: Vec<crate::autolink::RuleDef>,
     /// Images sans aperçu possible (affichées en carte de fichier).
     failed_previews: HashSet<String>,
     /// Fichiers de chaque canal (recherche du serveur).
@@ -322,6 +375,8 @@ impl ChatApp {
         let password_input = cx.new(|cx| InputState::new(window, cx).placeholder("Mot de passe").masked(true));
         let mfa_input = cx.new(|cx| InputState::new(window, cx).placeholder("Code à 6 chiffres"));
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher"));
+        let team_desc_input = cx.new(|cx| InputState::new(window, cx).placeholder("Décrivez l'équipe en une phrase"));
+        let member_search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Nom ou identifiant"));
         let switcher_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Aller à un canal ou une conversation"));
         let emoji_search = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher un emoji"));
@@ -347,13 +402,26 @@ impl ChatApp {
                     InputEvent::Change => {
                         this.signal_typing(pane);
                         this.update_autocomplete(pane, cx);
+                        this.check_spelling(pane, cx);
                     }
                     _ => {}
                 }
             }
         };
 
+        let settings = UiSettings::load();
+        crate::autolink::set_rules(&settings.autolinks);
         let subscriptions = vec![
+            cx.subscribe_in(&member_search_input, window, |this, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::Change = ev {
+                    this.search_member_candidates(cx);
+                }
+            }),
+            cx.subscribe_in(&team_desc_input, window, |this, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::PressEnter { .. } = ev {
+                    this.save_team_description(cx);
+                }
+            }),
             cx.subscribe_in(&composer, window, composer_events(Pane::Channel)),
             cx.subscribe_in(&thread_composer, window, composer_events(Pane::Thread)),
             cx.subscribe_in(&token_input, window, |this, _, ev: &InputEvent, window, cx| {
@@ -468,6 +536,15 @@ impl ChatApp {
             members: HashMap::new(),
             channel_admins: HashMap::new(),
             profile: None,
+            team_card: None,
+            team_info: HashMap::new(),
+            team_desc_input,
+            add_members: None,
+            member_search_input,
+            expanded_bots: HashSet::new(),
+            spell: crate::spell::Checker::new(),
+            misspellings: HashMap::new(),
+            server_autolinks: Vec::new(),
             failed_previews: HashSet::new(),
             channel_files: HashMap::new(),
             files_tab: FilesTab::Media,
@@ -488,7 +565,7 @@ impl ChatApp {
             info: None,
             viewer: None,
             viewer_focus: cx.focus_handle(),
-            settings: UiSettings::load(),
+            settings,
             resizing: false,
             hwnd: desktop::hwnd(window),
             tray: Tray::new(),
@@ -1747,12 +1824,180 @@ impl ChatApp {
         cx.notify();
     }
 
-    fn toggle_gradients(&mut self, cx: &mut Context<Self>) {
-        self.settings.gradients = !self.settings.gradients;
-        if !self.demo {
-            self.settings.save();
+    /// Déplace un canal à la place d'un autre (catégories triées à la main) :
+    /// vers le bas il passe après, vers le haut avant. Synchronisé avec le serveur.
+    fn move_channel(&mut self, channel_id: &str, category_id: &str, target: &str, cx: &mut Context<Self>) {
+        if channel_id == target {
+            return;
+        }
+        let Some(team_id) = self.team_id.clone() else { return };
+        let mut changed = Vec::new();
+        // Venu d'une autre catégorie : il la quitte.
+        for c in self.categories.iter_mut().filter(|c| c.id != category_id) {
+            if c.channel_ids.iter().any(|id| id == channel_id) {
+                c.channel_ids.retain(|id| id != channel_id);
+                changed.push(c.clone());
+            }
+        }
+        let Some(category) = self.categories.iter_mut().find(|c| c.id == category_id) else { return };
+        let Some(to) = category.channel_ids.iter().position(|id| id == target) else { return };
+        category.channel_ids.retain(|id| id != channel_id);
+        let to = to.min(category.channel_ids.len());
+        category.channel_ids.insert(to, channel_id.to_string());
+        changed.push(category.clone());
+        self.send(Command::UpdateCategories { team_id, categories: changed });
+        cx.notify();
+    }
+
+    /// Carte de l'équipe affichée (clic sur son nom dans la barre latérale).
+    fn open_team_card(&mut self, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id.clone() else { return };
+        self.team_card = Some(false);
+        self.send(Command::LoadTeamInfo { team_id });
+        cx.notify();
+    }
+
+    fn close_team_card(&mut self, cx: &mut Context<Self>) {
+        if self.team_card.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn edit_team_description(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let current = self
+            .team_id
+            .as_ref()
+            .and_then(|id| self.teams.iter().find(|t| &t.id == id))
+            .map(|t| t.description.clone())
+            .unwrap_or_default();
+        self.team_desc_input.update(cx, |s, cx| {
+            s.set_value(current, window, cx);
+            s.focus(window, cx);
+        });
+        self.team_card = Some(true);
+        cx.notify();
+    }
+
+    fn save_team_description(&mut self, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id.clone() else { return };
+        if self.team_card != Some(true) {
+            return;
+        }
+        let description = self.team_desc_input.read(cx).value().trim().to_string();
+        self.send(Command::SaveTeamDescription { team_id, description });
+    }
+
+    /// Fenêtre « Ajouter des membres » pour le canal affiché.
+    fn open_add_members(&mut self, channel_id: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.add_members = Some(AddMembers { channel_id, results: None, added: HashSet::new() });
+        self.member_search_input.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+        self.search_member_candidates(cx);
+        cx.notify();
+    }
+
+    fn close_add_members(&mut self, cx: &mut Context<Self>) {
+        if self.add_members.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn search_member_candidates(&mut self, cx: &mut Context<Self>) {
+        let (Some(team_id), Some(add)) = (self.team_id.clone(), self.add_members.as_mut()) else { return };
+        let term = self.member_search_input.read(cx).value().trim().to_string();
+        add.results = None;
+        let channel_id = add.channel_id.clone();
+        self.send(Command::SearchUsersForChannel { team_id, channel_id, term });
+        cx.notify();
+    }
+
+    fn add_member(&mut self, user_id: String, cx: &mut Context<Self>) {
+        let Some(add) = self.add_members.as_mut() else { return };
+        if add.added.insert(user_id.clone()) {
+            let channel_id = add.channel_id.clone();
+            self.send(Command::AddChannelMember { channel_id, user_id });
         }
         cx.notify();
+    }
+
+    /// Déplie ou replie un message de bot.
+    fn toggle_bot_post(&mut self, post_id: String, cx: &mut Context<Self>) {
+        if !self.expanded_bots.remove(&post_id) {
+            self.expanded_bots.insert(post_id);
+        }
+        self.scroller.update(cx, |s, cx| s.remeasure(cx));
+        self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
+        cx.notify();
+    }
+
+    /// Active les règles Autolink (serveur + ui.json) et réaffiche les messages.
+    fn apply_autolinks(&mut self, cx: &mut Context<Self>) {
+        let mut rules = self.server_autolinks.clone();
+        rules.extend(self.settings.autolinks.iter().cloned());
+        crate::autolink::set_rules(&rules);
+        for view in self.posts.iter_mut() {
+            *view = PostView::new(view.post.clone());
+        }
+        if let Some(thread) = self.thread.as_mut() {
+            for view in thread.posts.iter_mut() {
+                *view = PostView::new(view.post.clone());
+            }
+        }
+        self.scroller.update(cx, |s, cx| s.remeasure(cx));
+        self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
+        cx.notify();
+    }
+
+    /// Souligne les mots inconnus du correcteur dans une zone de saisie.
+    fn check_spelling(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        let Some(checker) = &self.spell else { return };
+        let state = self.composer_for(pane);
+        let text = state.read(cx).value().to_string();
+        let found = checker.check(&text, 12);
+        let color = self.palette.error;
+        let decorations = found
+            .iter()
+            .map(|m| gpui_kit::component::input::TextDecoration {
+                range: m.range.clone(),
+                style: HighlightStyle {
+                    underline: Some(UnderlineStyle { color: Some(color), thickness: px(1.5), wavy: true }),
+                    ..Default::default()
+                },
+            })
+            .collect();
+        state.update(cx, |s, cx| s.set_decorations(decorations, cx));
+        if found.is_empty() {
+            self.misspellings.remove(&pane);
+        } else {
+            self.misspellings.insert(pane, found);
+        }
+        cx.notify();
+    }
+
+    /// Remplace un mot signalé par la proposition choisie.
+    fn correct_spelling(&mut self, pane: Pane, word: String, replacement: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(m) = self.misspellings.get(&pane).and_then(|l| l.iter().find(|m| m.word == word)).cloned() else { return };
+        let state = self.composer_for(pane);
+        let text = state.read(cx).value().to_string();
+        if text.get(m.range.clone()) != Some(word.as_str()) {
+            return;
+        }
+        let fixed = format!("{}{}{}", &text[..m.range.start], replacement, &text[m.range.end..]);
+        state.update(cx, |s, cx| {
+            s.set_value(fixed, window, cx);
+            s.focus(window, cx);
+        });
+        self.check_spelling(pane, cx);
+    }
+
+    /// Ajoute un mot au dictionnaire de Windows.
+    fn learn_word(&mut self, pane: Pane, word: String, cx: &mut Context<Self>) {
+        if let Some(checker) = &self.spell {
+            checker.add(&word);
+        }
+        self.check_spelling(pane, cx);
     }
 
     fn toggle_formatting(&mut self, cx: &mut Context<Self>) {
@@ -2118,6 +2363,27 @@ impl ChatApp {
                 self.failed_previews.insert(file_id);
                 self.scroller.update(cx, |s, cx| s.remeasure(cx));
                 self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
+            }
+            Event::AutolinkRules(rules) => {
+                self.server_autolinks = rules;
+                self.apply_autolinks(cx);
+            }
+            Event::TeamInfo { team_id, total, active, admin } => {
+                self.team_info.insert(team_id, TeamInfo { total, active, admin });
+            }
+            Event::TeamUpdated(team) => {
+                if let Some(t) = self.teams.iter_mut().find(|t| t.id == team.id) {
+                    t.description = team.description;
+                }
+                if self.team_card == Some(true) {
+                    self.team_card = Some(false);
+                }
+            }
+            Event::UserCandidates { channel_id, term, users } => {
+                let current = self.member_search_input.read(cx).value().trim().to_string();
+                if let Some(add) = self.add_members.as_mut().filter(|a| a.channel_id == channel_id && term == current) {
+                    add.results = Some(users);
+                }
             }
             Event::ChannelTeams(list) => {
                 self.channel_teams.extend(list);

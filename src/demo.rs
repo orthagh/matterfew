@@ -35,6 +35,7 @@ fn user(id: &str, first: &str, last: &str) -> User {
             "Nathan" => "Développeur backend".into(),
             _ => String::new(),
         },
+        is_bot: false,
         roles: if first == "Lucas" { "system_user system_admin".into() } else { "system_user".into() },
         timezone: serde_json::json!({
             "useAutomaticTimezone": "true",
@@ -221,6 +222,36 @@ impl Demo {
                 }]
             });
         }
+        // Bot GitHub : long message, réduit à l'affichage.
+        demo.add("backend", "u6", now - 80 * m, "", &[], 0);
+        if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 80 * m)) {
+            post.props = serde_json::json!({
+                "from_bot": "true",
+                "override_username": "github",
+                "attachments": [{
+                    "color": "#24292f",
+                    "pretext": "[glpi-project/glpi] Nouvelle pull request ouverte par nathan-simon",
+                    "title": "#18342 Refonte du moteur de recherche des tickets",
+                    "title_link": "https://example.org/glpi-project/glpi/pull/18342",
+                    "text": "## Résumé
+- remplace l'ancien moteur de requêtes
+- ajoute un cache des critères
+- corrige le tri sur les colonnes calculées
+
+## Tests
+- 214 tests unitaires ajoutés
+- scénarios de bout en bout sur l'export CSV
+
+## Notes
+La migration des recherches enregistrées est automatique.",
+                    "fields": [
+                        {"title": "Relecteurs", "value": "lea-bernard, hugo-petit", "short": true},
+                        {"title": "Étiquettes", "value": "search, performance", "short": true}
+                    ],
+                    "footer": "GitHub"
+                }]
+            });
+        }
         demo.add("veille", "u2", now - 2 * day, "À lire : https://example.org/gpui-zed", &[], 0);
         if let Some(post) = demo.posts.get_mut("veille").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * day)) {
             post.metadata.embeds = serde_json::json!([{
@@ -307,8 +338,23 @@ pub fn start() -> Backend {
             send(Event::Ready {
                 me: demo.users[0].clone(),
                 teams: vec![
-                    Team { id: "t1".into(), name: "demo".into(), display_name: "Équipe démo".into(), last_team_icon_update: 1 },
-                    Team { id: "t2".into(), name: "clients".into(), display_name: "Projets clients".into(), last_team_icon_update: 0 },
+                    Team {
+                        id: "t1".into(),
+                        name: "demo".into(),
+                        display_name: "Équipe démo".into(),
+                        last_team_icon_update: 1,
+                        description: "Espace de démonstration : support, design et projets internes.".into(),
+                        team_type: "I".into(),
+                        create_at: now_ms() - 400 * 24 * 3_600_000,
+                    },
+                    Team {
+                        id: "t2".into(),
+                        name: "clients".into(),
+                        display_name: "Projets clients".into(),
+                        last_team_icon_update: 0,
+                        team_type: "O".into(),
+                        ..Default::default()
+                    },
                 ],
                 config: HashMap::from([("CollapsedThreads".to_string(), "default_on".to_string())]),
                 prefs: demo_preferences(),
@@ -421,7 +467,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                     }
                 })
                 .collect();
-            let mut channel_ids = vec!["backend", "design", "veille", "random"];
+            let mut channel_ids = vec!["design", "random"];
             let extra: Vec<String> = demo.channels.iter().filter(|c| c.id.starts_with('x')).map(|c| c.id.clone()).collect();
             channel_ids.extend(extra.iter().map(String::as_str));
             send(Event::Categories {
@@ -429,7 +475,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 categories: vec![
                     category("fav", "favorites", "Favoris", "", &["general"]),
                     category("ch", "channels", "Canaux", "alpha", &channel_ids),
-                    category("clients", "custom", "Clients", "manual", &["support"]),
+                    category("clients", "custom", "Clients", "manual", &["support", "veille", "backend"]),
                     category("dm", "direct_messages", "Messages directs", "recent", &["dm1", "dm2", "dm3", "gm1"]),
                 ],
             });
@@ -622,6 +668,32 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             send(Event::Threads(threads));
         }
         Command::MarkThreadRead { .. } => {}
+        Command::LoadTeamInfo { team_id } => send(Event::TeamInfo { team_id, total: 7, active: 5, admin: true }),
+        Command::SaveTeamDescription { team_id, description } => {
+            send(Event::TeamUpdated(Team {
+                id: team_id,
+                name: "demo".into(),
+                display_name: "Équipe démo".into(),
+                last_team_icon_update: 1,
+                description,
+                team_type: "I".into(),
+                ..Default::default()
+            }))
+        }
+        Command::SearchUsersForChannel { channel_id, term, .. } => {
+            // Démo : les canaux privés n'ont que trois membres.
+            let inside = ["me", "u1", "u4"];
+            let needle = crate::fuzzy::fold(&term);
+            let users = demo
+                .users
+                .iter()
+                .filter(|u| !inside.contains(&u.id.as_str()))
+                .filter(|u| crate::fuzzy::fold(&format!("{} {} {}", u.username, u.first_name, u.last_name)).contains(&needle))
+                .cloned()
+                .collect();
+            send(Event::UserCandidates { channel_id, term, users });
+        }
+        Command::AddChannelMember { .. } => {}
         Command::OpenDirect { user_id } => {
             let existing = demo.channels.iter().find(|c| c.is_direct() && c.name.split("__").any(|id| id == user_id));
             let channel = match existing {
