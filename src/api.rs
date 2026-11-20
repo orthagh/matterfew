@@ -9,7 +9,7 @@ use anyhow::{Context as _, Result};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct User {
     pub id: String,
     pub username: String,
@@ -129,9 +129,23 @@ pub struct FileInfo {
     pub height: i64,
     #[serde(default)]
     pub has_preview_image: bool,
+    /// Renseignés par la recherche de fichiers.
+    #[serde(default)]
+    pub post_id: String,
+    #[serde(default)]
+    pub channel_id: String,
+    #[serde(default)]
+    pub user_id: String,
+    #[serde(default)]
+    pub create_at: i64,
 }
 
 impl FileInfo {
+    pub fn is_video(&self) -> bool {
+        self.mime_type.starts_with("video/")
+            || matches!(self.extension.to_lowercase().as_str(), "mp4" | "webm" | "mov" | "mkv" | "avi")
+    }
+
     pub fn is_image(&self) -> bool {
         self.mime_type.starts_with("image/")
             || matches!(self.extension.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp")
@@ -650,6 +664,38 @@ impl Client {
     /// Aperçu d'une image jointe (JPEG réduit, généré par le serveur).
     pub async fn file_preview(&self, file_id: &str) -> Result<Vec<u8>> {
         self.get_bytes(&format!("/files/{file_id}/preview")).await
+    }
+
+    /// Miniature (petite image carrée générée par le serveur).
+    pub async fn file_thumbnail(&self, file_id: &str) -> Result<Vec<u8>> {
+        self.get_bytes(&format!("/files/{file_id}/thumbnail")).await
+    }
+
+    /// Recherche de fichiers dans une équipe (syntaxe `in:`, `from:`…), les plus récents d'abord.
+    pub async fn search_files(&self, team_id: &str, terms: &str) -> Result<Vec<FileInfo>> {
+        #[derive(Deserialize)]
+        struct List {
+            #[serde(default)]
+            order: Vec<String>,
+            #[serde(default)]
+            file_infos: HashMap<String, FileInfo>,
+        }
+        let offset = chrono::Local::now().offset().local_minus_utc();
+        let body = serde_json::json!({
+            "terms": terms,
+            "is_or_search": false,
+            "time_zone_offset": offset,
+            "include_deleted_channels": false,
+            "page": 0,
+            "per_page": 100
+        });
+        let mut list: List = self.post(&format!("/teams/{team_id}/files/search"), &body).await?;
+        let mut out: Vec<FileInfo> = list.order.iter().filter_map(|id| list.file_infos.remove(id)).collect();
+        if out.is_empty() {
+            out = list.file_infos.into_values().collect();
+        }
+        out.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+        Ok(out)
     }
 
     /// Fichier joint complet.

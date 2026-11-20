@@ -51,6 +51,8 @@ pub enum SideKind {
     Threads,
     /// Mentions récentes, toutes équipes confondues.
     Mentions,
+    /// Fichiers et liens du canal (chargés par `LoadChannelFiles`).
+    Files,
 }
 
 /// Une proposition de l'autocomplétion.
@@ -97,6 +99,8 @@ pub enum Command {
     /// Messages épinglés (`channel_id`), enregistrés, ou résultats de `terms`.
     LoadSide { kind: SideKind, team_id: String, channel_id: String, terms: String },
     LoadMembers { channel_id: String },
+    /// Fichiers d'un canal (`terms` : la recherche `in:` correspondante).
+    LoadChannelFiles { team_id: String, channel_id: String, terms: String },
     /// Profil d'après le nom d'utilisateur (clic sur une @mention).
     LoadUserByName { username: String },
     LoadThreads { team_id: String },
@@ -145,6 +149,9 @@ pub enum Event {
     SidePosts { kind: SideKind, posts: Vec<Post> },
     Members { channel_id: String, user_ids: Vec<String>, admins: Vec<String>, total: i64 },
     Threads(Vec<UserThread>),
+    ChannelFiles { channel_id: String, files: Vec<FileInfo> },
+    /// Aucun aperçu possible pour cette image : afficher une carte de fichier.
+    PreviewFailed { file_id: String },
     /// Équipe de canaux hors de l'équipe affichée (mentions récentes).
     ChannelTeams(Vec<(String, String)>),
     DirectOpened(Channel),
@@ -412,8 +419,31 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             ctx.emit(Event::TeamUnreads(unreads)).await;
         }
         Command::LoadPreview { file_id } => {
-            let bytes = client.file_preview(&file_id).await?;
-            ctx.emit(Event::FilePreview { file_id, bytes: Arc::new(bytes) }).await;
+            // Certaines images n'ont pas d'aperçu (GIF, SVG, très petites, anciennes) :
+            // miniature, puis fichier complet. Jamais d'erreur affichée pour un aperçu.
+            let bytes = match client.file_preview(&file_id).await {
+                Ok(b) => Ok(b),
+                Err(_) => match client.file_thumbnail(&file_id).await {
+                    Ok(b) => Ok(b),
+                    Err(_) => client.file_content(&file_id).await,
+                },
+            };
+            match bytes {
+                Ok(bytes) => ctx.emit(Event::FilePreview { file_id, bytes: Arc::new(bytes) }).await,
+                Err(_) => ctx.emit(Event::PreviewFailed { file_id }).await,
+            }
+        }
+        Command::LoadChannelFiles { team_id, channel_id, terms } => {
+            // Recherche refusée ou vide : l'interface complète avec les messages connus.
+            let files: Vec<FileInfo> = client
+                .search_files(&team_id, &terms)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|f| f.channel_id.is_empty() || f.channel_id == channel_id)
+                .collect();
+            ctx.ensure_users(files.iter().map(|f| f.user_id.clone()).filter(|id| !id.is_empty())).await;
+            ctx.emit(Event::ChannelFiles { channel_id, files }).await;
         }
         Command::LoadFullImage { file_id } => {
             let result = client.file_content(&file_id).await.map(Arc::new).map_err(|e| format!("{e:#}"));
@@ -496,7 +526,7 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
                 SideKind::Pinned => client.pinned_posts(&channel_id).await?,
                 SideKind::Saved => client.saved_posts(&ctx.me_id).await?,
                 SideKind::Search => client.search_posts(&team_id, &terms).await?,
-                SideKind::Threads => Vec::new(),
+                SideKind::Threads | SideKind::Files => Vec::new(),
                 SideKind::Mentions => {
                     // Toutes les équipes : une recherche « @nom » par équipe, fusionnées.
                     let terms = format!("@{}", ctx.me_username);

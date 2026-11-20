@@ -16,12 +16,14 @@ use gpui_kit::component::{
     v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::component::Disableable as _;
 use gpui_kit::*;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
-use super::{ChatApp, Pane, PanelKind, PickerTarget, Screen, SidebarResize};
+use super::{ChatApp, FilesTab, Pane, PanelKind, PickerTarget, Screen, SidebarResize, search_tokens};
+use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
 use crate::api::{FileInfo, Post, User, human_size};
 use crate::backend::group_reactions;
 use crate::sidebar::{self, Section};
@@ -378,7 +380,7 @@ impl ChatApp {
         };
 
         let draft = !selected && self.has_draft(channel_id);
-        let menu = self.channel_menu(channel_id, state.muted, cx);
+        let menu = self.channel_menu(channel_id, state.muted, false, cx);
         let id = channel_id.to_string();
         Some(
             h_flex()
@@ -441,6 +443,7 @@ impl ChatApp {
         &self,
         channel_id: &str,
         muted: bool,
+        panels: bool,
         cx: &mut Context<Self>,
     ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
         let entity = cx.entity();
@@ -456,6 +459,12 @@ impl ChatApp {
                     .on_click(move |_, _, cx| entity.update(cx, |this, cx| f(this, id.clone(), cx)))
             };
             let mut menu = menu.min_w(px(220.));
+            if panels {
+                menu = menu
+                    .item(act("Messages épinglés", IconName::Pin, |this, _, cx| this.show_pinned(cx)))
+                    .item(act("Messages enregistrés", IconName::Bookmark, |this, _, cx| this.show_saved(cx)))
+                    .separator();
+            }
             if unread {
                 menu = menu.item(act("Marquer comme lu", IconName::CheckCheck, |this, id, cx| {
                     this.mark_channels_read(vec![id], cx)
@@ -801,15 +810,19 @@ impl ChatApp {
                 .child(
                     TextView::markdown(ElementId::Name(key("body")), view.md.clone())
                         .image_source(emoji_resolver(self.custom_emojis.clone()))
+                        .plugin(self.tag_plugin(entity))
                         .on_link_click({
                             let entity = entity.clone();
-                            move |url, ev, window, cx| match url.strip_prefix(markdown::MENTION_SCHEME) {
-                                Some(name) => {
+                            move |url, _, window, cx| {
+                                if let Some(name) = url.strip_prefix(markdown::MENTION_SCHEME) {
                                     let (name, at) = (name.to_string(), window.mouse_position());
-                                    let _ = ev;
                                     entity.update(cx, |this, cx| this.open_profile_by_name(name, at, window, cx));
+                                } else if let Some(tag) = url.strip_prefix(markdown::HASHTAG_SCHEME) {
+                                    let terms = format!("#{tag}");
+                                    entity.update(cx, |this, cx| this.search_for(terms, window, cx));
+                                } else {
+                                    cx.open_url(url);
                                 }
-                                None => cx.open_url(url),
                             }
                         }),
                 )
@@ -909,6 +922,9 @@ impl ChatApp {
             .px_5()
             .when(!compact, |el| el.pt_3())
             .pb_1()
+            .when(mine && !highlighted, |el| {
+                el.bg(p.button_bg.opacity(0.05)).border_l_2().border_color(p.button_bg.opacity(0.55))
+            })
             .when(highlighted, |el| el.bg(p.mention_highlight_bg.opacity(0.18)))
             .when(being_edited, |el| el.bg(p.away.opacity(0.12)))
             .when(!highlighted && !being_edited, |el| el.hover(|s| s.bg(p.hover())))
@@ -1109,61 +1125,70 @@ impl ChatApp {
             Button::new(SharedString::from(format!("fmt-{pane:?}-{format:?}")))
                 .icon(Icon::new(icon))
                 .ghost()
-                .xsmall()
+                .small()
                 .tooltip(format.label())
                 .on_click(cx.listener(move |this, _, window, cx| this.format(pane, format, window, cx)))
         };
-        let divider = || div().w(px(1.)).h(px(16.)).mx_1().bg(p.border());
+        let divider = || div().w(px(1.)).h(px(18.)).mx_1().bg(p.border());
+        let show_formatting = self.settings.show_formatting;
+        let format_bar = show_formatting.then(|| {
+            h_flex()
+                .px_2()
+                .py_1()
+                .gap_1()
+                .border_b_1()
+                .border_color(p.center_color.opacity(0.08))
+                .child(format_button(Format::Bold, IconName::Bold, cx))
+                .child(format_button(Format::Italic, IconName::Italic, cx))
+                .child(format_button(Format::Strike, IconName::Strikethrough, cx))
+                .child(divider())
+                .child(format_button(Format::Heading, IconName::Heading, cx))
+                .child(format_button(Format::Link, IconName::Link, cx))
+                .child(format_button(Format::Code, IconName::Code, cx))
+                .child(format_button(Format::CodeBlock, IconName::SquareCode, cx))
+                .child(divider())
+                .child(format_button(Format::Quote, IconName::TextQuote, cx))
+                .child(format_button(Format::Bullet, IconName::List, cx))
+                .child(format_button(Format::Numbered, IconName::ListOrdered, cx))
+        });
+        let tool = |id: String, icon: IconName, tip: &'static str| {
+            Button::new(SharedString::from(id)).icon(Icon::new(icon)).ghost().small().tooltip(tip)
+        };
         let toolbar = h_flex()
             .px_2()
-            .pb_1p5()
-            .gap_0p5()
-            .child(format_button(Format::Bold, IconName::Bold, cx))
-            .child(format_button(Format::Italic, IconName::Italic, cx))
-            .child(format_button(Format::Strike, IconName::Strikethrough, cx))
-            .child(divider())
-            .child(format_button(Format::Heading, IconName::Heading, cx))
-            .child(format_button(Format::Link, IconName::Link, cx))
-            .child(format_button(Format::Code, IconName::Code, cx))
-            .child(format_button(Format::CodeBlock, IconName::SquareCode, cx))
-            .child(format_button(Format::Quote, IconName::TextQuote, cx))
-            .child(format_button(Format::Bullet, IconName::List, cx))
-            .child(format_button(Format::Numbered, IconName::ListOrdered, cx))
-            .child(div().flex_1())
+            .pt_1()
+            .pb_2()
+            .gap_1()
             .child(
-                Button::new(SharedString::from(format!("emoji-{pane:?}")))
-                    .icon(Icon::new(IconName::FaceSlightlySmiling))
-                    .ghost()
-                    .xsmall()
-                    .tooltip("Insérer un emoji")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_emoji_picker(PickerTarget::Composer(pane), window, cx)
-                    })),
+                tool(format!("fmt-toggle-{pane:?}"), IconName::Type, "Mise en forme")
+                    .toggled(show_formatting)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_formatting(cx))),
             )
             .child(
-                Button::new(SharedString::from(format!("attach-{pane:?}")))
-                    .icon(Icon::new(IconName::Paperclip))
-                    .ghost()
-                    .xsmall()
-                    .tooltip("Joindre des fichiers (ou glissez-les dans la fenêtre)")
+                tool(format!("emoji-{pane:?}"), IconName::FaceSlightlySmiling, "Insérer un emoji").on_click(cx.listener(
+                    move |this, _, window, cx| this.open_emoji_picker(PickerTarget::Composer(pane), window, cx),
+                )),
+            )
+            .child(
+                tool(format!("attach-{pane:?}"), IconName::Paperclip, "Joindre des fichiers (ou glissez-les dans la fenêtre)")
                     .on_click(cx.listener(move |this, _, window, cx| this.pick_files(pane, window, cx))),
             )
             .child(
-                Button::new(SharedString::from(format!("preview-{pane:?}")))
-                    .icon(Icon::new(if previewing { IconName::EyeOff } else { IconName::Eye }))
-                    .ghost()
-                    .xsmall()
-                    .toggled(previewing)
-                    .tooltip(if previewing { "Revenir à l'écriture" } else { "Aperçu de la mise en forme" })
-                    .on_click(cx.listener(move |this, _, window, cx| this.toggle_preview(pane, window, cx))),
+                tool(
+                    format!("preview-{pane:?}"),
+                    if previewing { IconName::EyeOff } else { IconName::Eye },
+                    if previewing { "Revenir à l'écriture" } else { "Aperçu de la mise en forme" },
+                )
+                .toggled(previewing)
+                .on_click(cx.listener(move |this, _, window, cx| this.toggle_preview(pane, window, cx))),
             )
+            .child(div().flex_1())
             .child(
                 Button::new(SharedString::from(format!("send-{pane:?}")))
                     .icon(Icon::new(IconName::SendHorizontal))
                     .when(editing, |b| b.label("Enregistrer"))
-                    .small()
                     .primary()
-                    .ml_1()
+                    .disabled(text.trim().is_empty() && !self.attachments.iter().any(|a| a.pane == pane))
                     .tooltip(if editing { "Enregistrer (Entrée)" } else { "Envoyer (Entrée) — Maj+Entrée pour aller à la ligne" })
                     .on_click(cx.listener(move |this, _, window, cx| this.send_from(pane, window, cx))),
             );
@@ -1182,7 +1207,7 @@ impl ChatApp {
                 })
                 .into_any_element()
         } else {
-            div().px_1().pt_1().child(Textarea::new(&state).appearance(false)).into_any_element()
+            div().px_2().pt_1p5().child(Textarea::new(&state).appearance(false)).into_any_element()
         };
 
         v_flex()
@@ -1219,7 +1244,7 @@ impl ChatApp {
             .children(popup)
             .child(
                 v_flex()
-                    .rounded(px(8.))
+                    .rounded(px(10.))
                     .border_1()
                     .border_color(p.center_color.opacity(0.16))
                     .bg(p.center_bg)
@@ -1245,6 +1270,7 @@ impl ChatApp {
                         )
                     })
                     .children(self.render_attachments(pane, cx))
+                    .children(format_bar)
                     .child(input)
                     .child(toolbar),
             )
@@ -1475,7 +1501,7 @@ impl ChatApp {
         let mut others = v_flex().gap_1p5();
         for (ix, file) in files.iter().enumerate() {
             let id = SharedString::from(format!("{key}-{ix}"));
-            if file.is_image() {
+            if file.is_image() && !self.failed_previews.contains(&file.id) {
                 let (w, h) = image_box(file.width, file.height);
                 let preview: AnyElement = match self.previews.get(&file.id) {
                     Some(image) => img(image.clone()).size_full().object_fit(ObjectFit::Cover).into_any_element(),
@@ -1696,93 +1722,68 @@ impl ChatApp {
             _ => None,
         });
         let actions = self.channel_id.clone().zip(state).map(|(channel_id, state)| {
-            let favorite = self.is_favorite(&channel_id);
-            let (fav_id, mute_id) = (channel_id.clone(), channel_id.clone());
             let side = self.side.as_ref().map(|s| s.kind.clone());
+            let icon_button = |id: &'static str, icon: IconName, on: bool, tip: &'static str| {
+                Button::new(id).icon(Icon::new(icon)).ghost().small().toggled(on).tooltip(tip)
+            };
             h_flex()
                 .gap_1()
+                .child(self.render_search_box(cx))
+                .child(div().w(px(1.)).h(px(20.)).mx_1().bg(p.border()))
                 .child(
-                    Button::new("hdr-search")
-                        .icon(Icon::new(IconName::Search))
-                        .ghost()
-                        .small()
-                        .toggled(side == Some(PanelKind::Search))
-                        .tooltip("Rechercher dans les messages")
-                        .on_click(cx.listener(|this, _, window, cx| this.open_search(window, cx))),
-                )
-                .child(
-                    Button::new("hdr-mentions")
-                        .icon(Icon::new(IconName::AtSign))
-                        .ghost()
-                        .small()
-                        .toggled(side == Some(PanelKind::Mentions))
-                        .tooltip("Mentions récentes (toutes équipes)")
+                    icon_button("hdr-mentions", IconName::AtSign, side == Some(PanelKind::Mentions), "Mentions récentes (toutes équipes)")
                         .on_click(cx.listener(|this, _, _, cx| this.show_mentions(cx))),
                 )
                 .child(
-                    Button::new("hdr-pinned")
-                        .icon(Icon::new(IconName::Pin))
-                        .ghost()
-                        .small()
-                        .toggled(side == Some(PanelKind::Pinned))
-                        .tooltip("Messages épinglés du canal")
-                        .on_click(cx.listener(|this, _, _, cx| this.show_pinned(cx))),
-                )
-                .child(
-                    Button::new("hdr-threads")
-                        .icon(Icon::new(IconName::MessagesSquare))
-                        .ghost()
-                        .small()
-                        .toggled(side == Some(PanelKind::Threads))
-                        .tooltip("Fils suivis de ce canal")
+                    icon_button("hdr-threads", IconName::MessagesSquare, side == Some(PanelKind::Threads), "Fils suivis de ce canal")
                         .on_click(cx.listener(|this, _, _, cx| this.show_threads(cx))),
                 )
                 .child(
-                    Button::new("hdr-saved")
-                        .icon(Icon::new(IconName::Bookmark))
-                        .ghost()
-                        .small()
-                        .toggled(side == Some(PanelKind::Saved))
-                        .tooltip("Messages enregistrés")
-                        .on_click(cx.listener(|this, _, _, cx| this.show_saved(cx))),
+                    icon_button("hdr-files", IconName::FolderOpen, side == Some(PanelKind::Files), "Fichiers et liens du canal")
+                        .on_click(cx.listener(|this, _, _, cx| this.show_files(cx))),
                 )
                 .child(
-                    Button::new("hdr-members")
-                        .icon(Icon::new(IconName::Users))
-                        .ghost()
-                        .small()
-                        .toggled(self.settings.show_members)
-                        .tooltip(if self.settings.show_members { "Masquer les membres" } else { "Afficher les membres" })
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_members(cx))),
-                )
-                .child(div().w(px(1.)).h(px(20.)).mx_1().bg(p.border()))
-                .child(
-                    Button::new("hdr-favorite")
-                        .icon(Icon::new(IconName::Star).when(favorite, |i| i.text_color(p.away)))
-                        .ghost()
-                        .small()
-                        .tooltip(if favorite { "Retirer des favoris" } else { "Ajouter aux favoris" })
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_favorite(fav_id.clone(), cx))),
-                )
-                .child(
-                    Button::new("hdr-mute")
-                        .icon(Icon::new(if state.muted { IconName::BellOff } else { IconName::Bell }))
-                        .ghost()
-                        .small()
-                        .tooltip(if state.muted { "Réactiver les notifications" } else { "Mettre en sourdine" })
-                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_muted(mute_id.clone(), cx))),
+                    icon_button(
+                        "hdr-members",
+                        IconName::Users,
+                        self.settings.show_members,
+                        if self.settings.show_members { "Masquer les membres" } else { "Afficher les membres" },
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_members(cx))),
                 )
                 .child(
                     Button::new("hdr-more")
                         .icon(Icon::new(IconName::Ellipsis))
                         .ghost()
                         .small()
-                        .tooltip("Options du canal")
-                        .dropdown_menu_with_anchor(Anchor::TopRight, self.channel_menu(&channel_id, state.muted, cx)),
+                        .tooltip("Épinglés, enregistrés, favori, sourdine…")
+                        .dropdown_menu_with_anchor(Anchor::TopRight, self.channel_menu(&channel_id, state.muted, true, cx)),
                 )
         });
+        // Favori et sourdine : signalés près du nom ; l'étoile reste cliquable.
+        let flags = self.channel_id.clone().zip(state).map(|(channel_id, state)| {
+            let favorite = self.is_favorite(&channel_id);
+            h_flex()
+                .gap_0p5()
+                .flex_none()
+                .child(
+                    Button::new("hdr-favorite")
+                        .icon(
+                            Icon::new(IconName::Star)
+                                .size(px(14.))
+                                .text_color(if favorite { p.away } else { p.muted().opacity(0.6) }),
+                        )
+                        .ghost()
+                        .xsmall()
+                        .tooltip(if favorite { "Retirer des favoris" } else { "Ajouter aux favoris" })
+                        .on_click(cx.listener(move |this, _, _, cx| this.toggle_favorite(channel_id.clone(), cx))),
+                )
+                .when(state.muted, |el| {
+                    el.child(Icon::new(IconName::BellOff).size(px(14.)).text_color(p.muted()))
+                })
+        });
 
-        h_flex()
+                h_flex()
             .h(px(62.))
             .flex_none()
             .px_5()
@@ -1793,7 +1794,7 @@ impl ChatApp {
             .child(
                 v_flex()
                     .flex_1()
-                    .min_w_0()
+                    .min_w(px(170.))
                     .child(
                         h_flex()
                             .gap_1()
@@ -1803,7 +1804,8 @@ impl ChatApp {
                             .when_some(icon, |el, icon| {
                                 el.child(Icon::new(icon).size(px(16.)).text_color(p.muted()).flex_none())
                             })
-                            .child(div().min_w_0().truncate().child(title)),
+                            .child(div().min_w_0().truncate().child(title))
+                            .children(flags),
                     )
                     .when_some(subtitle, |el, sub| {
                         el.child(div().truncate().text_size(px(12.)).text_color(p.muted()).child(sub))
@@ -1812,7 +1814,7 @@ impl ChatApp {
             .when(self.loading_older, |el| {
                 el.child(div().text_xs().text_color(p.muted()).child("Chargement de l'historique…"))
             })
-            .children(actions.map(|a| a.flex_none()))
+            .children(actions.map(|a| a.flex_shrink(1.).min_w_0().justify_end()))
     }
 
     fn render_chat(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1999,6 +2001,11 @@ impl ChatApp {
                     cx.stop_propagation();
                     return;
                 }
+                if k.modifiers.control && !k.modifiers.shift && !k.modifiers.alt && k.key == "f" {
+                    this.open_search(window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if k.modifiers.control && !k.modifiers.shift && !k.modifiers.alt && k.key == "k" {
                     this.open_switcher(window, cx);
                     cx.stop_propagation();
@@ -2015,6 +2022,120 @@ impl ChatApp {
             .children(self.render_profile_card(cx))
     }
 
+    /// Photo en médaillon, statut, poste, adresse, heure locale, bouton message.
+    fn profile_body(&self, u: &User, cx: &mut Context<Self>) -> AnyElement {
+        let p = self.palette;
+        let uid = u.id.clone();
+        let is_me = uid == self.me_id();
+        // Déjà dans son message direct : pas de bouton « Envoyer un message ».
+        let in_dm = self
+            .channel_id
+            .as_ref()
+            .and_then(|id| self.channels.get(id))
+            .and_then(|c| c.channel.direct_partner(self.me_id()))
+            .is_some_and(|partner| partner == uid);
+        let name = self.user_name(&uid);
+        let mut photo = Avatar::new().name(name.clone()).size(px(96.));
+        if let Some(image) = self.avatars.get(&uid) {
+            photo = photo.src(image.clone());
+        }
+        let medallion = div()
+            .relative()
+            .flex_none()
+            .size(px(106.))
+            .p(px(5.))
+            .rounded_full()
+            .bg(p.center_bg)
+            .child(photo)
+            .child(
+                div()
+                    .absolute()
+                    .right(px(6.))
+                    .bottom(px(6.))
+                    .size(px(24.))
+                    .rounded_full()
+                    .border_4()
+                    .border_color(p.center_bg)
+                    .bg(self.status_color(&uid)),
+            );
+        let line = |icon: IconName, text: String| {
+            h_flex()
+                .gap_2()
+                .text_sm()
+                .child(div().flex_none().text_color(p.muted()).child(Icon::new(icon).size(px(15.))))
+                .child(div().min_w_0().truncate().child(text))
+        };
+        let time = u.time_zone().and_then(|tz| local_time(&tz));
+        let entity = cx.entity();
+        v_flex()
+            .child(div().h(px(60.)).bg(p.sidebar_bg))
+            .child(
+                v_flex()
+                    .px_5()
+                    .pb_5()
+                    .gap_3()
+                    .child(div().mt(-px(53.)).child(medallion))
+                    .child(
+                        v_flex()
+                            .gap_0p5()
+                            .child(div().text_size(px(18.)).font_bold().child(name))
+                            .child(div().text_sm().text_color(p.muted()).child(format!("@{}", u.username)))
+                            .when(!u.position.is_empty(), |el| el.child(div().text_sm().child(u.position.clone()))),
+                    )
+                    .child(
+                        v_flex()
+                            .gap_2()
+                            .pt_3()
+                            .border_t_1()
+                            .border_color(p.border())
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .text_sm()
+                                    .child(div().mx(px(3.)).size(px(9.)).rounded_full().bg(self.status_color(&uid)))
+                                    .child(self.status_label(&uid)),
+                            )
+                            .when(!u.email.is_empty(), |el| el.child(line(IconName::Mail, u.email.clone())))
+                            .when_some(time, |el, (clock, gap)| {
+                                el.child(
+                                    h_flex()
+                                        .gap_2()
+                                        .items_start()
+                                        .text_sm()
+                                        .child(
+                                            div().flex_none().pt(px(2.)).text_color(p.muted()).child(Icon::new(IconName::Clock).size(px(15.))),
+                                        )
+                                        .child(
+                                            v_flex()
+                                                .child(format!("{clock} heure locale"))
+                                                .when(!is_me, |d| d.child(div().text_xs().text_color(p.muted()).child(gap))),
+                                        ),
+                                )
+                            })
+                            .when(u.is_system_admin(), |el| {
+                                el.child(line(IconName::Shield, "Administrateur système".to_string()))
+                            }),
+                    )
+                    .when(!is_me && !in_dm, |el| {
+                        el.child(
+                            Button::new("profile-dm")
+                                .primary()
+                                .w_full()
+                                .icon(Icon::new(IconName::SendHorizontal))
+                                .label("Envoyer un message")
+                                .on_click(move |_, window, cx| {
+                                    let uid = uid.clone();
+                                    entity.update(cx, |this, cx| {
+                                        this.profile = None;
+                                        this.open_direct(uid, window, cx);
+                                    });
+                                }),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+
     /// Mini-carte de profil : photo en médaillon, statut, adresse, heure locale.
     fn render_profile_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let card = self.profile.as_ref()?;
@@ -2026,110 +2147,7 @@ impl ChatApp {
                 .text_color(p.muted())
                 .child(format!("Chargement du profil de @{}…", card.username))
                 .into_any_element(),
-            Some(u) => {
-                let uid = u.id.clone();
-                let is_me = uid == self.me_id();
-                let name = self.user_name(&uid);
-                let mut photo = Avatar::new().name(name.clone()).size(px(96.));
-                if let Some(image) = self.avatars.get(&uid) {
-                    photo = photo.src(image.clone());
-                }
-                let medallion = div()
-                    .relative()
-                    .flex_none()
-                    .size(px(106.))
-                    .p(px(5.))
-                    .rounded_full()
-                    .bg(p.center_bg)
-                    .child(photo)
-                    .child(
-                        div()
-                            .absolute()
-                            .right(px(6.))
-                            .bottom(px(6.))
-                            .size(px(24.))
-                            .rounded_full()
-                            .border_4()
-                            .border_color(p.center_bg)
-                            .bg(self.status_color(&uid)),
-                    );
-                let line = |icon: IconName, text: String| {
-                    h_flex()
-                        .gap_2()
-                        .text_sm()
-                        .child(div().flex_none().text_color(p.muted()).child(Icon::new(icon).size(px(15.))))
-                        .child(div().min_w_0().truncate().child(text))
-                };
-                let time = u.time_zone().and_then(|tz| local_time(&tz));
-                let entity = cx.entity();
-                v_flex()
-                    .child(div().h(px(60.)).bg(p.sidebar_bg))
-                    .child(
-                        v_flex()
-                            .px_5()
-                            .pb_5()
-                            .gap_3()
-                            .child(div().mt(-px(53.)).child(medallion))
-                            .child(
-                                v_flex()
-                                    .gap_0p5()
-                                    .child(div().text_size(px(18.)).font_bold().child(name))
-                                    .child(div().text_sm().text_color(p.muted()).child(format!("@{}", u.username)))
-                                    .when(!u.position.is_empty(), |el| el.child(div().text_sm().child(u.position.clone()))),
-                            )
-                            .child(
-                                v_flex()
-                                    .gap_2()
-                                    .pt_3()
-                                    .border_t_1()
-                                    .border_color(p.border())
-                                    .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .text_sm()
-                                            .child(div().mx(px(3.)).size(px(9.)).rounded_full().bg(self.status_color(&uid)))
-                                            .child(self.status_label(&uid)),
-                                    )
-                                    .when(!u.email.is_empty(), |el| el.child(line(IconName::Mail, u.email.clone())))
-                                    .when_some(time, |el, (clock, gap)| {
-                                        el.child(
-                                            h_flex()
-                                                .gap_2()
-                                                .items_start()
-                                                .text_sm()
-                                                .child(
-                                                    div().flex_none().pt(px(2.)).text_color(p.muted()).child(Icon::new(IconName::Clock).size(px(15.))),
-                                                )
-                                                .child(
-                                                    v_flex()
-                                                        .child(format!("{clock} heure locale"))
-                                                        .when(!is_me, |d| d.child(div().text_xs().text_color(p.muted()).child(gap))),
-                                                ),
-                                        )
-                                    })
-                                    .when(u.is_system_admin(), |el| {
-                                        el.child(line(IconName::Shield, "Administrateur système".to_string()))
-                                    }),
-                            )
-                            .when(!is_me, |el| {
-                                el.child(
-                                    Button::new("profile-dm")
-                                        .primary()
-                                        .w_full()
-                                        .icon(Icon::new(IconName::SendHorizontal))
-                                        .label("Envoyer un message")
-                                        .on_click(move |_, window, cx| {
-                                            let uid = uid.clone();
-                                            entity.update(cx, |this, cx| {
-                                                this.profile = None;
-                                                this.open_direct(uid, window, cx);
-                                            });
-                                        }),
-                                )
-                            }),
-                    )
-                    .into_any_element()
-            }
+            Some(u) => self.profile_body(u, cx),
         };
         Some(
             div()
@@ -2180,17 +2198,27 @@ impl ChatApp {
                     .unwrap_or_default(),
             ),
             PanelKind::Mentions => ("Mentions récentes".to_string(), "Toutes équipes".to_string()),
+            PanelKind::Files => (
+                "Fichiers".to_string(),
+                self.channel_id
+                    .as_ref()
+                    .and_then(|id| self.channels.get(id))
+                    .map(|c| self.channel_title(&c.channel))
+                    .unwrap_or_default(),
+            ),
         };
         let searching = side.kind == PanelKind::Search;
         let body: AnyElement = if side.kind == PanelKind::Threads {
             self.render_threads_list(cx)
+        } else if side.kind == PanelKind::Files {
+            self.render_files_panel(cx)
         } else {
             match &side.posts {
             None => div().p_5().text_color(p.muted()).child("Chargement…").into_any_element(),
             Some(posts) if posts.is_empty() && searching && side.subject.is_empty() => div()
                 .p_5()
                 .text_color(p.muted())
-                .child("Tapez des mots puis Entrée. Pour affiner : from:nom, in:canal, \"expression exacte\".")
+                .child("Tapez dans le champ de recherche en haut, puis Entrée. Les filtres proposés s'affichent pendant la saisie.")
                 .into_any_element(),
             Some(posts) if posts.is_empty() => div()
                 .p_5()
@@ -2201,6 +2229,7 @@ impl ChatApp {
                     PanelKind::Search => "Aucun message ne correspond. Essayez d'autres mots, ou from:nom, in:canal.",
                     PanelKind::Threads => "",
                     PanelKind::Mentions => "Personne ne vous a mentionné récemment.",
+                    PanelKind::Files => "",
                 })
                 .into_any_element(),
             Some(posts) => v_flex()
@@ -2294,13 +2323,41 @@ impl ChatApp {
                                 .on_click(cx.listener(|this, _, _, cx| this.close_side(cx))),
                         ),
                 )
-                .when(searching, |el| {
+                .when(searching && !side.subject.is_empty(), |el| {
+                    // Recherche en cours, en jetons : un clic sur × retire le filtre.
                     el.child(
-                        div().px_4().py_3().border_b_1().border_color(p.border()).child(
-                            Input::new(&self.search_input)
-                                .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(p.muted()))
-                                .cleanable(true),
-                        ),
+                        h_flex()
+                            .flex_wrap()
+                            .gap_1p5()
+                            .px_4()
+                            .py_2p5()
+                            .border_b_1()
+                            .border_color(p.border())
+                            .children(search_tokens(&side.subject).into_iter().enumerate().map(|(i, token)| {
+                                let filter = token.contains(':') || token.starts_with('#') || token.starts_with('-');
+                                h_flex()
+                                    .id(SharedString::from(format!("tok-{i}")))
+                                    .gap_1()
+                                    .pl_2()
+                                    .pr_1()
+                                    .py_0p5()
+                                    .rounded(px(6.))
+                                    .text_xs()
+                                    .bg(if filter { p.link.opacity(0.12) } else { p.center_color.opacity(0.08) })
+                                    .text_color(if filter { p.link } else { p.center_color })
+                                    .child(token)
+                                    .child(
+                                        div()
+                                            .id(SharedString::from(format!("tok-x-{i}")))
+                                            .rounded(px(4.))
+                                            .cursor_pointer()
+                                            .hover(|s| s.bg(p.center_color.opacity(0.12)))
+                                            .child(Icon::new(IconName::X).size(px(12.)))
+                                            .on_click(cx.listener(move |this, _, window, cx| {
+                                                this.remove_search_token(i, window, cx)
+                                            })),
+                                    )
+                            })),
                     )
                 })
                 .child(body)
@@ -2427,6 +2484,23 @@ impl ChatApp {
         }
         let channel_id = self.channel_id.as_ref()?;
         let p = self.palette;
+        let partner = self.channels.get(channel_id).and_then(|c| c.channel.direct_partner(self.me_id()));
+        if let Some(user) = partner.as_ref().and_then(|id| self.users.get(id)) {
+            return Some(
+                v_flex()
+                    .id("dm-profile")
+                    .w(px(280.))
+                    .h_full()
+                    .flex_none()
+                    .overflow_y_scroll()
+                    .bg(p.center_bg)
+                    .text_color(p.center_color)
+                    .border_l_1()
+                    .border_color(p.border())
+                    .child(self.profile_body(user, cx))
+                    .into_any_element(),
+            );
+        }
         let (ids, total) = match self.members.get(channel_id) {
             Some((ids, total)) => (ids.clone(), *total),
             None => (Vec::new(), 0),
@@ -2544,6 +2618,604 @@ impl ChatApp {
                 .child(list)
                 .into_any_element(),
         )
+    }
+
+    /// Pastilles des @mentions et #étiquettes dans le texte des messages.
+    fn tag_plugin(&self, entity: &Entity<Self>) -> TagPlugin {
+        TagPlugin {
+            me: self.me.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
+            palette: self.palette,
+            app: entity.downgrade(),
+        }
+    }
+
+    /// Champ de recherche permanent de l'en-tête, avec ses propositions.
+    fn render_search_box(&self, cx: &mut Context<Self>) -> AnyElement {
+        let p = self.palette;
+        div()
+            .id("search-box")
+            .relative()
+            .w(px(250.))
+            .min_w(px(120.))
+            .flex_shrink(1.)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
+                if ev.keystroke.key == "escape" && this.search_open {
+                    this.search_open = false;
+                    window.blur(cx);
+                    cx.notify();
+                }
+            }))
+            .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                if this.search_open {
+                    this.search_open = false;
+                    cx.notify();
+                }
+            }))
+            .child(
+                Input::new(&self.search_input)
+                    .small()
+                    .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(p.muted()))
+                    .cleanable(true),
+            )
+            .when(self.search_open, |el| el.child(deferred(self.render_search_dropdown(cx)).with_priority(2)))
+            .into_any_element()
+    }
+
+    /// Propositions : filtres, suggestions pour ce canal, étiquettes, recherches récentes.
+    fn render_search_dropdown(&self, cx: &mut Context<Self>) -> AnyElement {
+        let p = self.palette;
+        let value = self.search_input.read(cx).value().to_string();
+        let word = value.rsplit(' ').next().unwrap_or("").to_string();
+        let section = |title: &'static str| {
+            div().px_2().pt_2().pb_1().text_xs().font_semibold().text_color(p.muted()).child(title)
+        };
+        // Une ligne cliquable qui insère un filtre (ou lance une recherche).
+        let row = |id: String, icon: AnyElement, label: String, hint: String, action: SearchPick, cx: &mut Context<Self>| {
+            h_flex()
+                .id(SharedString::from(id))
+                .gap_2()
+                .px_2()
+                .py_1p5()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|s| s.bg(p.hover()))
+                .child(div().flex_none().w(px(22.)).flex().justify_center().text_color(p.muted()).child(icon))
+                .child(div().flex_1().min_w_0().truncate().text_sm().child(label))
+                .child(div().flex_none().text_xs().text_color(p.muted()).child(hint))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        match &action {
+                            SearchPick::Insert(t) => this.insert_search_token(t.clone(), window, cx),
+                            SearchPick::Run(t) => {
+                                this.search_for(t.clone(), window, cx);
+                                window.blur(cx);
+                            }
+                        }
+                    }),
+                )
+        };
+        let icon = |name: IconName| Icon::new(name).size(px(15.)).into_any_element();
+        let mut list = v_flex().p_1();
+        let lower = crate::fuzzy::fold(&word);
+
+        if let Some(prefix) = word.strip_prefix("from:").or_else(|| word.strip_prefix('@')) {
+            // Personnes : les connues dont le nom ou l'identifiant correspond.
+            let prefix = crate::fuzzy::fold(prefix);
+            let mut people: Vec<&User> = self
+                .users
+                .values()
+                .filter(|u| {
+                    crate::fuzzy::fold(&u.username).starts_with(&prefix)
+                        || crate::fuzzy::fold(&self.user_name(&u.id)).contains(&prefix)
+                })
+                .collect();
+            people.sort_by_key(|u| crate::fuzzy::fold(&u.username));
+            list = list.child(section("Messages de"));
+            for u in people.into_iter().take(7) {
+                let avatar = self.avatar(&u.id, 20., p.center_bg).into_any_element();
+                list = list.child(row(
+                    format!("sg-u-{}", u.id),
+                    avatar,
+                    self.user_name(&u.id),
+                    format!("@{}", u.username),
+                    SearchPick::Insert(format!("from:{}", u.username)),
+                    cx,
+                ));
+            }
+        } else if let Some(prefix) = word.strip_prefix("in:").or_else(|| word.strip_prefix('~')) {
+            let prefix = crate::fuzzy::fold(prefix);
+            let mut channels: Vec<_> = self
+                .channels
+                .values()
+                .filter(|c| !c.channel.is_direct() && !c.channel.is_group())
+                .filter(|c| {
+                    crate::fuzzy::fold(&c.channel.name).starts_with(&prefix)
+                        || crate::fuzzy::fold(&c.channel.display_name).contains(&prefix)
+                })
+                .collect();
+            channels.sort_by_key(|c| std::cmp::Reverse(c.channel.recency()));
+            list = list.child(section("Dans le canal"));
+            for c in channels.into_iter().take(7) {
+                let lock = if c.channel.kind == "P" { IconName::Lock } else { IconName::Hash };
+                list = list.child(row(
+                    format!("sg-c-{}", c.channel.id),
+                    icon(lock),
+                    self.channel_title(&c.channel),
+                    format!("~{}", c.channel.name),
+                    SearchPick::Insert(format!("in:{}", c.channel.name)),
+                    cx,
+                ));
+            }
+        } else if word.starts_with('#') && word.len() > 1 {
+            list = list.child(section("Étiquettes"));
+            for tag in self.recent_hashtags().into_iter().filter(|t| crate::fuzzy::fold(t).starts_with(&lower[1..])).take(7) {
+                list = list.child(row(
+                    format!("sg-h-{tag}"),
+                    icon(IconName::Hash),
+                    tag.clone(),
+                    String::new(),
+                    SearchPick::Insert(format!("#{tag}")),
+                    cx,
+                ));
+            }
+        } else {
+            // Filtres de la syntaxe Mattermost, en pastilles.
+            let filters: [(&str, &str, &str); 6] = [
+                ("from:", "De", "sg-f-from"),
+                ("in:", "Dans", "sg-f-in"),
+                ("on:", "Le (date)", "sg-f-on"),
+                ("after:", "Après", "sg-f-after"),
+                ("before:", "Avant", "sg-f-before"),
+                ("-", "Exclure un mot", "sg-f-not"),
+            ];
+            list = list.child(section("Filtres")).child(
+                h_flex().flex_wrap().gap_1p5().px_2().pb_1().children(filters.into_iter().map(|(token, label, id)| {
+                    let token = token.to_string();
+                    h_flex()
+                        .id(id)
+                        .gap_1()
+                        .px_2()
+                        .py_0p5()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(p.border())
+                        .cursor_pointer()
+                        .text_xs()
+                        .hover(|s| s.bg(p.hover()))
+                        .child(div().font_semibold().text_color(p.link).child(token.clone()))
+                        .child(div().text_color(p.muted()).child(label))
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.insert_search_token(token.clone(), window, cx);
+                            }),
+                        )
+                })),
+            );
+
+            // Suggestions toutes prêtes pour ce canal et cette personne.
+            list = list.child(section("Suggestions"));
+            let current = self.channel_id.as_ref().and_then(|id| self.channels.get(id));
+            if let Some(c) = current {
+                match c.channel.direct_partner(self.me_id()).and_then(|id| self.users.get(&id)) {
+                    Some(partner) => {
+                        list = list.child(row(
+                            "sg-s-partner".into(),
+                            icon(IconName::Users),
+                            format!("Messages de {}", self.user_name(&partner.id)),
+                            format!("from:{}", partner.username),
+                            SearchPick::Insert(format!("from:{}", partner.username)),
+                            cx,
+                        ))
+                    }
+                    None if !c.channel.is_group() => {
+                        list = list.child(row(
+                            "sg-s-here".into(),
+                            icon(IconName::Hash),
+                            format!("Dans {}", self.channel_title(&c.channel)),
+                            format!("in:{}", c.channel.name),
+                            SearchPick::Insert(format!("in:{}", c.channel.name)),
+                            cx,
+                        ))
+                    }
+                    None => {}
+                }
+            }
+            if let Some(me) = &self.me {
+                list = list.child(row(
+                    "sg-s-mine".into(),
+                    icon(IconName::Pencil),
+                    "Mes messages".into(),
+                    format!("from:{}", me.username),
+                    SearchPick::Insert(format!("from:{}", me.username)),
+                    cx,
+                ));
+            }
+            let today = chrono::Local::now().date_naive();
+            list = list
+                .child(row(
+                    "sg-s-today".into(),
+                    icon(IconName::Clock),
+                    "Aujourd'hui".into(),
+                    format!("on:{today}"),
+                    SearchPick::Insert(format!("on:{today}")),
+                    cx,
+                ))
+                .child(row(
+                    "sg-s-week".into(),
+                    icon(IconName::Clock),
+                    "Ces 7 derniers jours".into(),
+                    format!("after:{}", today - chrono::Duration::days(8)),
+                    SearchPick::Insert(format!("after:{}", today - chrono::Duration::days(8))),
+                    cx,
+                ));
+
+            // Étiquettes vues récemment dans le canal : un clic les recherche.
+            let tags = self.recent_hashtags();
+            if !tags.is_empty() {
+                list = list.child(section("Étiquettes du canal")).child(
+                    h_flex().flex_wrap().gap_1p5().px_2().pb_1().children(tags.into_iter().take(8).map(|tag| {
+                        let terms = format!("#{tag}");
+                        div()
+                            .id(SharedString::from(format!("sg-tag-{tag}")))
+                            .px_2()
+                            .py_0p5()
+                            .rounded_full()
+                            .bg(p.link.opacity(0.12))
+                            .text_color(p.link)
+                            .text_xs()
+                            .font_semibold()
+                            .cursor_pointer()
+                            .child(terms.clone())
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.search_for(terms.clone(), window, cx);
+                                    window.blur(cx);
+                                }),
+                            )
+                    })),
+                );
+            }
+
+            // Recherches récentes.
+            if !self.settings.recent_searches.is_empty() {
+                list = list.child(
+                    h_flex()
+                        .child(section("Recherches récentes"))
+                        .child(div().flex_1())
+                        .child(
+                            div()
+                                .id("sg-forget")
+                                .px_2()
+                                .pt_2()
+                                .text_xs()
+                                .text_color(p.link)
+                                .cursor_pointer()
+                                .hover(|s| s.underline())
+                                .child("Effacer")
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.forget_searches(cx);
+                                    }),
+                                ),
+                        ),
+                );
+                for (i, terms) in self.settings.recent_searches.clone().into_iter().enumerate() {
+                    list = list.child(row(
+                        format!("sg-r-{i}"),
+                        icon(IconName::Clock),
+                        terms.clone(),
+                        String::new(),
+                        SearchPick::Run(terms),
+                        cx,
+                    ));
+                }
+            }
+        }
+
+        v_flex()
+            .id("search-dropdown")
+            .occlude()
+            .absolute()
+            .top(px(38.))
+            .right_0()
+            .w(px(380.))
+            .max_h(px(520.))
+            .overflow_y_scroll()
+            .rounded(px(10.))
+            .border_1()
+            .border_color(p.border())
+            .bg(p.center_bg)
+            .text_color(p.center_color)
+            .shadow_lg()
+            .child(list)
+            .child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .border_t_1()
+                    .border_color(p.border())
+                    .text_xs()
+                    .text_color(p.muted())
+                    .child("Entrée pour chercher · \"expression exacte\" · mot* pour un début de mot"),
+            )
+            .into_any_element()
+    }
+
+    /// Étiquettes des messages chargés du canal, les plus récentes d'abord.
+    fn recent_hashtags(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for view in self.posts.iter().rev() {
+            for tag in markdown::hashtags(&view.post.message) {
+                if !out.iter().any(|t| t.eq_ignore_ascii_case(&tag)) {
+                    out.push(tag);
+                }
+            }
+            if out.len() >= 12 {
+                break;
+            }
+        }
+        out
+    }
+
+    /// Fichiers du canal : recherche du serveur et messages connus, sans doublon.
+    fn channel_file_list(&self) -> Vec<FileInfo> {
+        let Some(channel_id) = &self.channel_id else { return Vec::new() };
+        let mut files: Vec<FileInfo> = self.channel_files.get(channel_id).cloned().unwrap_or_default();
+        for view in &self.posts {
+            for f in &view.post.metadata.files {
+                if !files.iter().any(|g| g.id == f.id) {
+                    let mut f = f.clone();
+                    f.post_id = view.post.id.clone();
+                    f.channel_id = view.post.channel_id.clone();
+                    f.user_id = view.post.user_id.clone();
+                    f.create_at = view.post.create_at;
+                    files.push(f);
+                }
+            }
+        }
+        files.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+        files
+    }
+
+    /// Liens des messages chargés du canal (avec le titre de leur aperçu s'il y en a un).
+    fn channel_links(&self) -> Vec<ChannelLink> {
+        let mut out: Vec<ChannelLink> = Vec::new();
+        for view in self.posts.iter().rev() {
+            let post = &view.post;
+            let titles: HashMap<String, String> = post
+                .metadata
+                .embeds
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| {
+                    let url = e.get("url")?.as_str()?.to_string();
+                    let title = e.pointer("/data/title").and_then(|t| t.as_str()).unwrap_or_default().to_string();
+                    Some((url, title))
+                })
+                .collect();
+            for url in extract_urls(&post.message) {
+                if out.iter().any(|l| l.url == url) {
+                    continue;
+                }
+                let title = titles.get(&url).cloned().filter(|t| !t.is_empty());
+                out.push(ChannelLink { title, url, user_id: post.user_id.clone(), at: post.create_at });
+            }
+        }
+        out
+    }
+
+    /// Panneau « Fichiers » : onglets Médias, Fichiers, Liens.
+    fn render_files_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let p = self.palette;
+        let entity = cx.entity();
+        let files = self.channel_file_list();
+        let (media, documents): (Vec<FileInfo>, Vec<FileInfo>) =
+            files.into_iter().partition(|f| f.is_image() || f.is_video());
+        let links = self.channel_links();
+        let loaded = self.channel_id.as_ref().is_some_and(|id| self.channel_files.contains_key(id));
+
+        let tab = |t: FilesTab, label: &'static str, count: usize, cx: &mut Context<Self>| {
+            let active = self.files_tab == t;
+            h_flex()
+                .id(SharedString::from(format!("ftab-{t:?}")))
+                .gap_1p5()
+                .px_3()
+                .py_2()
+                .cursor_pointer()
+                .border_b_2()
+                .border_color(if active { p.button_bg } else { transparent_black() })
+                .text_sm()
+                .when(active, |el| el.font_semibold())
+                .when(!active, |el| el.text_color(p.muted()).hover(|s| s.text_color(p.center_color)))
+                .child(label)
+                .child(
+                    div()
+                        .px_1p5()
+                        .rounded_full()
+                        .text_xs()
+                        .bg(p.center_color.opacity(0.08))
+                        .child(count.to_string()),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.set_files_tab(t, cx)))
+        };
+        let tabs = h_flex()
+            .px_3()
+            .border_b_1()
+            .border_color(p.border())
+            .child(tab(FilesTab::Media, "Médias", media.len(), cx))
+            .child(tab(FilesTab::Documents, "Fichiers", documents.len(), cx))
+            .child(tab(FilesTab::Links, "Liens", links.len(), cx));
+
+        let empty = |text: &'static str| div().p_5().text_color(p.muted()).child(text).into_any_element();
+        let meta = |user_id: &str, at: i64| {
+            format!("{} · {}", self.user_name(user_id), day_label(at).to_lowercase())
+        };
+
+        let body: AnyElement = match self.files_tab {
+            FilesTab::Media if media.is_empty() => {
+                empty(if loaded { "Aucune image ni vidéo dans ce canal." } else { "Chargement…" })
+            }
+            FilesTab::Media => {
+                // Grille de vignettes carrées ; un clic ouvre la visionneuse.
+                let tiles = media.into_iter().map(|f| {
+                    let thumb: AnyElement = match self.previews.get(&f.id) {
+                        Some(image) if f.is_image() => img(image.clone()).size_full().object_fit(ObjectFit::Cover).into_any_element(),
+                        _ => div()
+                            .size_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(28.))
+                            .child(file_icon(&f.extension))
+                            .into_any_element(),
+                    };
+                    let (entity, file) = (entity.clone(), f.clone());
+                    let tip: SharedString = f.name.clone().into();
+                    div()
+                        .id(SharedString::from(format!("media-{}", f.id)))
+                        .size(px(112.))
+                        .rounded(px(6.))
+                        .overflow_hidden()
+                        .bg(p.center_color.opacity(0.06))
+                        .cursor_pointer()
+                        .hover(|s| s.opacity(0.85))
+                        .child(thumb)
+                        .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
+                        .on_click(move |_, window, cx| {
+                            let file = file.clone();
+                            entity.update(cx, |this, cx| {
+                                if file.is_image() {
+                                    this.open_image(file, window, cx)
+                                } else {
+                                    this.download(file, true, cx)
+                                }
+                            });
+                        })
+                });
+                div()
+                    .id("media-grid")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .p_3()
+                    .child(h_flex().flex_wrap().gap_2().children(tiles))
+                    .into_any_element()
+            }
+            FilesTab::Documents if documents.is_empty() => {
+                empty(if loaded { "Aucun fichier dans ce canal." } else { "Chargement…" })
+            }
+            FilesTab::Documents => v_flex()
+                .id("docs-list")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .children(documents.into_iter().map(|f| {
+                    let (e1, e2, f1, f2) = (entity.clone(), entity.clone(), f.clone(), f.clone());
+                    h_flex()
+                        .id(SharedString::from(format!("doc-{}", f.id)))
+                        .gap_3()
+                        .px_4()
+                        .py_2p5()
+                        .border_b_1()
+                        .border_color(p.border())
+                        .hover(|s| s.bg(p.hover()))
+                        .child(div().text_size(px(24.)).child(file_icon(&f.extension)))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(div().truncate().text_sm().font_semibold().child(f.name.clone()))
+                                .child(
+                                    div()
+                                        .truncate()
+                                        .text_xs()
+                                        .text_color(p.muted())
+                                        .child(format!("{} · {}", f.human_size(), meta(&f.user_id, f.create_at))),
+                                ),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("doc-open-{}", f.id)))
+                                .icon(Icon::new(IconName::ExternalLink))
+                                .ghost()
+                                .small()
+                                .tooltip("Ouvrir")
+                                .on_click(move |_, _, cx| {
+                                    let file = f1.clone();
+                                    e1.update(cx, |this, cx| this.download(file, true, cx));
+                                }),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("doc-dl-{}", f.id)))
+                                .icon(Icon::new(IconName::Download))
+                                .ghost()
+                                .small()
+                                .tooltip("Télécharger")
+                                .on_click(move |_, _, cx| {
+                                    let file = f2.clone();
+                                    e2.update(cx, |this, cx| this.download(file, false, cx));
+                                }),
+                        )
+                }))
+                .into_any_element(),
+            FilesTab::Links if links.is_empty() => empty("Aucun lien dans les messages chargés de ce canal."),
+            FilesTab::Links => v_flex()
+                .id("links-list")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .children(links.into_iter().enumerate().map(|(i, l)| {
+                    let domain = l
+                        .url
+                        .split("://")
+                        .nth(1)
+                        .and_then(|r| r.split('/').next())
+                        .unwrap_or(&l.url)
+                        .trim_start_matches("www.")
+                        .to_string();
+                    let url = l.url.clone();
+                    h_flex()
+                        .id(SharedString::from(format!("link-{i}")))
+                        .gap_3()
+                        .px_4()
+                        .py_2p5()
+                        .border_b_1()
+                        .border_color(p.border())
+                        .cursor_pointer()
+                        .hover(|s| s.bg(p.hover()))
+                        .child(
+                            div()
+                                .flex_none()
+                                .size(px(32.))
+                                .rounded(px(6.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(p.link.opacity(0.12))
+                                .text_color(p.link)
+                                .child(Icon::new(IconName::Link2).size(px(16.))),
+                        )
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(div().truncate().text_sm().font_semibold().child(l.title.clone().unwrap_or(domain.clone())))
+                                .child(div().truncate().text_xs().text_color(p.link).child(l.url.clone()))
+                                .child(div().truncate().text_xs().text_color(p.muted()).child(meta(&l.user_id, l.at))),
+                        )
+                        .on_click(move |_, _, cx| cx.open_url(&url))
+                }))
+                .into_any_element(),
+        };
+        v_flex().flex_1().min_h_0().child(tabs).child(body).into_any_element()
     }
 
     /// Sélecteur de canaux (Ctrl+K).
@@ -3055,5 +3727,120 @@ mod profile_tests {
         assert_eq!(offset_label(0), "même heure que vous");
         assert_eq!(offset_label(-360), "6 h de retard");
         assert_eq!(offset_label(330), "5 h 30 d'avance");
+    }
+}
+
+/// Action d'une proposition de recherche.
+enum SearchPick {
+    /// Insère un filtre dans le champ (la saisie continue).
+    Insert(String),
+    /// Lance la recherche telle quelle.
+    Run(String),
+}
+
+/// Lien trouvé dans un message du canal.
+struct ChannelLink {
+    title: Option<String>,
+    url: String,
+    user_id: String,
+    at: i64,
+}
+
+/// Adresses web d'un texte (ponctuation finale retirée).
+fn extract_urls(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for start in ["https://", "http://"] {
+        let mut rest = text;
+        while let Some(i) = rest.find(start) {
+            let tail = &rest[i..];
+            let end = tail
+                .find(|c: char| c.is_whitespace() || matches!(c, ')' | '>' | '"' | '\'' | ']' | '<'))
+                .unwrap_or(tail.len());
+            let url = tail[..end].trim_end_matches(['.', ',', ';', ':', '!', '?']);
+            if url.len() > start.len() && !out.iter().any(|u| u == url) {
+                out.push(url.to_string());
+            }
+            rest = &tail[end.max(1)..];
+        }
+    }
+    out
+}
+
+/// Mention ou étiquette reconnue dans un message.
+struct TagData {
+    hashtag: bool,
+    value: String,
+}
+
+/// Affiche `@nom` et `#étiquette` en pastilles cliquables : carte de profil
+/// pour une personne, recherche pour une étiquette. Vos propres mentions (et
+/// @here, @channel, @all) sont surlignées.
+struct TagPlugin {
+    me: String,
+    palette: Palette,
+    app: WeakEntity<ChatApp>,
+}
+
+impl MarkdownPlugin for TagPlugin {
+    fn name(&self) -> &str {
+        "mm-tag"
+    }
+
+    fn parse(&self, node: &markdown_ast::Node, _cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let markdown_ast::Node::Link(link) = node else { return None };
+        let (hashtag, value) = match link.url.strip_prefix(markdown::MENTION_SCHEME) {
+            Some(v) => (false, v),
+            None => (true, link.url.strip_prefix(markdown::HASHTAG_SCHEME)?),
+        };
+        let text = format!("{}{value}", if hashtag { '#' } else { '@' });
+        Some(MarkdownNode::new("mm-tag", TagData { hashtag, value: value.to_string() }).text(text))
+    }
+
+    fn render(&self, node: &MarkdownNode, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let p = self.palette;
+        let Some(tag) = node.data::<TagData>() else {
+            return div().child(node.as_text().to_string()).into_any_element();
+        };
+        let mine = !tag.hashtag
+            && (tag.value.eq_ignore_ascii_case(&self.me) || matches!(tag.value.as_str(), "here" | "channel" | "all"));
+        let (bg, fg) = match (tag.hashtag, mine) {
+            (true, _) => (transparent_black(), p.link),
+            (false, true) => (p.mention_highlight_bg.opacity(0.6), p.center_color),
+            (false, false) => (p.link.opacity(0.13), p.link),
+        };
+        let (app, value, hashtag) = (self.app.clone(), tag.value.clone(), tag.hashtag);
+        let start = node.source_range().map(|r| r.start).unwrap_or_default();
+        div()
+            .id(SharedString::from(format!("tag-{start}-{value}")))
+            .px(px(if tag.hashtag { 0. } else { 3. }))
+            .rounded(px(4.))
+            .bg(bg)
+            .text_color(fg)
+            .font_semibold()
+            .cursor_pointer()
+            .hover(|s| s.underline())
+            .child(node.as_text().to_string())
+            .on_click(move |ev, window, cx| {
+                let (value, at) = (value.clone(), ev.position());
+                let _ = app.update(cx, |this, cx| {
+                    if hashtag {
+                        this.search_for(format!("#{value}"), window, cx);
+                    } else {
+                        this.open_profile_by_name(value, at, window, cx);
+                    }
+                });
+            })
+            .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod link_tests {
+    use super::extract_urls;
+
+    #[test]
+    fn adresses_dans_le_texte() {
+        let urls = extract_urls("Voir https://ex.org/a. et [doc](https://doc.ex.org/x?y=1), http://b.fr!");
+        assert_eq!(urls, vec!["https://ex.org/a", "https://doc.ex.org/x?y=1", "http://b.fr"]);
     }
 }

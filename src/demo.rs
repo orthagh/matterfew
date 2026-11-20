@@ -136,7 +136,7 @@ impl Demo {
         demo.add("general", "u3", now - day - 2 * h + 2 * m, "Le modèle est dans le drive partagé > *Présentations*.", &[], 0);
         demo.add("general", ME, now - 5 * h, "Merci @chloe.durand ! J'ajoute la partie sur les performances.", &[("heart", &["u3"])], 0);
         demo.add("general", "u4", now - 2 * h, "Rappel : la mise en production de la **v2.4** est prévue ce soir.\n\n- gel des fusions à 17h\n- déploiement à 19h\n- vérifications à 19h30", &[("eyes", &["u1", "u2"])], 1);
-        demo.add("general", "u2", now - h, "Pour info, la doc est à jour : [notes de version](https://example.org/notes) :white_check_mark:", &[], 0);
+        demo.add("general", "u2", now - h, "Pour info, la doc est à jour : [notes de version](https://example.org/notes) :white_check_mark: #release-12 #documentation", &[], 0);
 
         demo.add("backend", "u2", now - day - 4 * h, "Quelqu'un a vu la lenteur sur `/api/tickets` ce matin ?", &[], 2);
         demo.add("backend", "u6", now - day - 4 * h + 5 * m, "Oui, un index manquait. Correctif :\n\n```sql\nCREATE INDEX idx_tickets_status\n    ON tickets (status, updated_at);\n```", &[("+1", &["u2", ME])], 0);
@@ -519,7 +519,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 _ => "application/octet-stream",
             };
             let id = demo.new_id();
-            let info = FileInfo { id: id.clone(), name, extension, size, mime_type: mime.into(), width: 800, height: 450, has_preview_image: mime.starts_with("image/") };
+            let info = FileInfo { id: id.clone(), name, extension, size, mime_type: mime.into(), width: 800, height: 450, has_preview_image: mime.starts_with("image/"), ..Default::default() };
             demo.uploads.insert(id, info.clone());
             send(Event::Uploaded { local_id, file: info });
         }
@@ -537,6 +537,25 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         | Command::LeaveChannel { .. }
         | Command::MarkChannelsRead { .. } => {}
         Command::SetStatus { status } => send(Event::Statuses(vec![(ME.into(), status)])),
+        Command::LoadChannelFiles { channel_id, .. } => {
+            // Démo : fichiers des messages connus du canal.
+            let files = demo
+                .posts
+                .get(&channel_id)
+                .into_iter()
+                .flatten()
+                .flat_map(|p| {
+                    p.metadata.files.iter().cloned().map(move |mut f| {
+                        f.post_id = p.id.clone();
+                        f.channel_id = p.channel_id.clone();
+                        f.user_id = p.user_id.clone();
+                        f.create_at = p.create_at;
+                        f
+                    })
+                })
+                .collect();
+            send(Event::ChannelFiles { channel_id, files });
+        }
         Command::LoadUserByName { username } => {
             if let Some(u) = demo.users.iter().find(|u| u.username == username) {
                 send(Event::Users(vec![u.clone()]));
@@ -609,7 +628,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 .filter(|p| match kind {
                     SideKind::Pinned => p.channel_id == channel_id && p.is_pinned,
                     SideKind::Saved => demo.saved.contains(&p.id),
-                    SideKind::Threads => false,
+                    SideKind::Threads | SideKind::Files => false,
                     SideKind::Mentions => p.message.contains("@camille.martin"),
                     SideKind::Search => {
                         !terms.is_empty()
@@ -716,6 +735,7 @@ fn file(id: &str, name: &str, mime: &str, size: i64, width: i64, height: i64) ->
         width,
         height,
         has_preview_image: mime.starts_with("image/"),
+        ..Default::default()
     }
 }
 
