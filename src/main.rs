@@ -8,6 +8,7 @@ mod demo;
 mod emoji;
 mod markdown;
 mod notify;
+mod settings;
 mod sidebar;
 mod sso;
 mod theme;

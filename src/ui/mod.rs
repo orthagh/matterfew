@@ -15,6 +15,7 @@ use gpui_kit::*;
 use crate::api::{Channel, FileInfo, Post, Preference, Reaction, SidebarCategory, Team, User};
 use crate::backend::{self, Command, Event, PAGE_SIZE};
 use crate::sidebar::{ChannelState, SidebarPrefs};
+use crate::settings::{SIDEBAR_MAX, SIDEBAR_MIN, UiSettings};
 use crate::theme::{MattermostTheme, Palette};
 use crate::api::{LoginError, login_with_password};
 use crate::credentials::AuthKind;
@@ -42,6 +43,22 @@ struct Attachment {
     /// Identifiant côté serveur, une fois l'envoi terminé.
     file_id: Option<String>,
     error: Option<String>,
+}
+
+/// Image affichée en grand dans la visionneuse.
+struct Viewer {
+    file: FileInfo,
+    image: Option<Arc<Image>>,
+    error: Option<String>,
+}
+
+/// Marqueur du glisser de la poignée de redimensionnement.
+struct SidebarResize;
+
+impl Render for SidebarResize {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
 }
 
 struct ThreadView {
@@ -116,6 +133,11 @@ pub struct ChatApp {
     next_local_id: u64,
     /// Message d'information temporaire (ex. fichier téléchargé).
     info: Option<String>,
+    viewer: Option<Viewer>,
+    viewer_focus: FocusHandle,
+    settings: UiSettings,
+    /// Redimensionnement de la barre latérale en cours.
+    resizing: bool,
     statuses: HashMap<String, String>,
     typing: Vec<Typing>,
     last_typing_sent: Option<Instant>,
@@ -261,6 +283,10 @@ impl ChatApp {
             attachments: Vec::new(),
             next_local_id: 0,
             info: None,
+            viewer: None,
+            viewer_focus: cx.focus_handle(),
+            settings: UiSettings::load(),
+            resizing: false,
             statuses: HashMap::new(),
             typing: Vec::new(),
             last_typing_sent: None,
@@ -717,6 +743,36 @@ impl ChatApp {
         cx.notify();
     }
 
+    /// Ouvre une image jointe dans la visionneuse intégrée.
+    fn open_image(&mut self, file: FileInfo, window: &mut Window, cx: &mut Context<Self>) {
+        // L'aperçu s'affiche en attendant l'image complète.
+        let image = self.previews.get(&file.id).cloned();
+        self.send(Command::LoadFullImage { file_id: file.id.clone() });
+        self.viewer = Some(Viewer { file, image, error: None });
+        window.focus(&self.viewer_focus, cx);
+        cx.notify();
+    }
+
+    fn close_viewer(&mut self, cx: &mut Context<Self>) {
+        self.viewer = None;
+        cx.notify();
+    }
+
+    /// Nouvelle largeur de la barre latérale pendant le glisser.
+    fn resize_sidebar(&mut self, width: f32, cx: &mut Context<Self>) {
+        self.settings.sidebar_width = width.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+        self.resizing = true;
+        cx.notify();
+    }
+
+    /// Fin du glisser : la largeur est mémorisée.
+    fn end_resize(&mut self) {
+        if self.resizing {
+            self.resizing = false;
+            self.settings.save();
+        }
+    }
+
     /// Demande les aperçus des images jointes pas encore chargées.
     fn request_previews<'a>(&mut self, posts: impl IntoIterator<Item = &'a Post>) {
         let wanted: Vec<String> = posts
@@ -862,6 +918,17 @@ impl ChatApp {
                     // Les messages concernés changent de hauteur.
                     self.scroller.update(cx, |s, cx| s.remeasure(cx));
                     self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
+                }
+            }
+            Event::FullImage { file_id, result } => {
+                if let Some(viewer) = self.viewer.as_mut().filter(|v| v.file.id == file_id) {
+                    match result.map(|bytes| (image_format(&bytes), bytes)) {
+                        Ok((Some(format), bytes)) => {
+                            viewer.image = Some(Arc::new(Image::from_bytes(format, bytes.to_vec())));
+                        }
+                        Ok((None, _)) => viewer.error = Some("Format d'image non pris en charge.".into()),
+                        Err(err) => viewer.error = Some(err),
+                    }
                 }
             }
             Event::Downloaded { path, open } => {

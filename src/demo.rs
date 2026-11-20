@@ -413,6 +413,10 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             let bytes = bmp(480, 270, 0x1c58d9 ^ (seed & 0x3f3f3f), 0xffbc1f ^ (seed & 0x1f1f00));
             send(Event::FilePreview { file_id, bytes: Arc::new(bytes) });
         }
+        Command::LoadFullImage { file_id } => {
+            let bytes = bmp(1600, 900, 0x1c58d9, 0xffbc1f);
+            send(Event::FullImage { file_id, result: Ok(Arc::new(bytes)) });
+        }
         Command::Download { file, open } => {
             let dir = std::env::temp_dir().join("mm-gpui-demo");
             let _ = std::fs::create_dir_all(&dir);
