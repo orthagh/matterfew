@@ -12,8 +12,9 @@ use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::message_scroller::MessageScrollerState;
 use gpui_kit::*;
 
-use crate::api::{Channel, FileInfo, Post, Preference, Reaction, SidebarCategory, Team, User};
-use crate::backend::{self, AcKind, Command, Event, PAGE_SIZE, Suggestion};
+use crate::api::{Channel, FileInfo, Post, Preference, Reaction, SidebarCategory, Team, User, UserThread};
+use crate::backend::{self, AcKind, Command, Event, PAGE_SIZE, SideKind, Suggestion};
+pub(crate) use crate::backend::SideKind as PanelKind;
 use crate::sidebar::{ChannelState, SidebarPrefs};
 use crate::settings::{SIDEBAR_MAX, SIDEBAR_MIN, UiSettings};
 use crate::theme::{MattermostTheme, Palette};
@@ -71,6 +72,43 @@ struct Autocomplete {
     start: usize,
     items: Vec<Suggestion>,
     selected: usize,
+}
+
+/// Panneau latéral autre que le fil : épinglés, enregistrés, recherche.
+struct SidePanel {
+    kind: SideKind,
+    /// Termes recherchés (recherche) ou nom du canal (épinglés).
+    subject: String,
+    /// `None` tant que la réponse du serveur n'est pas arrivée.
+    posts: Option<Vec<Post>>,
+}
+
+/// Mini-carte de profil ouverte au clic sur une personne.
+pub(crate) struct ProfileCard {
+    /// Connu d'emblée, sauf pour une @mention pas encore chargée.
+    user_id: Option<String>,
+    username: String,
+    /// Point du clic (coordonnées de la fenêtre).
+    at: Point<Pixels>,
+}
+
+pub(crate) const PROFILE_CARD_WIDTH: f32 = 300.;
+const PROFILE_CARD_HEIGHT: f32 = 390.;
+
+/// Coin de la carte : au point du clic, sans sortir de la fenêtre.
+fn card_origin(at: Point<Pixels>, window: &Window) -> Point<Pixels> {
+    let size = window.viewport_size();
+    // Un peu à droite du clic, pour laisser voir ce qu'on a cliqué.
+    let x = (at.x + px(14.)).min(size.width - px(PROFILE_CARD_WIDTH + 12.)).max(px(8.));
+    let y = at.y.min(size.height - px(PROFILE_CARD_HEIGHT)).max(px(8.));
+    point(x, y)
+}
+
+/// Où va l'emoji choisi dans le sélecteur.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum PickerTarget {
+    Reaction(String),
+    Composer(Pane),
 }
 
 struct ThreadView {
@@ -164,6 +202,24 @@ pub struct ChatApp {
     preview: HashSet<Pane>,
     /// Canal pour lequel l'invite de la zone de saisie a été écrite.
     placeholder_for: Option<String>,
+    side: Option<SidePanel>,
+    /// Membres de chaque canal déjà chargé : (identifiants, nombre total).
+    members: HashMap<String, (Vec<String>, i64)>,
+    /// Administrateurs de chaque canal chargé.
+    channel_admins: HashMap<String, Vec<String>>,
+    profile: Option<ProfileCard>,
+    /// Équipe des canaux d'autres équipes (mentions récentes).
+    channel_teams: HashMap<String, String>,
+    /// Message à ouvrir une fois l'équipe chargée.
+    pending_jump: Option<Post>,
+    /// Fils suivis (panneau « Fils »), `None` pendant le chargement.
+    threads: Option<Vec<UserThread>>,
+    search_input: Entity<InputState>,
+    /// Sélecteur de canaux (Ctrl+K) ouvert, avec la ligne choisie.
+    switcher: Option<usize>,
+    switcher_input: Entity<InputState>,
+    emoji_picker: Option<PickerTarget>,
+    emoji_search: Entity<InputState>,
     /// Numéro de la dernière demande d'autocomplétion (les réponses plus
     /// anciennes sont ignorées).
     ac_seq: u64,
@@ -247,6 +303,10 @@ impl ChatApp {
         let email_input = cx.new(|cx| InputState::new(window, cx).placeholder("prenom.nom@exemple.org"));
         let password_input = cx.new(|cx| InputState::new(window, cx).placeholder("Mot de passe").masked(true));
         let mfa_input = cx.new(|cx| InputState::new(window, cx).placeholder("Code à 6 chiffres"));
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher"));
+        let switcher_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Aller à un canal ou une conversation"));
+        let emoji_search = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher un emoji"));
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(1, 8)
@@ -286,6 +346,24 @@ impl ChatApp {
             cx.subscribe_in(&password_input, window, |this, _, ev: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { .. } = ev {
                     this.login_password(window, cx);
+                }
+            }),
+            cx.subscribe_in(&search_input, window, |this, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::PressEnter { .. } = ev {
+                    this.run_search(cx);
+                }
+            }),
+            cx.subscribe_in(&switcher_input, window, |this, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::Change = ev {
+                    if this.switcher.is_some() {
+                        this.switcher = Some(0);
+                        cx.notify();
+                    }
+                }
+            }),
+            cx.subscribe_in(&emoji_search, window, |_, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::Change = ev {
+                    cx.notify();
                 }
             }),
             cx.subscribe_in(&mfa_input, window, |this, _, ev: &InputEvent, window, cx| {
@@ -345,6 +423,18 @@ impl ChatApp {
             manually_unread: None,
             preview: HashSet::new(),
             placeholder_for: None,
+            side: None,
+            members: HashMap::new(),
+            channel_admins: HashMap::new(),
+            profile: None,
+            channel_teams: HashMap::new(),
+            pending_jump: None,
+            threads: None,
+            search_input,
+            switcher: None,
+            switcher_input,
+            emoji_picker: None,
+            emoji_search,
             ac_seq: 0,
             attachments: Vec::new(),
             next_local_id: 0,
@@ -712,6 +802,11 @@ impl ChatApp {
             self.settings.save();
         }
         self.attachments.clear();
+        self.profile = None;
+        if self.side.as_ref().is_some_and(|s| s.kind == SideKind::Threads) {
+            self.threads = None;
+            self.send(Command::LoadThreads { team_id: team_id.clone() });
+        }
         self.send(Command::LoadTeamUnreads);
         // Le thème peut être propre à l'équipe.
         self.refresh_preferences(cx);
@@ -738,6 +833,9 @@ impl ChatApp {
         self.pending_text.push((Pane::Thread, String::new()));
         self.manually_unread = None;
         self.preview.clear();
+        if self.side.as_ref().is_some_and(|p| p.kind == SideKind::Pinned) {
+            self.side = None;
+        }
         if let (Some(team_id), false) = (self.team_id.clone(), self.demo) {
             self.settings.last_channels.insert(team_id, channel_id.clone());
             self.settings.save();
@@ -768,6 +866,9 @@ impl ChatApp {
         self.confirm_delete = None;
         self.scroller.update(cx, |s, cx| s.reset(0, cx));
         self.send(Command::LoadChannel { channel_id: channel_id.clone() });
+        if self.settings.show_members && !self.members.contains_key(&channel_id) {
+            self.send(Command::LoadMembers { channel_id: channel_id.clone() });
+        }
         self.send(Command::MarkRead { channel_id });
         cx.notify();
     }
@@ -824,6 +925,16 @@ impl ChatApp {
         let count = seed.len();
         if self.editing.as_ref().is_some_and(|(pane, _)| *pane == Pane::Thread) {
             self.editing = None;
+        }
+        self.side = None;
+        if self.crt {
+            if let Some(team_id) = self.team_id.clone() {
+                self.send(Command::MarkThreadRead { team_id, root_id: root_id.clone() });
+            }
+            if let Some(t) = self.threads.as_mut().and_then(|l| l.iter_mut().find(|t| t.id == root_id)) {
+                t.unread_replies = 0;
+                t.unread_mentions = 0;
+            }
         }
         self.thread = Some(ThreadView { root_id: root_id.clone(), posts: seed });
         self.thread_scroller.update(cx, |s, cx| s.reset(count, cx));
@@ -1192,13 +1303,13 @@ impl ChatApp {
         }
         if self.placeholder_for != self.channel_id {
             self.placeholder_for = self.channel_id.clone();
-            let title = self
-                .channel_id
-                .as_ref()
-                .and_then(|id| self.channels.get(id))
-                .map(|c| self.channel_title(&c.channel));
-            if let Some(title) = title {
-                self.composer.update(cx, |s, cx| s.set_placeholder(format!("Écrire dans {title}"), window, cx));
+            // « Écrire à Léa » pour un message direct, « Écrire dans Général » sinon.
+            let prompt = self.channel_id.as_ref().and_then(|id| self.channels.get(id)).map(|c| {
+                let title = self.channel_title(&c.channel);
+                if c.channel.is_direct() { format!("Écrire à {title}") } else { format!("Écrire dans {title}") }
+            });
+            if let Some(prompt) = prompt {
+                self.composer.update(cx, |s, cx| s.set_placeholder(prompt, window, cx));
             } else {
                 // Canaux pas encore chargés : on réessaiera au prochain rendu.
                 self.placeholder_for = None;
@@ -1410,6 +1521,258 @@ impl ChatApp {
         cx.notify();
     }
 
+    // ------------------------------------------------------------------
+    // Panneau latéral : épinglés, enregistrés, recherche
+    // ------------------------------------------------------------------
+
+    fn open_side(&mut self, kind: SideKind, subject: String, terms: String, cx: &mut Context<Self>) {
+        let team_id = self.team_id.clone().unwrap_or_default();
+        let channel_id = self.channel_id.clone().unwrap_or_default();
+        if self.thread.is_some() {
+            self.close_thread(cx);
+        }
+        self.side = Some(SidePanel { kind: kind.clone(), subject, posts: None });
+        self.send(Command::LoadSide { kind, team_id, channel_id, terms });
+        cx.notify();
+    }
+
+    fn show_pinned(&mut self, cx: &mut Context<Self>) {
+        let title = self
+            .channel_id
+            .as_ref()
+            .and_then(|id| self.channels.get(id))
+            .map(|c| self.channel_title(&c.channel))
+            .unwrap_or_default();
+        self.open_side(SideKind::Pinned, title, String::new(), cx);
+    }
+
+    /// Panneau des fils suivis.
+    fn show_threads(&mut self, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id.clone() else { return };
+        if self.thread.is_some() {
+            self.close_thread(cx);
+        }
+        self.side = Some(SidePanel { kind: SideKind::Threads, subject: String::new(), posts: Some(Vec::new()) });
+        self.threads = None;
+        self.send(Command::LoadThreads { team_id });
+        cx.notify();
+    }
+
+    fn toggle_members(&mut self, cx: &mut Context<Self>) {
+        self.settings.show_members = !self.settings.show_members;
+        if !self.demo {
+            self.settings.save();
+        }
+        if let Some(id) = self.channel_id.clone().filter(|id| self.settings.show_members && !self.members.contains_key(id)) {
+            self.send(Command::LoadMembers { channel_id: id });
+        }
+        cx.notify();
+    }
+
+    /// Message direct avec un membre : le canal existant, sinon on le crée.
+    fn open_direct(&mut self, user_id: String, window: &mut Window, cx: &mut Context<Self>) {
+        if user_id == self.me_id() {
+            return;
+        }
+        let existing = self
+            .channels
+            .values()
+            .find(|c| c.channel.direct_partner(self.me_id()).as_deref() == Some(user_id.as_str()))
+            .map(|c| c.channel.id.clone());
+        match existing {
+            Some(id) => {
+                self.select_channel(id, cx);
+                self.focus_composer(window, cx);
+            }
+            None => self.send(Command::OpenDirect { user_id }),
+        }
+    }
+
+    /// Mentions récentes, toutes équipes confondues.
+    fn show_mentions(&mut self, cx: &mut Context<Self>) {
+        self.open_side(SideKind::Mentions, String::new(), String::new(), cx);
+    }
+
+    /// Carte de profil d'une personne, au point du clic.
+    fn open_profile(&mut self, user_id: String, at: Point<Pixels>, window: &Window, cx: &mut Context<Self>) {
+        let at = card_origin(at, window);
+        let username = self.users.get(&user_id).map(|u| u.username.clone()).unwrap_or_default();
+        self.profile = Some(ProfileCard { user_id: Some(user_id), username, at });
+        cx.notify();
+    }
+
+    /// Carte de profil depuis une @mention (profil chargé au besoin).
+    fn open_profile_by_name(&mut self, username: String, at: Point<Pixels>, window: &Window, cx: &mut Context<Self>) {
+        let at = card_origin(at, window);
+        let username = username.trim_start_matches('@').trim_end_matches(['.', '_', '-']).to_string();
+        if matches!(username.as_str(), "here" | "channel" | "all") {
+            return;
+        }
+        let known = self.users.values().find(|u| u.username == username).map(|u| u.id.clone());
+        if known.is_none() {
+            self.send(Command::LoadUserByName { username: username.clone() });
+        }
+        self.profile = Some(ProfileCard { user_id: known, username, at });
+        cx.notify();
+    }
+
+    fn close_profile(&mut self, cx: &mut Context<Self>) {
+        if self.profile.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    /// Personne affichée par la carte de profil (une fois son profil connu).
+    fn profile_user(&self) -> Option<&User> {
+        let card = self.profile.as_ref()?;
+        match &card.user_id {
+            Some(id) => self.users.get(id),
+            None => self.users.values().find(|u| u.username == card.username),
+        }
+    }
+
+    fn show_saved(&mut self, cx: &mut Context<Self>) {
+        self.open_side(SideKind::Saved, String::new(), String::new(), cx);
+    }
+
+    /// Ouvre le panneau de recherche, champ de saisie prêt.
+    fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.thread.is_some() {
+            self.close_thread(cx);
+        }
+        if !self.side.as_ref().is_some_and(|s| s.kind == SideKind::Search) {
+            self.side = Some(SidePanel { kind: SideKind::Search, subject: String::new(), posts: Some(Vec::new()) });
+        }
+        self.search_input.update(cx, |s, cx| s.focus(window, cx));
+        cx.notify();
+    }
+
+    fn run_search(&mut self, cx: &mut Context<Self>) {
+        let terms = self.search_input.read(cx).value().trim().to_string();
+        if !terms.is_empty() {
+            self.open_side(SideKind::Search, terms.clone(), terms, cx);
+        }
+    }
+
+    fn close_side(&mut self, cx: &mut Context<Self>) {
+        self.side = None;
+        cx.notify();
+    }
+
+    /// Ouvre le canal d'un message trouvé, et son fil pour le voir en contexte.
+    fn jump_to_post(&mut self, post: Post, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.channels.contains_key(&post.channel_id) {
+            match self.channel_teams.get(&post.channel_id).cloned() {
+                Some(team_id) if self.team_id.as_deref() != Some(team_id.as_str()) => {
+                    // Le panneau (mentions récentes) reste ouvert pendant le changement d'équipe.
+                    let side = self.side.take();
+                    self.pending_jump = Some(post);
+                    self.select_team(team_id, cx);
+                    self.side = side;
+                }
+                _ => self.flash("Ce message est dans un canal d'une autre équipe.".into(), cx),
+            }
+            return;
+        }
+        self.select_channel(post.channel_id.clone(), cx);
+        let root = if post.root_id.is_empty() { post.id.clone() } else { post.root_id.clone() };
+        self.open_thread(root, window, cx);
+    }
+
+    // ------------------------------------------------------------------
+    // Sélecteur de canaux (Ctrl+K)
+    // ------------------------------------------------------------------
+
+    fn open_switcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.switcher = Some(0);
+        self.switcher_input.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn close_switcher(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.switcher = None;
+        self.focus_composer(window, cx);
+        cx.notify();
+    }
+
+    /// Canaux proposés : sans recherche, les plus récemment actifs ; sinon
+    /// ceux qui correspondent, les mieux classés puis les non lus d'abord.
+    fn switcher_matches(&self, cx: &App) -> Vec<String> {
+        let query = self.switcher_input.read(cx).value().to_string();
+        let mut found: Vec<(u8, bool, i64, String)> = self
+            .channels
+            .values()
+            .filter_map(|c| {
+                let rank = crate::fuzzy::rank(&self.channel_title(&c.channel), &query)
+                    .or_else(|| crate::fuzzy::rank(&c.channel.name, &query))?;
+                Some((rank, !c.shows_unread(), -c.channel.recency(), c.channel.id.clone()))
+            })
+            .collect();
+        found.sort();
+        found.into_iter().take(10).map(|(.., id)| id).collect()
+    }
+
+    fn switcher_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(selected) = self.switcher else { return };
+        let matches = self.switcher_matches(cx);
+        match key {
+            "up" => self.switcher = Some(selected.checked_sub(1).unwrap_or(matches.len().saturating_sub(1))),
+            "down" => self.switcher = Some(if matches.is_empty() { 0 } else { (selected + 1) % matches.len() }),
+            "enter" => {
+                if let Some(id) = matches.get(selected).cloned() {
+                    self.switcher = None;
+                    self.select_channel(id, cx);
+                    self.focus_composer(window, cx);
+                }
+            }
+            "escape" => self.close_switcher(window, cx),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    // ------------------------------------------------------------------
+    // Sélecteur d'emojis
+    // ------------------------------------------------------------------
+
+    fn open_emoji_picker(&mut self, target: PickerTarget, window: &mut Window, cx: &mut Context<Self>) {
+        self.emoji_picker = Some(target);
+        self.emoji_search.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn close_emoji_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let pane = match &self.emoji_picker {
+            Some(PickerTarget::Composer(pane)) => Some(*pane),
+            _ => None,
+        };
+        self.emoji_picker = None;
+        if let Some(pane) = pane {
+            self.composer_for(pane).update(cx, |s, cx| s.focus(window, cx));
+        }
+        cx.notify();
+    }
+
+    /// Emoji choisi : réaction au message, ou insertion dans la zone de saisie.
+    /// `name` : nom Mattermost ; `glyph` : caractère (vide pour un emoji personnalisé).
+    fn pick_emoji(&mut self, name: String, glyph: String, window: &mut Window, cx: &mut Context<Self>) {
+        match self.emoji_picker.clone() {
+            Some(PickerTarget::Reaction(post_id)) => self.toggle_reaction(post_id, name.clone()),
+            Some(PickerTarget::Composer(pane)) => {
+                let text = if glyph.is_empty() { format!(":{name}: ") } else { glyph };
+                self.composer_for(pane).update(cx, |s, cx| s.insert(text, window, cx));
+            }
+            None => {}
+        }
+        self.close_emoji_picker(window, cx);
+    }
+
     fn post_action(&mut self, post_id: String, action_id: String) {
         self.send(Command::PostAction { post_id, action_id });
     }
@@ -1552,6 +1915,46 @@ impl ChatApp {
                     self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
                 }
             }
+            Event::Members { channel_id, user_ids, admins, total } => {
+                self.channel_admins.insert(channel_id.clone(), admins);
+                self.members.insert(channel_id, (user_ids, total));
+            }
+            Event::ChannelTeams(list) => {
+                self.channel_teams.extend(list);
+            }
+            Event::MembersChanged { channel_id } => {
+                if self.members.remove(&channel_id).is_some() && self.channel_id.as_deref() == Some(channel_id.as_str()) {
+                    self.send(Command::LoadMembers { channel_id });
+                }
+            }
+            Event::Threads(list) => {
+                let roots: Vec<Post> = list.iter().map(|t| t.post.clone()).collect();
+                self.request_previews(&roots);
+                self.threads = Some(list);
+            }
+            Event::DirectOpened(channel) => {
+                let id = channel.id.clone();
+                self.channels.entry(id.clone()).or_insert(ChannelState {
+                    channel,
+                    unread_messages: false,
+                    mentions: 0,
+                    muted: false,
+                    notify_desktop: String::new(),
+                });
+                if let Some(dm) = self.categories.iter_mut().find(|c| c.kind == "direct_messages") {
+                    if !dm.channel_ids.contains(&id) {
+                        dm.channel_ids.insert(0, id.clone());
+                    }
+                }
+                self.select_channel(id, cx);
+                self.focus_composer(window, cx);
+            }
+            Event::SidePosts { kind, posts } => {
+                self.request_previews(&posts);
+                if let Some(side) = self.side.as_mut().filter(|s| s.kind == kind) {
+                    side.posts = Some(posts);
+                }
+            }
             Event::Suggestions { seq, kind, items } => {
                 if seq == self.ac_seq {
                     match self.autocomplete.as_mut().filter(|a| a.kind == kind) {
@@ -1680,8 +2083,14 @@ impl ChatApp {
                             .or_else(|| self.channels.values().next())
                             .map(|c| c.channel.id.clone())
                     });
-                    if let Some(id) = default {
-                        self.select_channel(id, cx);
+                    let jump = self.pending_jump.take().filter(|p| self.channels.contains_key(&p.channel_id));
+                    match jump {
+                        Some(post) => self.jump_to_post(post, window, cx),
+                        None => {
+                            if let Some(id) = default {
+                                self.select_channel(id, cx);
+                            }
+                        }
                     }
                 }
             }

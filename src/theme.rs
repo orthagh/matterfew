@@ -6,6 +6,7 @@
 //! On le lit pour que le client ait les mêmes couleurs que le client web.
 //! À défaut, thème « Denim » (celui par défaut de Mattermost).
 
+use gpui_kit::component::scroll::ScrollbarMode;
 use gpui_kit::component::{Theme, ThemeMode};
 use gpui_kit::*;
 use serde::Deserialize;
@@ -177,6 +178,8 @@ impl Palette {
         let native = cx.text_system().all_font_names().iter().any(|n| n == NATIVE_FONT);
         Theme::update(cx, move |theme| {
             p.write_colors(theme);
+            // Barres de défilement invisibles hors défilement.
+            theme.scrollbar_mode = ScrollbarMode::Scrolling;
             if native {
                 theme.font_family = NATIVE_FONT.into();
             }

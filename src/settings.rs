@@ -17,11 +17,13 @@ pub struct UiSettings {
     pub last_team: Option<String>,
     /// Dernier canal ouvert, par équipe.
     pub last_channels: HashMap<String, String>,
+    /// Liste des membres affichée à droite.
+    pub show_members: bool,
 }
 
 impl Default for UiSettings {
     fn default() -> Self {
-        Self { sidebar_width: 280., last_team: None, last_channels: HashMap::new() }
+        Self { sidebar_width: 280., last_team: None, last_channels: HashMap::new(), show_members: true }
     }
 }
 

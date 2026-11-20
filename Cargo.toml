@@ -36,6 +36,7 @@ tao = "0.37"
 # Icône de l'application (générée au démarrage)
 image = { version = "0.25", default-features = false, features = ["png"] }
 raw-window-handle = "0.6"
+chrono-tz = "0.10"
 
 # Intégration Windows : notifications avec identité et clic, pastille de la
 # barre des tâches, icône de la zone de notification.
@@ -79,6 +80,9 @@ lto = "thin"
 codegen-units = 1
 incremental = false
 strip = true
+
+[build-dependencies]
+winresource = "0.1"
 
 # Notifications de bureau hors Windows (Windows : voir desktop.rs).
 [target.'cfg(not(windows))'.dependencies]
