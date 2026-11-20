@@ -8,6 +8,7 @@
 //! toutes ses tâches, WebSocket compris.
 
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +18,9 @@ use serde_json::Value;
 use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::api::{Channel, ChannelMember, Client, Post, Preference, Reaction, SidebarCategory, Team, User};
+use crate::api::{
+    Channel, ChannelMember, Client, FileInfo, Post, Preference, Reaction, SidebarCategory, Team, TeamUnread, User,
+};
 
 /// Taille d'une page de messages.
 pub const PAGE_SIZE: usize = 60;
@@ -31,7 +34,15 @@ pub enum Command {
     LoadChannel { channel_id: String },
     LoadOlder { channel_id: String, before: String },
     LoadThread { root_id: String },
-    Send { channel_id: String, root_id: String, message: String },
+    Send { channel_id: String, root_id: String, message: String, file_ids: Vec<String> },
+    LoadTeamUnreads,
+    /// Aperçu d'une image jointe.
+    LoadPreview { file_id: String },
+    /// Télécharge un fichier joint ; `open` : l'ouvrir ensuite (sinon,
+    /// l'afficher dans l'explorateur).
+    Download { file: FileInfo, open: bool },
+    /// Envoie un fichier local ; `local_id` identifie la pièce jointe en attente.
+    Upload { local_id: u64, channel_id: String, path: PathBuf },
     Edit { post_id: String, message: String },
     Delete { post_id: String },
     React { post_id: String, emoji: String, add: bool },
@@ -45,6 +56,12 @@ pub enum Command {
 #[derive(Debug, Clone)]
 pub enum Event {
     Ready { me: User, teams: Vec<Team> },
+    TeamIcon { team_id: String, bytes: Arc<Vec<u8>> },
+    TeamUnreads(Vec<TeamUnread>),
+    FilePreview { file_id: String, bytes: Arc<Vec<u8>> },
+    Downloaded { path: PathBuf, open: bool },
+    Uploaded { local_id: u64, file: FileInfo },
+    UploadFailed { local_id: u64, error: String },
     Users(Vec<User>),
     Avatar { user_id: String, bytes: Arc<Vec<u8>> },
     Statuses(Vec<(String, String)>),
@@ -189,7 +206,20 @@ async fn run(
         ws_out,
     };
     ctx.ensure_users([me.id.clone()]).await;
+    // Logos des équipes, en arrière-plan.
+    for team in teams.iter().filter(|t| t.last_team_icon_update > 0) {
+        let ctx = ctx.clone();
+        let (id, update) = (team.id.clone(), team.last_team_icon_update);
+        tokio::spawn(async move {
+            if let Ok(bytes) = ctx.client.team_image(&id, update).await {
+                ctx.emit(Event::TeamIcon { team_id: id, bytes: Arc::new(bytes) }).await;
+            }
+        });
+    }
     ctx.emit(Event::Ready { me, teams }).await;
+    if let Some(unreads) = ctx.report(ctx.client.team_unreads().await).await {
+        ctx.emit(Event::TeamUnreads(unreads)).await;
+    }
     if let Some(prefs) = ctx.report(ctx.client.preferences().await).await {
         ctx.emit(Event::Prefs(prefs)).await;
     }
@@ -253,8 +283,35 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         // Les résultats des quatre commandes suivantes reviennent par le
         // WebSocket (posted, post_edited, post_deleted, reaction_*) :
         // l'interface les applique à ce moment-là, sans doublon.
-        Command::Send { channel_id, root_id, message } => {
-            client.create_post(&channel_id, &root_id, &message).await?;
+        Command::Send { channel_id, root_id, message, file_ids } => {
+            client.create_post(&channel_id, &root_id, &message, &file_ids).await?;
+        }
+        Command::LoadTeamUnreads => {
+            let unreads = client.team_unreads().await?;
+            ctx.emit(Event::TeamUnreads(unreads)).await;
+        }
+        Command::LoadPreview { file_id } => {
+            let bytes = client.file_preview(&file_id).await?;
+            ctx.emit(Event::FilePreview { file_id, bytes: Arc::new(bytes) }).await;
+        }
+        Command::Download { file, open } => {
+            let bytes = client.file_content(&file.id).await?;
+            // Pour l'ouvrir : dossier temporaire ; sinon : Téléchargements.
+            let dir = if open {
+                std::env::temp_dir().join("mm-gpui").join(&file.id)
+            } else {
+                dirs::download_dir().unwrap_or_else(std::env::temp_dir)
+            };
+            tokio::fs::create_dir_all(&dir).await?;
+            let path = unique_path(&dir, &file.name);
+            tokio::fs::write(&path, bytes).await?;
+            ctx.emit(Event::Downloaded { path, open }).await;
+        }
+        Command::Upload { local_id, channel_id, path } => {
+            match client.upload_file(&channel_id, &path).await {
+                Ok(file) => ctx.emit(Event::Uploaded { local_id, file }).await,
+                Err(err) => ctx.emit(Event::UploadFailed { local_id, error: format!("{err:#}") }).await,
+            }
         }
         Command::Edit { post_id, message } => client.patch_post(&post_id, &message).await?,
         Command::Delete { post_id } => client.delete_post(&post_id).await?,
@@ -437,4 +494,39 @@ pub fn group_reactions(reactions: &[Reaction], me: &str) -> Vec<(String, usize, 
         }
     }
     out
+}
+
+/// `dossier/nom.ext`, ou `nom (1).ext`, `nom (2).ext`… si le nom est pris.
+fn unique_path(dir: &Path, name: &str) -> PathBuf {
+    // Pas de séparateurs de chemin venant du serveur dans le nom.
+    let name: String = name.chars().map(|c| if matches!(c, '/' | '\\' | ':') { '_' } else { c }).collect();
+    let name = if name.trim().trim_matches('.').is_empty() { "fichier".to_string() } else { name };
+    let candidate = dir.join(&name);
+    if !candidate.exists() {
+        return candidate;
+    }
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), format!(".{ext}")),
+        _ => (name.clone(), String::new()),
+    };
+    (1..)
+        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
+        .find(|p| !p.exists())
+        .unwrap_or(candidate)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unique_path;
+
+    #[test]
+    fn unique_path_stays_in_dir_and_avoids_collisions() {
+        let dir = std::env::temp_dir().join(format!("mm-gpui-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(unique_path(&dir, ".."), dir.join("fichier"));
+        assert_eq!(unique_path(&dir, "../../x.txt"), dir.join(".._.._x.txt"));
+        std::fs::write(dir.join("a.txt"), "").unwrap();
+        assert_eq!(unique_path(&dir, "a.txt"), dir.join("a (1).txt"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

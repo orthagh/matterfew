@@ -3,7 +3,8 @@
 
 mod view;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -11,7 +12,7 @@ use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
 use gpui_kit::component::message_scroller::MessageScrollerState;
 use gpui_kit::*;
 
-use crate::api::{Channel, Post, Preference, Reaction, SidebarCategory, Team, User};
+use crate::api::{Channel, FileInfo, Post, Preference, Reaction, SidebarCategory, Team, User};
 use crate::backend::{self, Command, Event, PAGE_SIZE};
 use crate::sidebar::{ChannelState, SidebarPrefs};
 use crate::theme::{MattermostTheme, Palette};
@@ -30,6 +31,17 @@ impl PostView {
         let md = markdown::prepare(&post.message).into();
         Self { post, md }
     }
+}
+
+/// Fichier en cours d'envoi ou prêt à être joint au prochain message.
+struct Attachment {
+    local_id: u64,
+    pane: Pane,
+    name: String,
+    size: i64,
+    /// Identifiant côté serveur, une fois l'envoi terminé.
+    file_id: Option<String>,
+    error: Option<String>,
 }
 
 struct ThreadView {
@@ -94,6 +106,16 @@ pub struct ChatApp {
     sticky_unread: Option<String>,
     users: HashMap<String, User>,
     avatars: HashMap<String, Arc<Image>>,
+    team_icons: HashMap<String, Arc<Image>>,
+    /// Équipe → (non lus, mentions), pour la barre des équipes.
+    team_unreads: HashMap<String, (bool, i64)>,
+    /// Aperçus des images jointes, et ceux déjà demandés.
+    previews: HashMap<String, Arc<Image>>,
+    requested_previews: HashSet<String>,
+    attachments: Vec<Attachment>,
+    next_local_id: u64,
+    /// Message d'information temporaire (ex. fichier téléchargé).
+    info: Option<String>,
     statuses: HashMap<String, String>,
     typing: Vec<Typing>,
     last_typing_sent: Option<Instant>,
@@ -232,6 +254,13 @@ impl ChatApp {
             sticky_unread: None,
             users: HashMap::new(),
             avatars: HashMap::new(),
+            team_icons: HashMap::new(),
+            team_unreads: HashMap::new(),
+            previews: HashMap::new(),
+            requested_previews: HashSet::new(),
+            attachments: Vec::new(),
+            next_local_id: 0,
+            info: None,
             statuses: HashMap::new(),
             typing: Vec::new(),
             last_typing_sent: None,
@@ -479,6 +508,8 @@ impl ChatApp {
             return;
         }
         self.team_id = Some(team_id.clone());
+        self.attachments.clear();
+        self.send(Command::LoadTeamUnreads);
         // Le thème peut être propre à l'équipe.
         self.refresh_preferences(cx);
         self.channels.clear();
@@ -507,6 +538,7 @@ impl ChatApp {
             state.mentions = 0;
         }
         self.channel_id = Some(channel_id.clone());
+        self.attachments.clear();
         self.posts.clear();
         self.loading_posts = true;
         self.has_more = false;
@@ -609,7 +641,15 @@ impl ChatApp {
             return;
         }
 
-        if message.is_empty() {
+        // Pièces jointes : on attend la fin de leur envoi.
+        let pending: Vec<&Attachment> = self.attachments.iter().filter(|a| a.pane == pane).collect();
+        if pending.iter().any(|a| a.file_id.is_none() && a.error.is_none()) {
+            self.info = Some("Envoi des fichiers en cours, patientez un instant…".into());
+            cx.notify();
+            return;
+        }
+        let file_ids: Vec<String> = pending.iter().filter_map(|a| a.file_id.clone()).collect();
+        if message.is_empty() && file_ids.is_empty() {
             return;
         }
         let Some(channel_id) = self.channel_id.clone() else { return };
@@ -618,9 +658,92 @@ impl ChatApp {
             (Pane::Thread, Some(thread)) => thread.root_id.clone(),
             (Pane::Thread, None) => return,
         };
-        self.send(Command::Send { channel_id, root_id, message });
+        self.send(Command::Send { channel_id, root_id, message, file_ids });
+        self.attachments.retain(|a| a.pane != pane);
         self.last_typing_sent = None;
         state.update(cx, |s, cx| s.set_value("", window, cx));
+        cx.notify();
+    }
+
+    // ------------------------------------------------------------------
+    // Fichiers
+    // ------------------------------------------------------------------
+
+    /// Envoie des fichiers locaux ; ils seront joints au prochain message.
+    fn add_files(&mut self, pane: Pane, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let Some(channel_id) = self.channel_id.clone() else { return };
+        for path in paths.into_iter().filter(|p| p.is_file()) {
+            self.next_local_id += 1;
+            let local_id = self.next_local_id;
+            self.attachments.push(Attachment {
+                local_id,
+                pane,
+                name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                size: std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0),
+                file_id: None,
+                error: None,
+            });
+            self.send(Command::Upload { local_id, channel_id: channel_id.clone(), path });
+        }
+        cx.notify();
+    }
+
+    /// Ouvre le sélecteur de fichiers du système.
+    fn pick_files(&mut self, pane: Pane, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Joindre".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = paths.await {
+                let _ = this.update(cx, |this, cx| this.add_files(pane, paths, cx));
+            }
+        })
+        .detach();
+    }
+
+    fn remove_attachment(&mut self, local_id: u64, cx: &mut Context<Self>) {
+        self.attachments.retain(|a| a.local_id != local_id);
+        cx.notify();
+    }
+
+    /// Télécharge un fichier joint ; `open` : l'ouvrir avec l'application
+    /// par défaut, sinon le ranger dans Téléchargements.
+    fn download(&mut self, file: FileInfo, open: bool, cx: &mut Context<Self>) {
+        self.info = Some(format!("Téléchargement de {}…", file.name));
+        self.send(Command::Download { file, open });
+        cx.notify();
+    }
+
+    /// Demande les aperçus des images jointes pas encore chargées.
+    fn request_previews<'a>(&mut self, posts: impl IntoIterator<Item = &'a Post>) {
+        let wanted: Vec<String> = posts
+            .into_iter()
+            .flat_map(|p| p.metadata.files.iter())
+            .filter(|f| f.is_image() && !self.requested_previews.contains(&f.id))
+            .map(|f| f.id.clone())
+            .collect();
+        for file_id in wanted {
+            self.requested_previews.insert(file_id.clone());
+            self.send(Command::LoadPreview { file_id });
+        }
+    }
+
+    /// Affiche une information quelques secondes.
+    fn flash(&mut self, text: String, cx: &mut Context<Self>) {
+        self.info = Some(text.clone());
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(5)).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.info.as_deref() == Some(text.as_str()) {
+                    this.info = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     fn start_edit(&mut self, pane: Pane, post_id: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -715,6 +838,52 @@ impl ChatApp {
                     self.users.insert(user.id.clone(), user);
                 }
             }
+            Event::TeamIcon { team_id, bytes } => {
+                if let Some(format) = image_format(&bytes) {
+                    self.team_icons.insert(team_id, Arc::new(Image::from_bytes(format, bytes.to_vec())));
+                }
+            }
+            Event::TeamUnreads(list) => {
+                self.team_unreads = list
+                    .into_iter()
+                    .map(|t| {
+                        let (msgs, mentions) = if t.msg_count_root > 0 || t.mention_count_root > 0 {
+                            (t.msg_count_root, t.mention_count_root)
+                        } else {
+                            (t.msg_count, t.mention_count)
+                        };
+                        (t.team_id, (msgs > 0, mentions))
+                    })
+                    .collect();
+            }
+            Event::FilePreview { file_id, bytes } => {
+                if let Some(format) = image_format(&bytes) {
+                    self.previews.insert(file_id, Arc::new(Image::from_bytes(format, bytes.to_vec())));
+                    // Les messages concernés changent de hauteur.
+                    self.scroller.update(cx, |s, cx| s.remeasure(cx));
+                    self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
+                }
+            }
+            Event::Downloaded { path, open } => {
+                if open {
+                    cx.open_with_system(&path);
+                    self.info = None;
+                } else {
+                    cx.reveal_path(&path);
+                    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    self.flash(format!("Enregistré dans Téléchargements : {name}"), cx);
+                }
+            }
+            Event::Uploaded { local_id, file } => {
+                if let Some(a) = self.attachments.iter_mut().find(|a| a.local_id == local_id) {
+                    a.file_id = Some(file.id);
+                }
+            }
+            Event::UploadFailed { local_id, error } => {
+                if let Some(a) = self.attachments.iter_mut().find(|a| a.local_id == local_id) {
+                    a.error = Some(error);
+                }
+            }
             Event::Avatar { user_id, bytes } => {
                 if let Some(format) = image_format(&bytes) {
                     self.avatars
@@ -793,6 +962,7 @@ impl ChatApp {
             Event::ChannelPosts { channel_id, posts } => {
                 if self.channel_id.as_deref() == Some(&channel_id) {
                     self.has_more = posts.len() >= PAGE_SIZE;
+                    self.request_previews(&posts);
                     self.posts = posts.into_iter().filter(|p| p.delete_at == 0).map(PostView::new).collect();
                     self.loading_posts = false;
                     let n = self.posts.len();
@@ -803,6 +973,7 @@ impl ChatApp {
                 if self.channel_id.as_deref() == Some(&channel_id) {
                     self.loading_older = false;
                     self.has_more = posts.len() >= PAGE_SIZE;
+                    self.request_previews(&posts);
                     let older: Vec<PostView> = posts
                         .into_iter()
                         .filter(|p| p.delete_at == 0 && !self.posts.iter().any(|q| q.post.id == p.id))
@@ -816,6 +987,7 @@ impl ChatApp {
                 }
             }
             Event::Thread { root_id, posts } => {
+                self.request_previews(&posts);
                 if let Some(thread) = self.thread.as_mut().filter(|t| t.root_id == root_id) {
                     thread.posts = posts.into_iter().filter(|p| p.delete_at == 0).map(PostView::new).collect();
                     let n = thread.posts.len();
@@ -825,7 +997,10 @@ impl ChatApp {
             Event::Posted { post, mentions_me, channel_type } => {
                 self.on_posted(post, mentions_me, &channel_type, window, cx);
             }
-            Event::PostEdited(post) => self.replace_post(post, cx),
+            Event::PostEdited(post) => {
+                self.request_previews([&post]);
+                self.replace_post(post, cx);
+            }
             Event::PostDeleted(post) => self.remove_post(&post.id, cx),
             Event::ReactionAdded(reaction, post_id) => {
                 self.update_reactions(&post_id, cx, |list| {
@@ -868,6 +1043,7 @@ impl ChatApp {
                     if let Some(channel_id) = self.channel_id.clone() {
                         self.send(Command::LoadChannel { channel_id });
                     }
+                    self.send(Command::LoadTeamUnreads);
                 }
             }
             Event::Error(message) => {
@@ -893,9 +1069,16 @@ impl ChatApp {
         // Un message envoyé efface son « en train d'écrire ».
         self.typing.retain(|t| !(t.user_id == post.user_id && t.channel_id == post.channel_id));
 
+        self.request_previews([&post]);
+
         // Nouveau message direct ou de groupe : le canal apparaît dans la liste.
-        if !self.channels.contains_key(&post.channel_id) && (channel_type == "D" || channel_type == "G") {
-            self.send(Command::FetchChannel { channel_id: post.channel_id.clone() });
+        // Message dans un canal d'une autre équipe : pastilles des équipes à jour.
+        if !self.channels.contains_key(&post.channel_id) {
+            if channel_type == "D" || channel_type == "G" {
+                self.send(Command::FetchChannel { channel_id: post.channel_id.clone() });
+            } else if !from_me {
+                self.send(Command::LoadTeamUnreads);
+            }
         }
 
         if post.is_reply() {
@@ -1045,6 +1228,7 @@ fn image_format(bytes: &[u8]) -> Option<ImageFormat> {
         [0x89, b'P', b'N', b'G', ..] => Some(ImageFormat::Png),
         [0xFF, 0xD8, ..] => Some(ImageFormat::Jpeg),
         [b'G', b'I', b'F', ..] => Some(ImageFormat::Gif),
+        [b'B', b'M', ..] => Some(ImageFormat::Bmp),
         [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some(ImageFormat::Webp),
         _ if bytes.starts_with(b"<svg") || bytes.starts_with(b"<?xml") => Some(ImageFormat::Svg),
         _ => None,

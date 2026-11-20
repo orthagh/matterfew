@@ -17,7 +17,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use super::{ChatApp, Pane, Screen};
-use crate::api::{Post, User};
+use crate::api::{FileInfo, Post, User, human_size};
 use crate::backend::group_reactions;
 use crate::sidebar::{self, Section};
 use crate::theme::Palette;
@@ -247,28 +247,74 @@ impl ChatApp {
                         .take(2)
                         .collect::<String>()
                         .to_uppercase();
+                    // Pastilles : rien pour l'équipe affichée (ses canaux le montrent).
+                    let (unread, mentions) = if active {
+                        (false, 0)
+                    } else {
+                        self.team_unreads.get(&team.id).copied().unwrap_or((false, 0))
+                    };
+                    let face: AnyElement = match self.team_icons.get(&team.id) {
+                        Some(icon) => img(icon.clone()).size_full().rounded(px(6.)).into_any_element(),
+                        None => div()
+                            .size_full()
+                            .rounded(px(6.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .bg(p.sidebar_text.opacity(if active { 0.24 } else { 0.12 }))
+                            .text_color(p.sidebar_text)
+                            .text_sm()
+                            .font_bold()
+                            .hover(|s| s.bg(p.sidebar_text.opacity(0.24)))
+                            .child(initials)
+                            .into_any_element(),
+                    };
                     div()
                         .id(SharedString::from(format!("team-{}", team.id)))
+                        .relative()
                         .size(px(44.))
                         .p(px(3.))
                         .rounded(px(10.))
                         .border_2()
                         .border_color(if active { p.sidebar_text } else { transparent_black() })
                         .cursor_pointer()
-                        .child(
-                            div()
-                                .size_full()
-                                .rounded(px(6.))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .bg(p.sidebar_text.opacity(if active { 0.24 } else { 0.12 }))
-                                .text_color(p.sidebar_text)
-                                .text_sm()
-                                .font_bold()
-                                .hover(|s| s.bg(p.sidebar_text.opacity(0.24)))
-                                .child(initials),
-                        )
+                        .when(!active, |el| el.opacity(if unread || mentions > 0 { 1.0 } else { 0.72 }))
+                        .child(face)
+                        // Non lus : petite barre à gauche, comme Mattermost.
+                        .when(unread && mentions == 0, |el| {
+                            el.child(
+                                div()
+                                    .absolute()
+                                    .left(-px(13.))
+                                    .top(px(14.))
+                                    .w(px(5.))
+                                    .h(px(12.))
+                                    .rounded_r(px(3.))
+                                    .bg(p.sidebar_unread),
+                            )
+                        })
+                        .when(mentions > 0, |el| {
+                            el.child(
+                                div()
+                                    .absolute()
+                                    .top(-px(7.))
+                                    .right(-px(7.))
+                                    .min_w(px(18.))
+                                    .h(px(18.))
+                                    .px_1()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_full()
+                                    .border_2()
+                                    .border_color(p.team_bar_bg)
+                                    .bg(p.mention_bg)
+                                    .text_color(p.mention_color)
+                                    .text_size(px(10.))
+                                    .font_bold()
+                                    .child(mentions.to_string()),
+                            )
+                        })
                         .tooltip({
                             let name: SharedString = team.display_name.clone().into();
                             move |window, cx| gpui_kit::component::tooltip::Tooltip::new(name.clone()).build(window, cx)
@@ -306,10 +352,10 @@ impl ChatApp {
 
         let icon: AnyElement = match channel.direct_partner(self.me_id()) {
             Some(partner) => self
-                .avatar(&partner, 20., if selected { p.sidebar_hover } else { p.sidebar_bg })
+                .avatar(&partner, 22., if selected { p.sidebar_hover } else { p.sidebar_bg })
                 .into_any_element(),
             None => div()
-                .w(px(20.))
+                .w(px(22.))
                 .flex_none()
                 .text_center()
                 .text_color(text_color.opacity(0.8))
@@ -325,12 +371,12 @@ impl ChatApp {
         Some(
             h_flex()
                 .id(SharedString::from(format!("ch-{channel_id}")))
-                .h(px(32.))
-                .gap_2()
-                .pl(px(16.))
+                .h(px(36.))
+                .gap(px(10.))
+                .pl(px(18.))
                 .pr_3()
                 .cursor_pointer()
-                .text_size(px(14.))
+                .text_size(px(15.))
                 .text_color(text_color)
                 .border_l_4()
                 .border_color(if selected { p.sidebar_active_border } else { transparent_black() })
@@ -385,11 +431,11 @@ impl ChatApp {
             let category_id = section.id.clone();
             let header = h_flex()
                 .id(SharedString::from(format!("cat-{}", section.id)))
-                .h(px(28.))
-                .mt_2()
+                .h(px(30.))
+                .mt_3()
                 .gap_1()
                 .px_3()
-                .text_size(px(12.))
+                .text_size(px(13.))
                 .font_semibold()
                 .text_color(p.sidebar_text.opacity(0.64))
                 .when(section.collapsible, |el| {
@@ -421,12 +467,12 @@ impl ChatApp {
             .text_color(p.sidebar_text)
             .child(
                 h_flex()
-                    .h(px(56.))
+                    .h(px(60.))
                     .flex_none()
                     .px_4()
                     .bg(p.sidebar_header_bg)
                     .text_color(p.sidebar_header_text)
-                    .text_size(px(16.))
+                    .text_size(px(18.))
                     .font_bold()
                     .child(div().truncate().child(team_name))
                     .when(self.demo, |el| {
@@ -639,6 +685,9 @@ impl ChatApp {
                     .min_w_0()
                     .when(!compact, |el| el.child(header))
                     .child(body)
+                    .when(!post.metadata.files.is_empty(), |el| {
+                        el.child(self.render_files(entity, &post.metadata.files, &key("files"), &p))
+                    })
                     .when(!post.metadata.reactions.is_empty(), |el| el.child(reaction_row))
                     .children(replies),
             )
@@ -780,12 +829,21 @@ impl ChatApp {
                                 ),
                         )
                     })
+                    .children(self.render_attachments(pane, cx))
                     .child(div().px_1().pt_1().child(Textarea::new(&state).appearance(false)))
                     .child(
                         h_flex()
                             .px_3()
                             .pb_2()
                             .gap_2()
+                            .child(
+                                Button::new(SharedString::from(format!("attach-{pane:?}")))
+                                    .label("📎 Joindre")
+                                    .xsmall()
+                                    .ghost()
+                                    .tooltip("Joindre des fichiers (ou glissez-les dans la fenêtre)")
+                                    .on_click(cx.listener(move |this, _, window, cx| this.pick_files(pane, window, cx))),
+                            )
                             .child(
                                 div()
                                     .flex_1()
@@ -812,6 +870,147 @@ impl ChatApp {
                     .text_color(p.muted())
                     .children(typing),
             )
+    }
+
+    /// Pièces jointes d'un message : aperçus pour les images, cartes pour
+    /// les autres fichiers.
+    fn render_files(&self, entity: &Entity<Self>, files: &[FileInfo], key: &SharedString, p: &Palette) -> impl IntoElement {
+        let p = *p;
+        let mut images = h_flex().gap_2().flex_wrap();
+        let mut others = v_flex().gap_1p5();
+        for (ix, file) in files.iter().enumerate() {
+            let id = SharedString::from(format!("{key}-{ix}"));
+            if file.is_image() {
+                let (w, h) = image_box(file.width, file.height);
+                let preview: AnyElement = match self.previews.get(&file.id) {
+                    Some(image) => img(image.clone()).size_full().object_fit(ObjectFit::Cover).into_any_element(),
+                    None => div()
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_xs()
+                        .text_color(p.muted())
+                        .child("Chargement de l'aperçu…")
+                        .into_any_element(),
+                };
+                let (entity, file) = (entity.clone(), file.clone());
+                images = images.child(
+                    div()
+                        .id(id)
+                        .w(px(w))
+                        .h(px(h))
+                        .rounded(px(4.))
+                        .overflow_hidden()
+                        .border_1()
+                        .border_color(p.border())
+                        .bg(p.center_color.opacity(0.04))
+                        .cursor_pointer()
+                        .child(preview)
+                        .tooltip({
+                            let tip: SharedString = format!("{} — cliquer pour ouvrir", file.name).into();
+                            move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                        })
+                        .on_click(move |_, _, cx| {
+                            let file = file.clone();
+                            entity.update(cx, |this, cx| this.download(file, true, cx));
+                        }),
+                );
+            } else {
+                let (e1, e2) = (entity.clone(), entity.clone());
+                let (f1, f2) = (file.clone(), file.clone());
+                let kind = if file.extension.is_empty() { "Fichier".to_string() } else { file.extension.to_uppercase() };
+                others = others.child(
+                    h_flex()
+                        .id(id)
+                        .w(px(360.))
+                        .max_w_full()
+                        .gap_3()
+                        .px_3()
+                        .py_2()
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(p.border())
+                        .hover(|s| s.bg(p.hover()))
+                        .child(div().text_size(px(26.)).child(file_icon(&file.extension)))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(div().truncate().text_sm().font_semibold().child(file.name.clone()))
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(p.muted())
+                                        .child(format!("{kind} · {}", file.human_size())),
+                                ),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("{key}-{ix}-open")))
+                                .label("Ouvrir")
+                                .xsmall()
+                                .ghost()
+                                .on_click(move |_, _, cx| {
+                                    let file = f1.clone();
+                                    e1.update(cx, |this, cx| this.download(file, true, cx));
+                                }),
+                        )
+                        .child(
+                            Button::new(SharedString::from(format!("{key}-{ix}-dl")))
+                                .label("Télécharger")
+                                .xsmall()
+                                .outline()
+                                .on_click(move |_, _, cx| {
+                                    let file = f2.clone();
+                                    e2.update(cx, |this, cx| this.download(file, false, cx));
+                                }),
+                        ),
+                );
+            }
+        }
+        v_flex().gap_2().mt_1p5().child(images).child(others)
+    }
+
+    /// Fichiers en attente au-dessus de la zone de saisie.
+    fn render_attachments(&self, pane: Pane, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        let p = self.palette;
+        let list: Vec<&super::Attachment> = self.attachments.iter().filter(|a| a.pane == pane).collect();
+        if list.is_empty() {
+            return None;
+        }
+        Some(h_flex().flex_wrap().gap_2().px_3().pt_2().children(list.into_iter().map(|a| {
+            let local_id = a.local_id;
+            let status = match (&a.file_id, &a.error) {
+                (_, Some(err)) => div().text_color(p.error).child(format!("échec : {err}")),
+                (Some(_), None) => div().text_color(p.muted()).child(human_size(a.size)),
+                (None, None) => div().text_color(p.muted()).child("envoi…"),
+            };
+            h_flex()
+                .gap_2()
+                .max_w(px(300.))
+                .pl_2()
+                .pr_1()
+                .py_1()
+                .rounded(px(4.))
+                .border_1()
+                .border_color(if a.error.is_some() { p.error } else { p.border() })
+                .bg(p.center_color.opacity(0.04))
+                .text_xs()
+                .child(div().text_size(px(16.)).child(file_icon(a.name.rsplit_once('.').map(|(_, e)| e).unwrap_or(""))))
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .child(div().truncate().font_semibold().child(a.name.clone()))
+                        .child(status),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("rm-att-{local_id}")))
+                        .label("✕")
+                        .xsmall()
+                        .ghost()
+                        .on_click(cx.listener(move |this, _, _, cx| this.remove_attachment(local_id, cx))),
+                )
+        })))
     }
 
     fn render_channel_header(&self) -> impl IntoElement {
@@ -912,14 +1111,41 @@ impl ChatApp {
                 .into_any_element()
         };
 
+        let info_banner = self.info.clone().map(|info| {
+            h_flex()
+                .px_5()
+                .py_2()
+                .gap_2()
+                .bg(p.button_bg.opacity(0.08))
+                .text_sm()
+                .child(div().flex_1().child(info))
+                .child(
+                    Button::new("dismiss-info")
+                        .label("✕")
+                        .xsmall()
+                        .ghost()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.info = None;
+                            cx.notify();
+                        })),
+                )
+        });
+
         let main = v_flex()
+            .id("center")
             .flex_1()
             .min_w_0()
             .h_full()
             .bg(p.center_bg)
             .text_color(p.center_color)
+            // Fichiers glissés depuis l'explorateur : joints au message.
+            .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(p.button_bg.opacity(0.06)))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                this.add_files(Pane::Channel, paths.paths().to_vec(), cx);
+            }))
             .child(self.render_channel_header())
             .children(error_banner)
+            .children(info_banner)
             .child(messages)
             .child(self.render_composer(Pane::Channel, cx));
 
@@ -932,9 +1158,14 @@ impl ChatApp {
                 .map(|c| self.channel_title(&c.channel))
                 .unwrap_or_default();
             v_flex()
+                .id("thread-panel")
                 .w(px(THREAD_WIDTH))
                 .h_full()
                 .flex_none()
+                .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(p.button_bg.opacity(0.06)))
+                .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    this.add_files(Pane::Thread, paths.paths().to_vec(), cx);
+                }))
                 .bg(p.center_bg)
                 .text_color(p.center_color)
                 .border_l_1()
@@ -1044,4 +1275,32 @@ fn date_separator(ms: i64, p: &Palette) -> impl IntoElement {
         .child(div().flex_1().h(px(1.)).bg(p.border()))
         .child(div().text_size(px(12.)).font_semibold().text_color(p.center_color).child(day_label(ms)))
         .child(div().flex_1().h(px(1.)).bg(p.border()))
+}
+
+/// Taille d'affichage d'une image jointe : au plus 420 × 300, proportions gardées.
+fn image_box(width: i64, height: i64) -> (f32, f32) {
+    const MAX_W: f32 = 420.;
+    const MAX_H: f32 = 300.;
+    if width <= 0 || height <= 0 {
+        return (320., 180.);
+    }
+    let (w, h) = (width as f32, height as f32);
+    let scale = (MAX_W / w).min(MAX_H / h).min(1.0);
+    ((w * scale).max(48.), (h * scale).max(48.))
+}
+
+/// Icône selon l'extension du fichier.
+fn file_icon(extension: &str) -> &'static str {
+    match extension.to_lowercase().as_str() {
+        "pdf" => "📕",
+        "doc" | "docx" | "odt" | "rtf" | "txt" | "md" => "📝",
+        "xls" | "xlsx" | "ods" | "csv" => "📊",
+        "ppt" | "pptx" | "odp" => "📽",
+        "zip" | "gz" | "tar" | "7z" | "rar" => "🗜",
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" => "🖼",
+        "mp3" | "wav" | "ogg" | "flac" => "🎵",
+        "mp4" | "mov" | "avi" | "mkv" | "webm" => "🎬",
+        "rs" | "js" | "ts" | "py" | "php" | "go" | "java" | "json" | "yml" | "yaml" | "sql" | "sh" => "💻",
+        _ => "📎",
+    }
 }

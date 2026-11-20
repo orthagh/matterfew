@@ -43,6 +43,69 @@ impl User {
 pub struct Team {
     pub id: String,
     pub display_name: String,
+    /// Date de mise à jour du logo de l'équipe (0 : pas de logo).
+    #[serde(default)]
+    pub last_team_icon_update: i64,
+}
+
+/// Non-lus d'une équipe (pour les pastilles de la barre des équipes).
+#[derive(Debug, Clone, Deserialize)]
+pub struct TeamUnread {
+    pub team_id: String,
+    #[serde(default)]
+    pub msg_count_root: i64,
+    #[serde(default)]
+    pub mention_count_root: i64,
+    #[serde(default)]
+    pub msg_count: i64,
+    #[serde(default)]
+    pub mention_count: i64,
+}
+
+/// Fichier joint à un message.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+pub struct FileInfo {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub extension: String,
+    #[serde(default)]
+    pub size: i64,
+    #[serde(default)]
+    pub mime_type: String,
+    #[serde(default)]
+    pub width: i64,
+    #[serde(default)]
+    pub height: i64,
+    #[serde(default)]
+    pub has_preview_image: bool,
+}
+
+impl FileInfo {
+    pub fn is_image(&self) -> bool {
+        self.mime_type.starts_with("image/")
+            || matches!(self.extension.to_lowercase().as_str(), "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp")
+    }
+
+    /// « 12,4 Ko », « 3,1 Mo »…
+    pub fn human_size(&self) -> String {
+        human_size(self.size)
+    }
+}
+
+pub fn human_size(bytes: i64) -> String {
+    let b = bytes.max(0) as f64;
+    let (value, unit) = if b < 1024.0 {
+        return format!("{bytes} o");
+    } else if b < 1024.0 * 1024.0 {
+        (b / 1024.0, "Ko")
+    } else if b < 1024.0 * 1024.0 * 1024.0 {
+        (b / 1024.0 / 1024.0, "Mo")
+    } else {
+        (b / 1024.0 / 1024.0 / 1024.0, "Go")
+    };
+    format!("{value:.1} {unit}").replace('.', ",")
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -183,6 +246,8 @@ pub struct Reaction {
 pub struct PostMetadata {
     #[serde(default)]
     pub reactions: Vec<Reaction>,
+    #[serde(default)]
+    pub files: Vec<FileInfo>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -377,12 +442,13 @@ impl Client {
         Ok(list.into_chronological())
     }
 
-    pub async fn create_post(&self, channel_id: &str, root_id: &str, message: &str) -> Result<Post> {
+    pub async fn create_post(&self, channel_id: &str, root_id: &str, message: &str, file_ids: &[String]) -> Result<Post> {
         #[derive(Serialize)]
         struct NewPost<'a> {
             channel_id: &'a str,
             root_id: &'a str,
             message: &'a str,
+            file_ids: &'a [String],
         }
         self.post(
             "/posts",
@@ -390,9 +456,73 @@ impl Client {
                 channel_id,
                 root_id,
                 message,
+                file_ids,
             },
         )
         .await
+    }
+
+    pub async fn team_unreads(&self) -> Result<Vec<TeamUnread>> {
+        self.get("/users/me/teams/unread").await
+    }
+
+    pub async fn team_image(&self, team_id: &str, last_update: i64) -> Result<Vec<u8>> {
+        self.get_bytes(&format!("/teams/{team_id}/image?_={last_update}")).await
+    }
+
+    /// Aperçu d'une image jointe (JPEG réduit, généré par le serveur).
+    pub async fn file_preview(&self, file_id: &str) -> Result<Vec<u8>> {
+        self.get_bytes(&format!("/files/{file_id}/preview")).await
+    }
+
+    /// Fichier joint complet.
+    pub async fn file_content(&self, file_id: &str) -> Result<Vec<u8>> {
+        self.get_bytes(&format!("/files/{file_id}")).await
+    }
+
+    /// Envoie un fichier dans un canal ; renvoie sa description (dont l'id
+    /// à joindre au message).
+    pub async fn upload_file(&self, channel_id: &str, path: &std::path::Path) -> Result<FileInfo> {
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "fichier".into());
+        let bytes = tokio::fs::read(path)
+            .await
+            .with_context(|| format!("lecture de {}", path.display()))?;
+        let part = reqwest::multipart::Part::bytes(bytes).file_name(name);
+        let form = reqwest::multipart::Form::new()
+            .text("channel_id", channel_id.to_string())
+            .part("files", part);
+        let resp = self
+            .http
+            .post(self.url("/files"))
+            // Les gros fichiers peuvent prendre du temps.
+            .timeout(std::time::Duration::from_secs(600))
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| network_error(&self.base, e))?;
+        #[derive(Deserialize)]
+        struct Uploaded {
+            file_infos: Vec<FileInfo>,
+        }
+        let uploaded: Uploaded = Self::decode(resp, "/files").await?;
+        uploaded.file_infos.into_iter().next().context("le serveur n'a pas renvoyé le fichier")
+    }
+
+    async fn get_bytes(&self, path: &str) -> Result<Vec<u8>> {
+        let resp = self
+            .http
+            .get(self.url(path))
+            .timeout(std::time::Duration::from_secs(600))
+            .send()
+            .await
+            .map_err(|e| network_error(&self.base, e))?;
+        if !resp.status().is_success() {
+            anyhow::bail!("{path} : HTTP {}", resp.status());
+        }
+        Ok(resp.bytes().await?.to_vec())
     }
 
     /// Marque le canal comme lu.
@@ -447,17 +577,7 @@ impl Client {
 
     /// Image de profil (octets bruts, PNG en général).
     pub async fn profile_image(&self, user_id: &str, last_update: i64) -> Result<Vec<u8>> {
-        let path = format!("/users/{user_id}/image?_={last_update}");
-        let resp = self
-            .http
-            .get(self.url(&path))
-            .send()
-            .await
-            .map_err(|e| network_error(&self.base, e))?;
-        if !resp.status().is_success() {
-            anyhow::bail!("{path} : HTTP {}", resp.status());
-        }
-        Ok(resp.bytes().await?.to_vec())
+        self.get_bytes(&format!("/users/{user_id}/image?_={last_update}")).await
     }
 
     pub async fn patch_post(&self, post_id: &str, message: &str) -> Result<()> {

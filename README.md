@@ -14,12 +14,14 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 | Envoi | Entrée pour envoyer, Maj+Entrée pour aller à la ligne, « X est en train d'écrire… » dans les deux sens |
 | Actions sur un message | Au survol : réactions rapides, Répondre, et pour ses propres messages Modifier / Supprimer (avec confirmation) ; cliquer une réaction existante l'ajoute ou la retire |
 | Fils | Compteur « N réponses », panneau latéral avec réponse dans le fil |
+| Fichiers | Aperçu des images jointes (clic : ouverture), cartes pour les autres fichiers avec « Ouvrir » / « Télécharger » (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
+| Équipes | Barre des équipes avec leur logo, pastille de non-lus et compteur de mentions |
 | Temps réel | WebSocket : messages, éditions, suppressions, réactions, présence, frappe, catégories, préférences ; reconnexion automatique |
 | Notifications | Notification Windows pour les messages directs et les mentions (si la fenêtre n'a pas le focus ou si le canal n'est pas affiché) |
 | Markdown | Rendu complet (gras, italique, listes, code, tableaux, citations, liens cliquables), texte sélectionnable |
 | Emojis | `:smile:` → 😄 dans le texte et les réactions |
 
-Non couvert : recherche, fichiers et images, autocomplétion, SSO, appels,
+Non couvert : recherche, coller une image depuis le presse-papiers, autocomplétion, appels,
 plugins, réorganisation des canaux par glisser-déposer.
 
 ## Lancer
@@ -47,6 +49,17 @@ Trois façons de se connecter, au choix sur l'écran d'accueil :
 La connexion est mémorisée : jeton dans le Gestionnaire d'identifiants Windows,
 adresse du serveur dans `%APPDATA%\mm-gpui\config.json`. « Déconnexion » oublie
 le jeton ; pour une session (cas 1 et 2), elle est aussi fermée côté serveur.
+
+### Compilation
+
+Seul le code modifié est recompilé ; les bibliothèques (GPUI…) ne le sont
+qu'une fois.
+
+| Commande | Usage | Recompilation après une modification |
+|---|---|---|
+| `cargo run` | développement (bibliothèques optimisées, notre code peu) | ~7 s |
+| `cargo run --release` | usage quotidien | ~6 s |
+| `cargo build --profile dist` | binaire à distribuer (optimisation maximale) | ~1 min |
 
 ### Options
 

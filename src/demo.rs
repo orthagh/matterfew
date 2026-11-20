@@ -5,7 +5,12 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::api::{Channel, ChannelMember, NotifyProps, Post, PostMetadata, Preference, Reaction, SidebarCategory, Team, User};
+use std::sync::Arc;
+
+use crate::api::{
+    Channel, ChannelMember, FileInfo, NotifyProps, Post, PostMetadata, Preference, Reaction, SidebarCategory, Team,
+    TeamUnread, User,
+};
 use crate::backend::{Backend, Command, Event};
 
 const ME: &str = "me";
@@ -59,6 +64,8 @@ struct Demo {
     channels: Vec<Channel>,
     posts: HashMap<String, Vec<Post>>,
     replies: HashMap<String, Vec<Post>>,
+    /// Fichiers envoyés pendant la démo, en attente d'être joints à un message.
+    uploads: HashMap<String, FileInfo>,
     next_id: u64,
 }
 
@@ -88,7 +95,7 @@ impl Demo {
             channel("gm1", "G", "gm", "Chloé Durand, Inès Laurent", "", now - 8 * h),
         ];
 
-        let mut demo = Self { users, channels, posts: HashMap::new(), replies: HashMap::new(), next_id: 1000 };
+        let mut demo = Self { users, channels, posts: HashMap::new(), replies: HashMap::new(), uploads: HashMap::new(), next_id: 1000 };
         let day = 24 * h;
         let m = 60_000;
 
@@ -123,6 +130,25 @@ impl Demo {
         demo.add("dm3", "u4", now - 50 * h, "Bon week-end :sunglasses:", &[], 0);
         demo.add("gm1", "u5", now - 8 * h, "On se cale un point design lundi ?", &[], 0);
 
+        // Messages avec pièces jointes.
+        demo.add_with_files(
+            "general",
+            "u5",
+            now - 30 * m,
+            "Voici la maquette finale de la page d'accueil :point_down:",
+            vec![file("f-img1", "accueil-v2.png", "image/png", 1_240_000, 1600, 900)],
+        );
+        demo.add_with_files(
+            "general",
+            "u6",
+            now - 10 * m,
+            "Le rapport de performances et les mesures brutes :",
+            vec![
+                file("f-pdf1", "rapport-performances.pdf", "application/pdf", 245_000, 0, 0),
+                file("f-csv1", "mesures.csv", "text/csv", 18_300, 0, 0),
+            ],
+        );
+
         // Réponses de quelques fils.
         let root = demo.posts["general"][0].id.clone();
         for (who, text) in [("u2", "Je serai là."), ("u4", "Moi aussi, je présente la partie API."), (ME, "Parfait, merci à vous deux !")] {
@@ -155,12 +181,19 @@ impl Demo {
             channel_id: ch.into(),
             message: text.into(),
             reply_count,
-            metadata: PostMetadata { reactions },
+            metadata: PostMetadata { reactions, ..Default::default() },
             ..Default::default()
         };
         let list = self.posts.entry(ch.into()).or_default();
         list.push(post);
         list.sort_by_key(|p| p.create_at);
+    }
+
+    fn add_with_files(&mut self, ch: &str, who: &str, at: i64, text: &str, files: Vec<FileInfo>) {
+        self.add(ch, who, at, text, &[], 0);
+        if let Some(post) = self.posts.get_mut(ch).and_then(|l| l.iter_mut().find(|p| p.create_at == at)) {
+            post.metadata.files = files;
+        }
     }
 
     fn reply(&mut self, root: &str, ch: &str, who: &str, at: i64, text: &str) {
@@ -188,10 +221,18 @@ pub fn start() -> Backend {
             send(Event::Ready {
                 me: demo.users[0].clone(),
                 teams: vec![
-                    Team { id: "t1".into(), display_name: "Équipe démo".into() },
-                    Team { id: "t2".into(), display_name: "Projets clients".into() },
+                    Team { id: "t1".into(), display_name: "Équipe démo".into(), last_team_icon_update: 1 },
+                    Team { id: "t2".into(), display_name: "Projets clients".into(), last_team_icon_update: 0 },
                 ],
             });
+            send(Event::TeamIcon { team_id: "t1".into(), bytes: Arc::new(bmp(64, 64, 0x2f6fd8, 0x30c4a0)) });
+            send(Event::TeamUnreads(vec![TeamUnread {
+                team_id: "t2".into(),
+                msg_count_root: 3,
+                mention_count_root: 1,
+                msg_count: 3,
+                mention_count: 1,
+            }]));
             send(Event::Users(demo.users.clone()));
             send(Event::Statuses(vec![
                 (ME.into(), "online".into()),
@@ -314,9 +355,19 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             posts.extend(demo.replies.get(&root_id).cloned().unwrap_or_default());
             send(Event::Thread { root_id, posts });
         }
-        Command::Send { channel_id, root_id, message } => {
+        Command::Send { channel_id, root_id, message, file_ids } => {
             let id = demo.new_id();
-            let post = Post { id, create_at: now_ms(), user_id: ME.into(), channel_id: channel_id.clone(), root_id: root_id.clone(), message, ..Default::default() };
+            let files = file_ids.iter().filter_map(|id| demo.uploads.remove(id)).collect();
+            let post = Post {
+                id,
+                create_at: now_ms(),
+                user_id: ME.into(),
+                channel_id: channel_id.clone(),
+                root_id: root_id.clone(),
+                message,
+                metadata: PostMetadata { files, ..Default::default() },
+                ..Default::default()
+            };
             if root_id.is_empty() {
                 demo.posts.entry(channel_id).or_default().push(post.clone());
             } else {
@@ -356,6 +407,35 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 }
             }
         }
+        Command::LoadTeamUnreads => {}
+        Command::LoadPreview { file_id } => {
+            let seed = file_id.bytes().fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
+            let bytes = bmp(480, 270, 0x1c58d9 ^ (seed & 0x3f3f3f), 0xffbc1f ^ (seed & 0x1f1f00));
+            send(Event::FilePreview { file_id, bytes: Arc::new(bytes) });
+        }
+        Command::Download { file, open } => {
+            let dir = std::env::temp_dir().join("mm-gpui-demo");
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dir.join(&file.name);
+            let _ = std::fs::write(&path, format!("Fichier de démonstration : {}\n", file.name));
+            send(Event::Downloaded { path, open });
+        }
+        Command::Upload { local_id, path, .. } => {
+            std::thread::sleep(Duration::from_millis(600));
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let size = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
+            let extension = name.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_default();
+            let mime = match extension.as_str() {
+                "png" => "image/png",
+                "jpg" | "jpeg" => "image/jpeg",
+                "gif" => "image/gif",
+                _ => "application/octet-stream",
+            };
+            let id = demo.new_id();
+            let info = FileInfo { id: id.clone(), name, extension, size, mime_type: mime.into(), width: 800, height: 450, has_preview_image: mime.starts_with("image/") };
+            demo.uploads.insert(id, info.clone());
+            send(Event::Uploaded { local_id, file: info });
+        }
         Command::LoadPreferences
         | Command::SetCategoryCollapsed { .. }
         | Command::Typing { .. }
@@ -363,4 +443,45 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         | Command::FetchChannel { .. }
         | Command::Notify { .. } => {}
     }
+}
+
+fn file(id: &str, name: &str, mime: &str, size: i64, width: i64, height: i64) -> FileInfo {
+    FileInfo {
+        id: id.into(),
+        name: name.into(),
+        extension: name.rsplit_once('.').map(|(_, e)| e.to_string()).unwrap_or_default(),
+        size,
+        mime_type: mime.into(),
+        width,
+        height,
+        has_preview_image: mime.starts_with("image/"),
+    }
+}
+
+/// Petite image BMP en dégradé (aperçus et logos de la démo, sans
+/// dépendre d'un encodeur d'images).
+fn bmp(width: u32, height: u32, from: u32, to: u32) -> Vec<u8> {
+    let row = (width * 3).div_ceil(4) * 4;
+    let size = 54 + row * height;
+    let mut out = Vec::with_capacity(size as usize);
+    out.extend_from_slice(b"BM");
+    out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(&54u32.to_le_bytes());
+    out.extend_from_slice(&40u32.to_le_bytes());
+    out.extend_from_slice(&(width as i32).to_le_bytes());
+    out.extend_from_slice(&(height as i32).to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes());
+    out.extend_from_slice(&24u16.to_le_bytes());
+    out.extend_from_slice(&[0; 24]);
+    let channel = |c: u32, shift: u32| ((c >> shift) & 0xff) as f32;
+    for y in 0..height {
+        for x in 0..width {
+            let t = (x + y) as f32 / (width + height) as f32;
+            let mix = |shift| (channel(from, shift) * (1.0 - t) + channel(to, shift) * t) as u8;
+            out.extend_from_slice(&[mix(0), mix(8), mix(16)]);
+        }
+        out.extend(std::iter::repeat_n(0u8, (row - width * 3) as usize));
+    }
+    out
 }
