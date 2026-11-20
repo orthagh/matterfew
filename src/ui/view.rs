@@ -75,7 +75,7 @@ impl ChatApp {
         if let Some(image) = self.avatars.get(user_id) {
             avatar = avatar.src(image.clone());
         }
-        let dot = (size * 0.34).max(px(8.));
+        let dot = (size * 0.4).max(px(10.));
         div()
             .relative()
             .flex_none()
@@ -84,8 +84,8 @@ impl ChatApp {
             .child(
                 div()
                     .absolute()
-                    .right(-px(2.))
-                    .bottom(-px(2.))
+                    .right(-px(3.))
+                    .bottom(-px(3.))
                     .size(dot)
                     .rounded_full()
                     .border_2()
@@ -145,13 +145,11 @@ impl ChatApp {
             .justify_center()
             .bg(p.sidebar_bg)
             // Grand dégradé façon « hero », des couleurs du thème.
-            .when(self.settings.gradients, |el| {
-                el.bg(linear_gradient(
+            .bg(linear_gradient(
                     135.,
                     linear_color_stop(shade(p.sidebar_bg, -0.04, -0.06), 0.),
                     linear_color_stop(p.button_bg, 1.),
                 ))
-            })
             .child(
                 v_flex()
                     .id("login-card")
@@ -223,6 +221,8 @@ impl ChatApp {
         }
         let p = self.palette;
         let current = self.team_id.clone();
+        // Teinte de la barre latérale, plus profonde : les deux barres se répondent.
+        let tb = shade(p.sidebar_bg, 0.0, -0.05);
         Some(
             v_flex()
                 .w(px(TEAM_BAR_WIDTH))
@@ -231,14 +231,13 @@ impl ChatApp {
                 .items_center()
                 .gap_3()
                 .pt_4()
-                .bg(p.team_bar_bg)
-                .when(self.settings.gradients, |el| {
-                    el.bg(linear_gradient(
-                        180.,
-                        linear_color_stop(p.team_bar_bg, 0.),
-                        linear_color_stop(shade(p.team_bar_bg, 0.05, -0.04), 1.),
-                    ))
-                })
+                .bg(linear_gradient(
+                    180.,
+                    linear_color_stop(tb, 0.),
+                    linear_color_stop(shade(tb, 0.10, -0.08), 1.),
+                ))
+                .border_r_1()
+                .border_color(p.sidebar_text.opacity(0.08))
                 .children(self.teams.iter().map(|team| {
                     let active = current.as_deref() == Some(&team.id);
                     let id = team.id.clone();
@@ -283,7 +282,7 @@ impl ChatApp {
                         .relative()
                         .size(px(44.))
                         .p(px(3.))
-                        .rounded(px(10.))
+                        .rounded(px(13.))
                         .border_2()
                         .border_color(if active { p.sidebar_text } else { transparent_black() })
                         .cursor_pointer()
@@ -304,11 +303,12 @@ impl ChatApp {
                                     .justify_center()
                                     .rounded_full()
                                     .border_2()
-                                    .border_color(p.team_bar_bg)
+                                    .border_color(tb)
                                     .bg(p.mention_bg)
                                     .text_color(p.mention_color)
                                     .text_size(px(10.))
                                     .font_bold()
+                                    .pt(px(2.))
                                     .child(if mentions > 99 { "99+".to_string() } else { mentions.to_string() }),
                             )
                         })
@@ -321,7 +321,7 @@ impl ChatApp {
                                     .size(px(12.))
                                     .rounded_full()
                                     .border_2()
-                                    .border_color(p.team_bar_bg)
+                                    .border_color(tb)
                                     .bg(p.sidebar_unread),
                             )
                         })
@@ -358,7 +358,7 @@ impl ChatApp {
         })
     }
 
-    fn render_channel_row(&self, channel_id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
+    fn render_channel_row(&self, channel_id: &str, manual: Option<&str>, cx: &mut Context<Self>) -> Option<AnyElement> {
         let p = self.palette;
         let state = self.channels.get(channel_id)?;
         let channel = &state.channel;
@@ -390,7 +390,7 @@ impl ChatApp {
                 .id(SharedString::from(format!("ch-{channel_id}")))
                 // Ne jamais rétrécir : avec beaucoup de canaux, la liste défile.
                 .flex_none()
-                .h(px(30.))
+                .h(px(33.))
                 .gap(px(10.))
                 .pl(px(18.))
                 .pr_3()
@@ -426,6 +426,7 @@ impl ChatApp {
                             .rounded_full()
                             .text_size(px(11.))
                             .font_bold()
+                            .pt(px(2.))
                             .bg(p.mention_bg)
                             .text_color(p.mention_color)
                             .child(state.mentions.to_string()),
@@ -435,6 +436,23 @@ impl ChatApp {
                     this.select_channel(id.clone(), cx);
                     this.focus_composer(window, cx);
                 }))
+                // Catégorie triée à la main : glisser un canal sur un autre prend sa place.
+                .when_some(manual.map(str::to_string), |el, category_id| {
+                    let dragged = super::DraggedChannel {
+                        channel_id: channel_id.to_string(),
+                        title: self.channel_title(channel).into(),
+                        bg: p.sidebar_hover,
+                        fg: p.sidebar_text,
+                    };
+                    let target = channel_id.to_string();
+                    el.on_drag(dragged, |d, _, _, cx| cx.new(|_| d.clone()))
+                        .drag_over::<super::DraggedChannel>(move |s, _, _, _| {
+                            s.bg(p.sidebar_text.opacity(0.18)).border_color(p.sidebar_active_border)
+                        })
+                        .on_drop(cx.listener(move |this, d: &super::DraggedChannel, _, cx| {
+                            this.move_channel(&d.channel_id, &category_id, &target, cx)
+                        }))
+                })
                 // Clic droit : options du canal.
                 .context_menu(menu)
                 .into_any_element(),
@@ -486,6 +504,14 @@ impl ChatApp {
                 ))
                 .item(act("Copier le lien", IconName::Link, |this, id, cx| this.copy_channel_link(&id, cx)));
             if !direct {
+                if panels {
+                    let (entity, id) = (entity.clone(), id.clone());
+                    menu = menu.separator().item(
+                        PopupMenuItem::new("Ajouter des membres").icon(Icon::new(IconName::UserPlus)).on_click(
+                            move |_, window, cx| entity.update(cx, |this, cx| this.open_add_members(id.clone(), window, cx)),
+                        ),
+                    );
+                }
                 menu = menu
                     .separator()
                     .item(act("Quitter le canal", IconName::LogOut, |this, id, cx| this.leave_channel(id, cx)));
@@ -508,33 +534,71 @@ impl ChatApp {
             let category_id = section.id.clone();
             let group = SharedString::from(format!("catg-{}", section.id));
             let options = section.collapsible.then(|| self.category_options(&section.id, group.clone(), cx));
+            // Catégorie triée à la main : ses canaux se réordonnent par glisser-déposer.
+            let manual = self
+                .categories
+                .iter()
+                .find(|c| c.id == section.id && c.sorting == "manual")
+                .map(|c| c.id.clone());
+            let unread_inside = section.collapsed
+                && self
+                    .categories
+                    .iter()
+                    .find(|c| c.id == section.id)
+                    .is_some_and(|c| c.channel_ids.iter().any(|id| self.channels.get(id).is_some_and(|s| s.shows_unread())));
+            let count = self
+                .categories
+                .iter()
+                .find(|c| c.id == section.id)
+                .map(|c| c.channel_ids.iter().filter(|id| self.channels.contains_key(*id)).count())
+                .unwrap_or(section.channel_ids.len());
             let header = h_flex()
                 .id(SharedString::from(format!("cat-{}", section.id)))
                 .group(group)
                 .flex_none()
-                .h(px(32.))
-                .mt_3()
-                .gap_1()
-                .pl_3()
-                .pr_2()
-                .text_size(px(13.))
-                .font_semibold()
-                .text_color(p.sidebar_text.opacity(0.64))
+                .h(px(30.))
+                .mt_4()
+                .mb_0p5()
+                .mx_2()
+                .px_2()
+                .gap_1p5()
+                .rounded(px(6.))
+                .text_size(px(13.5))
+                .font_bold()
+                .text_color(p.sidebar_text.opacity(0.88))
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(14.))
+                        .text_color(p.sidebar_text.opacity(0.5))
+                        .when(section.collapsible, |el| {
+                            el.child(
+                                Icon::new(if section.collapsed { IconName::ChevronRight } else { IconName::ChevronDown })
+                                    .size(px(13.)),
+                            )
+                        }),
+                )
                 .when(section.collapsible, |el| {
                     el.cursor_pointer()
-                        .hover(|s| s.text_color(p.sidebar_text))
-                        .child(
-                            Icon::new(if section.collapsed { IconName::ChevronRight } else { IconName::ChevronDown })
-                                .size(px(14.)),
-                        )
+                        .hover(|s| s.bg(p.sidebar_hover).text_color(p.sidebar_text))
                         .on_click(cx.listener(move |this, _, _, cx| this.toggle_category(&category_id, cx)))
                 })
-                .when(!section.collapsible, |el| el.pl(px(30.)))
-                .child(div().flex_1().child(section.title.clone()))
+                .child(div().flex_none().child(section.title.clone()))
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.))
+                        .font_semibold()
+                        .text_color(p.sidebar_text.opacity(0.4))
+                        .child(count.to_string()),
+                )
+                .when(unread_inside, |el| el.child(div().flex_none().size(px(7.)).rounded_full().bg(p.sidebar_unread)))
+                // Filet qui prolonge le titre jusqu'au bord.
+                .child(div().flex_1().h(px(1.)).ml_1().bg(p.sidebar_text.opacity(0.10)))
                 .children(options);
             list = list.child(header);
             for channel_id in &section.channel_ids {
-                if let Some(row) = self.render_channel_row(channel_id, cx) {
+                if let Some(row) = self.render_channel_row(channel_id, manual.as_deref(), cx) {
                     list = list.child(row);
                 }
             }
@@ -557,31 +621,36 @@ impl ChatApp {
             .hover(|s| s.bg(p.sidebar_active_border.opacity(0.7)))
             .on_drag(SidebarResize, |_, _, _, cx| cx.new(|_| SidebarResize));
 
+        let open_team = cx.listener(|this, _, _, cx| this.open_team_card(cx));
         v_flex()
             .relative()
             .w(px(self.settings.sidebar_width))
             .h_full()
             .flex_none()
             .bg(p.sidebar_bg)
-            .when(self.settings.gradients, |el| {
-                el.bg(linear_gradient(
+            .bg(linear_gradient(
                     180.,
-                    linear_color_stop(p.sidebar_bg, 0.),
-                    linear_color_stop(shade(p.sidebar_bg, 0.05, -0.05), 1.),
+                    linear_color_stop(shade(p.sidebar_bg, -0.02, 0.03), 0.),
+                    linear_color_stop(shade(p.sidebar_bg, 0.10, -0.12), 1.),
                 ))
-            })
             .child(resize_handle)
             .text_color(p.sidebar_text)
             .child(
                 h_flex()
+                    .id("team-header")
                     .h(px(60.))
                     .flex_none()
                     .px_4()
+                    .gap_1p5()
                     .bg(p.sidebar_header_bg)
                     .text_color(p.sidebar_header_text)
                     .text_size(px(18.))
                     .font_bold()
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.sidebar_header_text.opacity(0.06)))
                     .child(div().truncate().child(team_name))
+                    .child(Icon::new(IconName::ChevronDown).size(px(15.)).text_color(p.sidebar_header_text.opacity(0.6)))
+                    .on_click(open_team)
                     .when(self.demo, |el| {
                         el.child(
                             div()
@@ -665,11 +734,10 @@ impl ChatApp {
     }
 
     /// Menu du compte : statut et déconnexion.
-    fn account_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn account_menu(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let entity = cx.entity();
         let current = self.status_of(self.me_id()).to_string();
         let p = self.palette;
-        let gradients = self.settings.gradients;
         Button::new("account-menu")
             .icon(Icon::new(IconName::EllipsisVertical).text_color(p.sidebar_text))
             .ghost()
@@ -683,7 +751,6 @@ impl ChatApp {
                         .checked(current == value)
                         .on_click(move |_, _, cx| entity.update(cx, |this, cx| this.set_status(value, cx)))
                 };
-                let toggle = entity.clone();
                 let entity = entity.clone();
                 menu.min_w(px(220.))
                     .label("Statut")
@@ -692,11 +759,7 @@ impl ChatApp {
                     .item(status("Ne pas déranger", "dnd", IconName::CircleMinus))
                     .item(status("Hors ligne", "offline", IconName::Circle))
                     .separator()
-                    .label("Apparence")
-                    .item(PopupMenuItem::new("Dégradés").checked(gradients).on_click(move |_, _, cx| {
-                        toggle.update(cx, |this, cx| this.toggle_gradients(cx))
-                    }))
-                    .separator()
+
                     .item(PopupMenuItem::new("Se déconnecter").icon(Icon::new(IconName::LogOut)).on_click(
                         move |_, window, cx| entity.update(cx, |this, cx| this.logout(window, cx)),
                     ))
@@ -761,6 +824,10 @@ impl ChatApp {
         let highlighted = self.mentions_me(post);
 
         let bot_name = rich::override_username(post);
+        // Bots (GitHub…) : longs messages réduits, dépliables.
+        let is_bot = post.from_bot() || bot_name.is_some() || self.users.get(&post.user_id).is_some_and(|u| u.is_bot);
+        let long_bot = is_bot && bot_post_lines(post) > 5;
+        let condensed = long_bot && !self.expanded_bots.contains(&post.id);
         let header = h_flex()
             .gap_2()
             .items_baseline()
@@ -778,7 +845,7 @@ impl ChatApp {
                     })
                     .child(bot_name.clone().unwrap_or_else(|| self.user_name(&post.user_id)))
             })
-            .when(bot_name.is_some() || post.from_webhook(), |el| {
+            .when(is_bot, |el| {
                 el.child(
                     div()
                         .px_1()
@@ -873,7 +940,7 @@ impl ChatApp {
                 .hover(|s| s.border_color(p.center_color.opacity(0.24)))
                 .child(match self.custom_emojis.get(&name) {
                     Some(image) => img(image.clone()).size(px(16.)).into_any_element(),
-                    None => div().text_size(px(14.)).child(emoji::lookup(&name)).into_any_element(),
+                    None => emoji_face(&emoji::lookup(&name), 16.),
                 })
                 .child(count.to_string())
                 .on_click(move |_, _, cx| {
@@ -951,10 +1018,50 @@ impl ChatApp {
                     .flex_1()
                     .min_w_0()
                     .when(!compact, |el| el.child(header))
-                    .child(body)
-                    .children(self.render_rich(entity, post, &key("rich"), &p))
-                    .when(!post.metadata.files.is_empty(), |el| {
-                        el.child(self.render_files(entity, &post.metadata.files, &key("files"), &p))
+                    .child({
+                        let content = v_flex()
+                            .child(body)
+                            .children(self.render_rich(entity, post, &key("rich"), &p))
+                            .when(!post.metadata.files.is_empty(), |el| {
+                                el.child(self.render_files(entity, &post.metadata.files, &key("files"), &p))
+                            });
+                        if condensed {
+                            div()
+                                .relative()
+                                .max_h(px(BOT_MAX_HEIGHT))
+                                .overflow_hidden()
+                                .child(content)
+                                .child(
+                                    div().absolute().left_0().right_0().bottom_0().h(px(30.)).bg(linear_gradient(
+                                        180.,
+                                        linear_color_stop(p.center_bg.opacity(0.), 0.),
+                                        linear_color_stop(p.center_bg, 1.),
+                                    )),
+                                )
+                                .into_any_element()
+                        } else {
+                            content.into_any_element()
+                        }
+                    })
+                    .when(long_bot, |el| {
+                        let (entity, id) = (entity.clone(), post.id.clone());
+                        el.child(
+                            h_flex()
+                                .id(key("bot-more"))
+                                .gap_1()
+                                .mt_0p5()
+                                .text_xs()
+                                .font_semibold()
+                                .text_color(p.link)
+                                .cursor_pointer()
+                                .hover(|s| s.underline())
+                                .child(Icon::new(if condensed { IconName::ChevronDown } else { IconName::ChevronRight }).size(px(12.)))
+                                .child(if condensed { "Afficher tout" } else { "Réduire" })
+                                .on_click(move |_, _, cx| {
+                                    let id = id.clone();
+                                    entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
+                                }),
+                        )
                     })
                     .when(!post.metadata.reactions.is_empty(), |el| el.child(reaction_row))
                     .children(replies),
@@ -1029,7 +1136,7 @@ impl ChatApp {
             let (entity, pid) = (entity.clone(), post_id.clone());
             bar = bar.child(
                 Button::new(id(&format!("qr-{name}")))
-                    .label(emoji::lookup(name))
+                    .child(emoji_face(&emoji::lookup(name), 18.))
                     .xsmall()
                     .ghost()
                     .tooltip(format!(":{name}:"))
@@ -1287,6 +1394,7 @@ impl ChatApp {
                         )
                     })
                     .children(self.render_attachments(pane, cx))
+                    .children(self.render_spelling(pane, cx))
                     .children(format_bar)
                     .child(input)
                     .child(toolbar),
@@ -1805,13 +1913,11 @@ impl ChatApp {
             .gap_3()
             .border_b_1()
             .border_color(p.border())
-            .when(self.settings.gradients, |el| {
-                el.bg(linear_gradient(
+            .bg(linear_gradient(
                     90.,
-                    linear_color_stop(p.sidebar_bg.opacity(0.10), 0.),
-                    linear_color_stop(p.button_bg.opacity(0.02), 1.),
+                    linear_color_stop(p.sidebar_bg.opacity(0.24), 0.),
+                    linear_color_stop(p.button_bg.opacity(0.07), 1.),
                 ))
-            })
             .when_some(partner.clone(), |el, partner| el.child(self.avatar(&partner, 32., p.center_bg)))
             .children(badge)
             .child(
@@ -2022,6 +2128,12 @@ impl ChatApp {
                     cx.stop_propagation();
                     return;
                 }
+                if k.key == "escape" && (this.team_card.is_some() || this.add_members.is_some()) {
+                    this.close_team_card(cx);
+                    this.close_add_members(cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if k.modifiers.control && !k.modifiers.shift && !k.modifiers.alt && k.key == "f" {
                     this.open_search(window, cx);
                     cx.stop_propagation();
@@ -2041,6 +2153,8 @@ impl ChatApp {
             .children(self.render_switcher(cx))
             .children(self.render_emoji_picker(cx))
             .children(self.render_profile_card(cx))
+            .children(self.render_team_card(cx))
+            .children(self.render_add_members(cx))
     }
 
     /// Photo en médaillon, statut, poste, adresse, heure locale, bouton message.
@@ -2660,6 +2774,65 @@ impl ChatApp {
         )
     }
 
+    /// Bandeau d'orthographe au-dessus de la saisie : premier mot inconnu,
+    /// propositions cliquables, « Ajouter au dictionnaire ».
+    fn render_spelling(&self, pane: Pane, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let list = self.misspellings.get(&pane)?;
+        let first = list.first()?;
+        let p = self.palette;
+        let more = list.len() - 1;
+        let word = first.word.clone();
+        Some(
+            h_flex()
+                .flex_wrap()
+                .gap_1p5()
+                .px_3()
+                .py_1p5()
+                .border_b_1()
+                .border_color(p.center_color.opacity(0.08))
+                .text_xs()
+                .child(Icon::new(IconName::SpellCheck).size(px(14.)).text_color(p.error))
+                .child(div().text_color(p.muted()).child("Orthographe :"))
+                .child(div().font_semibold().text_color(p.error).child(format!("« {word} »")))
+                .children(first.suggestions.iter().enumerate().map(|(i, s)| {
+                    let (w, s2) = (word.clone(), s.clone());
+                    div()
+                        .id(SharedString::from(format!("sp-{pane:?}-{i}")))
+                        .px_2()
+                        .py_0p5()
+                        .rounded_full()
+                        .bg(p.button_bg.opacity(0.12))
+                        .text_color(p.button_bg)
+                        .font_semibold()
+                        .cursor_pointer()
+                        .hover(|st| st.bg(p.button_bg.opacity(0.2)))
+                        .child(s.clone())
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.correct_spelling(pane, w.clone(), s2.clone(), window, cx)
+                        }))
+                }))
+                .when(first.suggestions.is_empty(), |el| el.child(div().text_color(p.muted()).child("aucune proposition")))
+                .child(div().flex_1())
+                .when(more > 0, |el| {
+                    el.child(div().text_color(p.muted()).child(if more == 1 {
+                        "1 autre mot".to_string()
+                    } else {
+                        format!("{more} autres mots")
+                    }))
+                })
+                .child(
+                    div()
+                        .id(SharedString::from(format!("sp-learn-{pane:?}")))
+                        .text_color(p.link)
+                        .cursor_pointer()
+                        .hover(|st| st.underline())
+                        .child("Ajouter au dictionnaire")
+                        .on_click(cx.listener(move |this, _, _, cx| this.learn_word(pane, word.clone(), cx))),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// Pastilles des @mentions et #étiquettes dans le texte des messages.
     fn tag_plugin(&self, entity: &Entity<Self>) -> TagPlugin {
         TagPlugin {
@@ -2723,12 +2896,61 @@ impl ChatApp {
                     cx.notify();
                 }
             }))
-            .child(
-                Input::new(&self.search_input)
-                    .small()
-                    .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(p.muted()))
-                    .cleanable(true),
-            )
+            .child({
+                let open = self.search_open;
+                let empty = self.search_input.read(cx).value().is_empty();
+                h_flex()
+                    .id("search-field")
+                    .h(px(32.))
+                    .pl_3()
+                    .pr_1p5()
+                    .gap_2()
+                    .rounded_full()
+                    .border_1()
+                    .cursor_text()
+                    .map(|el| {
+                        if open {
+                            el.bg(p.center_bg).border_color(p.button_bg.opacity(0.7)).shadow_sm()
+                        } else {
+                            el.bg(p.center_color.opacity(0.06))
+                                .border_color(transparent_black())
+                                .hover(|s| s.bg(p.center_color.opacity(0.09)))
+                        }
+                    })
+                    .child(Icon::new(IconName::Search).size(px(15.)).text_color(if open { p.button_bg } else { p.muted() }))
+                    .child(div().flex_1().min_w_0().child(Input::new(&self.search_input).appearance(false).small()))
+                    .when(!open && empty, |el| {
+                        el.child(
+                            div()
+                                .flex_none()
+                                .px_1p5()
+                                .rounded(px(5.))
+                                .border_1()
+                                .border_color(p.center_color.opacity(0.14))
+                                .text_size(px(10.5))
+                                .text_color(p.muted())
+                                .child("Ctrl F"),
+                        )
+                    })
+                    .when(!empty, |el| {
+                        el.child(
+                            div()
+                                .id("search-clear")
+                                .flex_none()
+                                .p_1()
+                                .rounded_full()
+                                .cursor_pointer()
+                                .text_color(p.muted())
+                                .hover(|s| s.bg(p.center_color.opacity(0.1)))
+                                .child(Icon::new(IconName::X).size(px(13.)))
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.search_input.update(cx, |s, cx| s.set_value("", window, cx));
+                                    cx.notify();
+                                })),
+                        )
+                    })
+                    .on_click(cx.listener(|this, _, window, cx| this.open_search(window, cx)))
+            })
             .when(self.search_open, |el| el.child(deferred(self.render_search_dropdown(cx)).with_priority(2)))
             .into_any_element()
     }
@@ -3311,7 +3533,7 @@ impl ChatApp {
                 linear_color_stop(shade(color, 0.03, -0.06), 1.),
             ))
             .text_color(white())
-            .text_size(px((size * 0.42).round()))
+            .text_size(px((size * 0.5).round()))
             .font_bold();
         let face = if channel.kind == "G" {
             face.child(Icon::new(IconName::Users).size(px(size * 0.6)))
@@ -3414,6 +3636,291 @@ impl ChatApp {
                 });
             })
             .into_any_element()
+    }
+
+    /// Carte de l'équipe : logo, nom, type, membres, description (modifiable).
+    fn render_team_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let editing = self.team_card?;
+        let team = self.team_id.as_ref().and_then(|id| self.teams.iter().find(|t| &t.id == id))?;
+        let p = self.palette;
+        let info = self.team_info.get(&team.id).copied();
+        let initials: String = team
+            .display_name
+            .split_whitespace()
+            .filter_map(|w| w.chars().next())
+            .take(2)
+            .collect::<String>()
+            .to_uppercase();
+        let logo: AnyElement = match self.team_icons.get(&team.id) {
+            Some(icon) => div()
+                .size(px(64.))
+                .rounded(px(16.))
+                .bg(white())
+                .p(px(6.))
+                .child(img(icon.clone()).size_full().object_fit(ObjectFit::Contain))
+                .into_any_element(),
+            None => div()
+                .size(px(64.))
+                .rounded(px(16.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .bg(linear_gradient(135., linear_color_stop(p.button_bg, 0.), linear_color_stop(p.sidebar_bg, 1.)))
+                .text_color(white())
+                .text_size(px(24.))
+                .font_bold()
+                .child(initials)
+                .into_any_element(),
+        };
+        let kind = if team.team_type == "O" { "Équipe ouverte à tous" } else { "Équipe sur invitation" };
+        let members = match info {
+            Some(i) => format!("{} membres, dont {} actifs", i.total, i.active),
+            None => "Chargement…".to_string(),
+        };
+        let since = (team.create_at > 0).then(|| format!("Créée {}", day_label(team.create_at).to_lowercase()));
+        let admin = info.is_some_and(|i| i.admin);
+        let description: AnyElement = if editing {
+            v_flex()
+                .gap_2()
+                .child(Input::new(&self.team_desc_input))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .justify_end()
+                        .child(Button::new("team-desc-cancel").label("Annuler").ghost().small().on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.team_card = Some(false);
+                                cx.notify();
+                            },
+                        )))
+                        .child(
+                            Button::new("team-desc-save")
+                                .label("Enregistrer")
+                                .primary()
+                                .small()
+                                .on_click(cx.listener(|this, _, _, cx| this.save_team_description(cx))),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            h_flex()
+                .items_start()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_sm()
+                        .when(team.description.is_empty(), |d| d.italic().text_color(p.muted()))
+                        .child(if team.description.is_empty() {
+                            "Pas encore de description.".to_string()
+                        } else {
+                            team.description.clone()
+                        }),
+                )
+                .when(admin, |el| {
+                    el.child(
+                        Button::new("team-desc-edit")
+                            .icon(Icon::new(IconName::PencilLine))
+                            .ghost()
+                            .xsmall()
+                            .tooltip("Modifier la description")
+                            .on_click(cx.listener(|this, _, window, cx| this.edit_team_description(window, cx))),
+                    )
+                })
+                .into_any_element()
+        };
+        let left = if self.teams.len() > 1 { TEAM_BAR_WIDTH + 10. } else { 10. };
+        Some(
+            div()
+                .id("team-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_team_card(cx)))
+                .child(
+                    v_flex()
+                        .id("team-card")
+                        .occlude()
+                        .absolute()
+                        .left(px(left))
+                        .top(px(56.))
+                        .w(px(340.))
+                        .rounded(px(14.))
+                        .overflow_hidden()
+                        .border_1()
+                        .border_color(p.border())
+                        .bg(p.center_bg)
+                        .text_color(p.center_color)
+                        .shadow_xl()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(div().h(px(64.)).bg(linear_gradient(
+                            120.,
+                            linear_color_stop(p.sidebar_bg, 0.),
+                            linear_color_stop(p.button_bg, 1.),
+                        )))
+                        .child(
+                            v_flex()
+                                .px_5()
+                                .pb_5()
+                                .gap_3()
+                                .child(
+                                    div()
+                                        .mt(-px(36.))
+                                        .p(px(4.))
+                                        .rounded(px(19.))
+                                        .bg(p.center_bg)
+                                        .w(px(72.))
+                                        .child(logo),
+                                )
+                                .child(
+                                    v_flex()
+                                        .gap_0p5()
+                                        .child(div().text_size(px(19.)).font_bold().child(team.display_name.clone()))
+                                        .child(div().text_sm().text_color(p.muted()).child(kind)),
+                                )
+                                .child(
+                                    v_flex()
+                                        .gap_2()
+                                        .pt_3()
+                                        .border_t_1()
+                                        .border_color(p.border())
+                                        .child(
+                                            h_flex()
+                                                .gap_2()
+                                                .text_sm()
+                                                .child(Icon::new(IconName::Users).size(px(15.)).text_color(p.muted()))
+                                                .child(members),
+                                        )
+                                        .when_some(since, |el, since| {
+                                            el.child(
+                                                h_flex()
+                                                    .gap_2()
+                                                    .text_sm()
+                                                    .child(Icon::new(IconName::Clock).size(px(15.)).text_color(p.muted()))
+                                                    .child(since),
+                                            )
+                                        }),
+                                )
+                                .child(
+                                    v_flex()
+                                        .gap_1()
+                                        .child(div().text_xs().font_semibold().text_color(p.muted()).child("Description"))
+                                        .child(description),
+                                ),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
+    /// Fenêtre « Ajouter des membres » : recherche dans l'équipe, ajout un par un.
+    fn render_add_members(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let add = self.add_members.as_ref()?;
+        let p = self.palette;
+        let title = self.channels.get(&add.channel_id).map(|c| self.channel_title(&c.channel)).unwrap_or_default();
+        let body: AnyElement = match &add.results {
+            None => div().p_4().text_color(p.muted()).child("Recherche…").into_any_element(),
+            Some(users) if users.is_empty() => div()
+                .p_4()
+                .text_color(p.muted())
+                .child("Personne à ajouter : tout le monde est déjà dans le canal, ou aucun nom ne correspond.")
+                .into_any_element(),
+            Some(users) => v_flex()
+                .id("add-members-list")
+                .max_h(px(360.))
+                .overflow_y_scroll()
+                .py_1()
+                .children(users.iter().map(|u| {
+                    let added = add.added.contains(&u.id);
+                    let uid = u.id.clone();
+                    h_flex()
+                        .gap_3()
+                        .px_4()
+                        .py_2()
+                        .hover(|s| s.bg(p.hover()))
+                        .child(self.avatar(&u.id, 32., p.center_bg))
+                        .child(
+                            v_flex()
+                                .flex_1()
+                                .min_w_0()
+                                .child(div().truncate().text_sm().font_semibold().child(self.user_name(&u.id)))
+                                .child(div().truncate().text_xs().text_color(p.muted()).child(format!("@{}", u.username))),
+                        )
+                        .child(if added {
+                            h_flex()
+                                .gap_1()
+                                .text_sm()
+                                .text_color(p.online)
+                                .child(Icon::new(IconName::CircleCheck).size(px(15.)))
+                                .child("Ajouté")
+                                .into_any_element()
+                        } else {
+                            Button::new(SharedString::from(format!("add-{}", u.id)))
+                                .icon(Icon::new(IconName::UserPlus))
+                                .label("Ajouter")
+                                .small()
+                                .primary()
+                                .on_click(cx.listener(move |this, _, _, cx| this.add_member(uid.clone(), cx)))
+                                .into_any_element()
+                        })
+                }))
+                .into_any_element(),
+        };
+        Some(
+            div()
+                .id("add-members-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .bg(black().opacity(0.35))
+                .flex()
+                .justify_center()
+                .items_start()
+                .pt(px(110.))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_add_members(cx)))
+                .child(
+                    v_flex()
+                        .id("add-members")
+                        .occlude()
+                        .w(px(460.))
+                        .rounded(px(12.))
+                        .overflow_hidden()
+                        .border_1()
+                        .border_color(p.border())
+                        .bg(p.center_bg)
+                        .text_color(p.center_color)
+                        .shadow_xl()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            h_flex()
+                                .px_4()
+                                .pt_4()
+                                .pb_2()
+                                .gap_2()
+                                .child(Icon::new(IconName::UserPlus).size(px(18.)).text_color(p.button_bg))
+                                .child(div().flex_1().text_size(px(16.)).font_bold().child(format!("Ajouter des membres à {title}")))
+                                .child(
+                                    Button::new("add-members-close")
+                                        .icon(Icon::new(IconName::X))
+                                        .ghost()
+                                        .small()
+                                        .on_click(cx.listener(|this, _, _, cx| this.close_add_members(cx))),
+                                ),
+                        )
+                        .child(
+                            div().px_4().pb_3().border_b_1().border_color(p.border()).child(
+                                Input::new(&self.member_search_input)
+                                    .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(p.muted()))
+                                    .cleanable(true),
+                            ),
+                        )
+                        .child(body),
+                )
+                .into_any_element(),
+        )
     }
 
     /// Sélecteur de canaux (Ctrl+K).
@@ -3597,7 +4104,7 @@ impl ChatApp {
                                     None => div().child(format!(":{name}:")).into_any_element(),
                                 }
                             } else {
-                                div().text_size(px(22.)).child(glyph.clone()).into_any_element()
+                                emoji_face(glyph, 24.)
                             };
                             div()
                                 .id(SharedString::from(format!("em-{name}")))
@@ -3868,13 +4375,40 @@ fn new_messages_separator(p: &Palette) -> impl IntoElement {
 fn emoji_resolver(
     emojis: Arc<HashMap<String, Arc<Image>>>,
 ) -> impl Fn(&SharedUri) -> ImageSource + Send + Sync + 'static {
-    move |uri: &SharedUri| match uri.strip_prefix(markdown::CUSTOM_EMOJI_SCHEME) {
-        Some(name) => match emojis.get(name) {
-            Some(image) => ImageSource::Image(image.clone()),
-            // Pas encore chargé : image transparente, remplacée au prochain rendu.
-            None => ImageSource::Image(transparent_pixel()),
-        },
-        None => ImageSource::Resource(Resource::Uri(uri.clone())),
+    move |uri: &SharedUri| {
+        if let Some(hex) = uri.strip_prefix(emoji::TWEMOJI_SCHEME) {
+            return ImageSource::Image(twemoji_image(&emoji::from_hex(hex)).unwrap_or_else(transparent_pixel));
+        }
+        match uri.strip_prefix(markdown::CUSTOM_EMOJI_SCHEME) {
+            Some(name) => match emojis.get(name) {
+                Some(image) => ImageSource::Image(image.clone()),
+                // Pas encore chargé : image transparente, remplacée au prochain rendu.
+                None => ImageSource::Image(transparent_pixel()),
+            },
+            None => ImageSource::Resource(Resource::Uri(uri.clone())),
+        }
+    }
+}
+
+/// Image Twemoji d'un emoji (SVG intégré à l'application), gardée en mémoire.
+fn twemoji_image(glyph: &str) -> Option<Arc<Image>> {
+    use std::sync::Mutex;
+    static CACHE: OnceLock<Mutex<HashMap<String, Arc<Image>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    if let Some(image) = cache.lock().ok()?.get(glyph) {
+        return Some(image.clone());
+    }
+    let svg = emoji::twemoji_svg(glyph)?;
+    let image = Arc::new(Image::from_bytes(ImageFormat::Svg, svg.as_bytes().to_vec()));
+    cache.lock().ok()?.insert(glyph.to_string(), image.clone());
+    Some(image)
+}
+
+/// Emoji dessiné en Twemoji, sinon avec la police du système.
+fn emoji_face(glyph: &str, size: f32) -> AnyElement {
+    match twemoji_image(glyph) {
+        Some(image) => img(image).size(px(size)).flex_none().into_any_element(),
+        None => div().text_size(px(size * 0.9)).child(glyph.to_string()).into_any_element(),
     }
 }
 
@@ -4103,7 +4637,7 @@ fn month_label(ms: i64) -> String {
 /// Couleur d'un groupe de la liste des membres.
 fn group_color(title: &str, p: &Palette) -> Hsla {
     match title {
-        "Administrateurs" => hsla(0.74, 0.55, 0.58, 1.),
+        "Administrateurs" => p.button_bg,
         "En ligne" => p.online,
         "Absent" => p.away,
         "Ne pas déranger" => p.dnd,
@@ -4173,4 +4707,25 @@ mod badge_tests {
         }
         assert_eq!(rows.iter().map(Vec::len).sum::<usize>(), 5);
     }
+}
+
+/// Hauteur d'un message de bot réduit.
+const BOT_MAX_HEIGHT: f32 = 110.;
+
+/// Estimation du nombre de lignes d'un message (texte et pièces jointes des
+/// intégrations), pour savoir s'il vaut la peine de le réduire.
+fn bot_post_lines(post: &Post) -> usize {
+    let text_lines = |t: &str| t.lines().map(|l| 1 + l.chars().count() / 90).sum::<usize>();
+    let mut lines = text_lines(&post.message);
+    if let Some(list) = post.props.get("attachments").and_then(|a| a.as_array()) {
+        for a in list {
+            let field = |k: &str| a.get(k).and_then(|v| v.as_str()).unwrap_or_default();
+            lines += 1 + text_lines(field("pretext")) + text_lines(field("text"));
+            lines += a.get("fields").and_then(|f| f.as_array()).map_or(0, |f| f.len().div_ceil(2));
+            if !field("image_url").is_empty() {
+                lines += 6;
+            }
+        }
+    }
+    lines + post.metadata.files.len() * 3
 }

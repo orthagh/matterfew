@@ -101,6 +101,12 @@ pub enum Command {
     LoadMembers { channel_id: String },
     /// Fichiers d'un canal (`terms` : la recherche `in:` correspondante).
     LoadChannelFiles { team_id: String, channel_id: String, terms: String },
+    /// Carte de l'équipe : nombre de membres, droit de modifier.
+    LoadTeamInfo { team_id: String },
+    SaveTeamDescription { team_id: String, description: String },
+    /// Personnes à ajouter au canal (recherche dans l'équipe).
+    SearchUsersForChannel { team_id: String, channel_id: String, term: String },
+    AddChannelMember { channel_id: String, user_id: String },
     /// Profil d'après le nom d'utilisateur (clic sur une @mention).
     LoadUserByName { username: String },
     LoadThreads { team_id: String },
@@ -150,6 +156,11 @@ pub enum Event {
     Members { channel_id: String, user_ids: Vec<String>, admins: Vec<String>, total: i64 },
     Threads(Vec<UserThread>),
     ChannelFiles { channel_id: String, files: Vec<FileInfo> },
+    TeamInfo { team_id: String, total: i64, active: i64, admin: bool },
+    TeamUpdated(Team),
+    /// Règles du plugin Autolink lues sur le serveur.
+    AutolinkRules(Vec<crate::autolink::RuleDef>),
+    UserCandidates { channel_id: String, term: String, users: Vec<User> },
     /// Aucun aperçu possible pour cette image : afficher une carte de fichier.
     PreviewFailed { file_id: String },
     /// Équipe de canaux hors de l'équipe affichée (mentions récentes).
@@ -231,6 +242,7 @@ struct Ctx {
     /// Fils réduits actifs (paramètre des requêtes de messages).
     crt: Arc<AtomicBool>,
     me_username: String,
+    me_admin: bool,
     /// Équipes de l'utilisateur (recherche des mentions dans toutes).
     team_ids: Vec<String>,
 }
@@ -321,6 +333,7 @@ async fn run(
         ws_out,
         crt: Arc::new(AtomicBool::new(true)),
         me_username: me.username.clone(),
+        me_admin: me.is_system_admin(),
         team_ids: teams.iter().map(|t| t.id.clone()).collect(),
     };
     ctx.ensure_users([me.id.clone()]).await;
@@ -335,6 +348,14 @@ async fn run(
         });
     }
     ctx.emit(Event::Ready { me, teams, config, prefs }).await;
+    // Liens automatiques du plugin Autolink : la configuration n'est lisible
+    // que par un administrateur ; sinon, rien (les règles de ui.json restent).
+    if let Ok(config) = ctx.client.admin_config().await {
+        let rules = crate::autolink::from_server_config(&config);
+        if !rules.is_empty() {
+            ctx.emit(Event::AutolinkRules(rules)).await;
+        }
+    }
     if let Some(unreads) = ctx.report(ctx.client.team_unreads().await).await {
         ctx.emit(Event::TeamUnreads(unreads)).await;
     }
@@ -578,6 +599,23 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::MarkThreadRead { team_id, root_id } => {
             let now = chrono::Utc::now().timestamp_millis();
             client.mark_thread_read(&ctx.me_id, &team_id, &root_id, now).await?;
+        }
+        Command::LoadTeamInfo { team_id } => {
+            let ((total, active), admin) = tokio::try_join!(client.team_stats(&team_id), client.is_team_admin(&team_id))?;
+            ctx.emit(Event::TeamInfo { team_id, total, active, admin: admin || ctx.me_admin }).await;
+        }
+        Command::SaveTeamDescription { team_id, description } => {
+            let team = client.patch_team_description(&team_id, &description).await?;
+            ctx.emit(Event::TeamUpdated(team)).await;
+        }
+        Command::SearchUsersForChannel { team_id, channel_id, term } => {
+            let users = client.users_not_in_channel(&team_id, &channel_id, &term).await?;
+            ctx.ensure_users(users.iter().map(|u| u.id.clone())).await;
+            ctx.emit(Event::UserCandidates { channel_id, term, users }).await;
+        }
+        Command::AddChannelMember { channel_id, user_id } => {
+            client.add_channel_member(&channel_id, &user_id).await?;
+            ctx.emit(Event::MembersChanged { channel_id }).await;
         }
         Command::OpenDirect { user_id } => {
             let channel = client.direct_channel(&ctx.me_id, &user_id).await?;

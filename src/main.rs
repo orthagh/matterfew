@@ -2,6 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod api;
+mod autolink;
+mod spell;
 mod cache;
 mod backend;
 mod credentials;
@@ -31,7 +33,7 @@ gpui_kit::assets::icon_assets!(
         Bold, Italic, Strikethrough, Code, Link, Heading, TextQuote, List, ListOrdered, SquareCode, Paperclip,
         SendHorizontal, Eye, EyeOff, Reply, Ellipsis, EllipsisVertical, Star, Bell, BellOff, Pin, Bookmark, Copy,
         Pencil, Trash, MailOpen, Hash, Lock, Users, ChevronDown, ChevronRight, X, LogOut, Moon, CircleMinus,
-        CircleCheck, Circle, ArrowUpDown, CheckCheck, Search, FaceSlightlySmilingPlus, FaceSlightlySmiling, MessagesSquare, AtSign, Download, ExternalLink, Mail, Clock, Shield, FolderOpen, Type, Images, FileText, Link2
+        CircleCheck, Circle, ArrowUpDown, CheckCheck, Search, FaceSlightlySmilingPlus, FaceSlightlySmiling, MessagesSquare, AtSign, Download, ExternalLink, Mail, Clock, Shield, FolderOpen, Type, Images, FileText, Link2, UserPlus, Info, PencilLine, SpellCheck
     ]
 );
 

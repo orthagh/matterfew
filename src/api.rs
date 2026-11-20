@@ -38,6 +38,9 @@ pub struct User {
     /// {useAutomaticTimezone, automaticTimezone, manualTimezone}
     #[serde(default)]
     pub timezone: serde_json::Value,
+    /// Compte de bot (GitHub, GitLab, Jira…).
+    #[serde(default)]
+    pub is_bot: bool,
 }
 
 /// Désérialise un objet JSON en ne gardant que les valeurs textuelles
@@ -85,10 +88,18 @@ impl User {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Team {
     pub id: String,
     pub display_name: String,
+    /// Description de l'équipe (modifiable par ses administrateurs).
+    #[serde(default)]
+    pub description: String,
+    /// "O" : ouverte à tous, "I" : sur invitation.
+    #[serde(default, rename = "type")]
+    pub team_type: String,
+    #[serde(default)]
+    pub create_at: i64,
     /// Nom court (dans les liens : `/{name}/pl/{id}`).
     #[serde(default)]
     pub name: String,
@@ -410,6 +421,11 @@ pub struct Post {
 }
 
 impl Post {
+    /// Message d'un bot ou d'une intégration.
+    pub fn from_bot(&self) -> bool {
+        self.props.get("from_bot").and_then(|v| v.as_str()) == Some("true") || self.from_webhook()
+    }
+
     pub fn from_webhook(&self) -> bool {
         self.props.get("from_webhook").and_then(|v| v.as_str()) == Some("true")
     }
@@ -531,6 +547,11 @@ impl Client {
             .send()
             .await
             .map_err(|e| network_error(&self.base, e))?;
+        Self::decode(resp, path).await
+    }
+
+    async fn put<B: Serialize + ?Sized, T: for<'de> Deserialize<'de>>(&self, path: &str, body: &B) -> Result<T> {
+        let resp = self.http.put(self.url(path)).json(body).send().await.map_err(|e| network_error(&self.base, e))?;
         Self::decode(resp, path).await
     }
 
@@ -870,6 +891,63 @@ impl Client {
             .collect();
         let total = stats.member_count.max(users.len() as i64);
         Ok((users, admins, total))
+    }
+
+    /// Nombre de membres de l'équipe (total, actifs).
+    pub async fn team_stats(&self, team_id: &str) -> Result<(i64, i64)> {
+        #[derive(Deserialize)]
+        struct Stats {
+            #[serde(default)]
+            total_member_count: i64,
+            #[serde(default)]
+            active_member_count: i64,
+        }
+        let s: Stats = self.get(&format!("/teams/{team_id}/stats")).await?;
+        Ok((s.total_member_count, s.active_member_count))
+    }
+
+    /// L'utilisateur administre-t-il cette équipe ?
+    pub async fn is_team_admin(&self, team_id: &str) -> Result<bool> {
+        #[derive(Deserialize)]
+        struct Member {
+            #[serde(default)]
+            roles: String,
+            #[serde(default)]
+            scheme_admin: bool,
+        }
+        let m: Member = self.get(&format!("/teams/{team_id}/members/me")).await?;
+        Ok(m.scheme_admin || m.roles.split_whitespace().any(|r| r == "team_admin"))
+    }
+
+    pub async fn patch_team_description(&self, team_id: &str, description: &str) -> Result<Team> {
+        self.put(&format!("/teams/{team_id}/patch"), &serde_json::json!({ "description": description })).await
+    }
+
+    /// Personnes de l'équipe qui ne sont pas encore dans le canal.
+    pub async fn users_not_in_channel(&self, team_id: &str, channel_id: &str, name: &str) -> Result<Vec<User>> {
+        #[derive(Deserialize)]
+        struct Found {
+            #[serde(default)]
+            out_of_channel: Vec<User>,
+        }
+        let found: Found = self
+            .get_query(
+                "/users/autocomplete",
+                &[("in_team", team_id), ("in_channel", channel_id), ("name", name), ("limit", "25")],
+            )
+            .await?;
+        Ok(found.out_of_channel)
+    }
+
+    pub async fn add_channel_member(&self, channel_id: &str, user_id: &str) -> Result<()> {
+        let _: serde_json::Value =
+            self.post(&format!("/channels/{channel_id}/members"), &serde_json::json!({ "user_id": user_id })).await?;
+        Ok(())
+    }
+
+    /// Configuration complète du serveur (administrateurs seulement).
+    pub async fn admin_config(&self) -> Result<serde_json::Value> {
+        self.get("/config").await
     }
 
     pub async fn user_by_username(&self, username: &str) -> Result<User> {
