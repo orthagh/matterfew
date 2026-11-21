@@ -10,6 +10,10 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 
 ## [Non publié]
 
+## [0.1.0] - 2026-11-21
+
+Première version publique.
+
 ### Ajouté
 
 - Connexion par la page du serveur (GitLab, mot de passe, double
