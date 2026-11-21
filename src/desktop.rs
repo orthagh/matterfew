@@ -73,7 +73,7 @@ mod windows_impl {
     use windows::core::{HSTRING, PCWSTR};
 
     /// Identifiant de l'application pour Windows (notifications, barre des tâches).
-    pub const AUMID: &str = "MmGpui.Client";
+    pub const AUMID: &str = "Matterfew.Client";
     use super::DISPLAY_NAME;
 
     /// Fermer la fenêtre la masque dans la zone de notification.
@@ -96,7 +96,7 @@ mod windows_impl {
         }
     }
 
-    /// Raccourci « Mattermost (mm-gpui) » du menu Démarrer, portant l'identifiant.
+    /// Raccourci « Matterfew » du menu Démarrer, portant l'identifiant.
     fn start_menu_shortcut() -> Result<()> {
         use windows::Win32::Storage::EnhancedStorage::PKEY_AppUserModel_ID;
         use windows::Win32::System::Com::IPersistFile;
@@ -140,7 +140,7 @@ mod windows_impl {
     }
 
     fn register_identity() -> Result<()> {
-        let dir = dirs::data_local_dir().context("dossier local introuvable")?.join("mm-gpui");
+        let dir = dirs::data_local_dir().context("dossier local introuvable")?.join("matterfew");
         std::fs::create_dir_all(&dir)?;
         let icon = dir.join("icon.png");
         image::save_buffer(&icon, &icons::app_icon(256), 256, 256, image::ExtendedColorType::Rgba8)?;
@@ -173,7 +173,7 @@ mod windows_impl {
         let toast = ToastNotification::CreateToastNotification(&xml)?;
         if let Some(target) = &target {
             toast.SetTag(&HSTRING::from(&target.channel_id))?;
-            toast.SetGroup(&HSTRING::from("mm-gpui"))?;
+            toast.SetGroup(&HSTRING::from("matterfew"))?;
         }
         let sender = clicks_pipe().0.clone();
         toast.Activated(&TypedEventHandler::new(move |_, _| {
@@ -405,7 +405,7 @@ mod sys_tray {
 }
 
 /// Nom affiché de l'application (raccourcis, infobulles).
-const DISPLAY_NAME: &str = "Mattermost (mm-gpui)";
+const DISPLAY_NAME: &str = "Matterfew";
 
 /// Linux (GNOME, KDE…) et macOS.
 #[cfg(not(windows))]
@@ -422,7 +422,7 @@ mod unix_impl {
 
     /// Identifiant de l'application (bundle macOS, nom D-Bus, Flatpak).
     #[cfg_attr(target_os = "linux", allow(dead_code))]
-    const APP_ID: &str = "io.github.orthagh.MattermostRustClient";
+    const APP_ID: &str = "io.github.orthagh.Matterfew";
 
     pub fn init() {
         // macOS : les notifications portent le nom et l'icône de l'application.
@@ -438,7 +438,7 @@ mod unix_impl {
         use std::os::unix::net::{UnixListener, UnixStream};
 
         let dir = dirs::runtime_dir().or_else(dirs::cache_dir).unwrap_or_else(std::env::temp_dir);
-        let path = dir.join("mm-gpui.sock");
+        let path = dir.join("matterfew.sock");
         if let Ok(mut stream) = UnixStream::connect(&path) {
             let _ = stream.write_all(b"show");
             return false;
@@ -528,9 +528,9 @@ mod unix_impl {
                 return id;
             }
             if let Ok(name) = std::env::var("SNAP_NAME") {
-                return format!("{name}_mm-gpui");
+                return format!("{name}_matterfew");
             }
-            "mm-gpui".to_string()
+            "matterfew".to_string()
         }
 
         /// Mise à jour de la pastille : (nombre, visible, urgent).
@@ -559,7 +559,7 @@ mod unix_impl {
                                 let _ = conn
                                     .emit_signal(
                                         None::<&str>,
-                                        "/io/github/orthagh/MattermostRustClient",
+                                        "/io/github/orthagh/Matterfew",
                                         "com.canonical.Unity.LauncherEntry",
                                         "Update",
                                         &(uri.as_str(), props),
@@ -597,7 +597,7 @@ mod unix_impl {
 
         impl ksni::Tray for SniTray {
             fn id(&self) -> String {
-                "mm-gpui".into()
+                "matterfew".into()
             }
             fn title(&self) -> String {
                 super::super::DISPLAY_NAME.into()
@@ -714,7 +714,7 @@ mod manual_tests {
     fn toast() {
         super::init();
         let target = super::ClickTarget { team_id: "t1".into(), channel_id: "general".into() };
-        super::show_notification("Léa Bernard dans Général", "Test de notification mm-gpui", Some(target)).unwrap();
+        super::show_notification("Léa Bernard dans Général", "Test de notification matterfew", Some(target)).unwrap();
         std::thread::sleep(std::time::Duration::from_secs(6));
     }
 }

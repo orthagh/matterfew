@@ -1,7 +1,7 @@
 //! Mémorisation de la connexion.
 //!
 //! - L'adresse du serveur et le type de connexion sont enregistrés dans un
-//!   petit fichier (`%APPDATA%\mm-gpui\config.json` sous Windows).
+//!   petit fichier (`%APPDATA%\matterfew\config.json` sous Windows).
 //! - Le jeton va dans le coffre du système : Gestionnaire d'identifiants
 //!   Windows, Trousseau macOS ou Secret Service sous Linux. Il n'est
 //!   jamais écrit en clair sur le disque.
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 
-const SERVICE: &str = "mm-gpui";
+const SERVICE: &str = "matterfew";
 
 /// Nature du jeton mémorisé.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -39,7 +39,7 @@ pub struct Saved {
 }
 
 fn dir() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("mm-gpui"))
+    dirs::config_dir().map(|d| d.join("matterfew"))
 }
 
 fn read_config() -> Option<Config> {
@@ -60,7 +60,18 @@ fn entry(server_url: &str) -> Result<keyring::Entry> {
 /// Connexion enregistrée, s'il y en a une.
 pub fn load() -> Option<Saved> {
     let config = read_config()?;
-    let token = entry(&config.server_url).ok()?.get_password().ok()?;
+    let token = match entry(&config.server_url).ok()?.get_password() {
+        Ok(token) => token,
+        // Jeton rangé sous l'ancien nom (« mm-gpui ») : repris, puis effacé.
+        Err(_) => {
+            let old = keyring::Entry::new(crate::migrate::LEGACY, &config.server_url).ok()?;
+            let token = old.get_password().ok()?;
+            if entry(&config.server_url).and_then(|e| Ok(e.set_password(&token)?)).is_ok() {
+                let _ = old.delete_credential();
+            }
+            token
+        }
+    };
     Some(Saved { server_url: config.server_url, token, kind: config.auth })
 }
 

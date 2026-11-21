@@ -987,7 +987,7 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             let bytes = client.file_content(&file.id).await?;
             // Pour l'ouvrir : dossier temporaire ; sinon : Téléchargements.
             let dir = if open {
-                std::env::temp_dir().join("mm-gpui").join(&file.id)
+                std::env::temp_dir().join("matterfew").join(&file.id)
             } else {
                 dirs::download_dir().unwrap_or_else(std::env::temp_dir)
             };
@@ -1309,7 +1309,7 @@ mod tests {
 
     #[test]
     fn unique_path_stays_in_dir_and_avoids_collisions() {
-        let dir = std::env::temp_dir().join(format!("mm-gpui-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("matterfew-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(unique_path(&dir, ".."), dir.join(&*t!("files.default_name")));
         assert_eq!(unique_path(&dir, "../../x.txt"), dir.join(".._.._x.txt"));

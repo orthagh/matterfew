@@ -1,10 +1,10 @@
 # Flatpak construit à partir de l'exécutable Linux compilé par la release
 # (déposé à côté de ce manifeste par le workflow).
-app-id: io.github.orthagh.MattermostRustClient
+app-id: io.github.orthagh.Matterfew
 runtime: org.gnome.Platform
 runtime-version: '47'
 sdk: org.gnome.Sdk
-command: mm-gpui
+command: matterfew
 finish-args:
   - --share=network
   - --share=ipc
@@ -17,19 +17,19 @@ finish-args:
   # Téléchargement des pièces jointes.
   - --filesystem=xdg-download
 modules:
-  - name: mm-gpui
+  - name: matterfew
     buildsystem: simple
     build-commands:
-      - install -Dm755 mm-gpui /app/bin/mm-gpui
-      - install -Dm644 io.github.orthagh.MattermostRustClient.desktop /app/share/applications/io.github.orthagh.MattermostRustClient.desktop
-      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/io.github.orthagh.MattermostRustClient.png
-      - install -Dm644 io.github.orthagh.MattermostRustClient.metainfo.xml /app/share/metainfo/io.github.orthagh.MattermostRustClient.metainfo.xml
+      - install -Dm755 matterfew /app/bin/matterfew
+      - install -Dm644 io.github.orthagh.Matterfew.desktop /app/share/applications/io.github.orthagh.Matterfew.desktop
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/io.github.orthagh.Matterfew.png
+      - install -Dm644 io.github.orthagh.Matterfew.metainfo.xml /app/share/metainfo/io.github.orthagh.Matterfew.metainfo.xml
     sources:
       - type: file
-        path: mm-gpui
+        path: matterfew
       - type: file
         path: icon.png
       - type: file
-        path: io.github.orthagh.MattermostRustClient.desktop
+        path: io.github.orthagh.Matterfew.desktop
       - type: file
-        path: io.github.orthagh.MattermostRustClient.metainfo.xml
+        path: io.github.orthagh.Matterfew.metainfo.xml

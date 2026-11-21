@@ -29,8 +29,8 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 | Fichiers | Aperçu des images jointes ; la visionneuse les montre à leur taille réelle, réduites seulement si elles dépassent la fenêtre, jamais agrandies (miniature ou fichier complet si le serveur n'a pas d'aperçu, carte de fichier en dernier recours, sans message d'erreur) (clic : visionneuse intégrée, Échap pour fermer), cartes pour les autres fichiers avec boutons icônes Ouvrir et Télécharger (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
 | Équipes | Clic sur le nom de l'équipe : carte avec logo, type, nombre de membres, date de création et description (modifiable par les administrateurs de l'équipe). Barre des équipes dans la teinte de la barre latérale, avec leur logo ; pilule au bord gauche pour l'équipe affichée (courte pour une équipe avec des non-lus), pastille de non-lus et compteur de mentions |
 | Fenêtre étroite | Sous 1150 px, la liste des membres passe dans un tiroir (icône des membres) et le fil ou les panneaux flottent à droite ; sous 860 px, la barre des canaux et des équipes passe aussi dans un tiroir (icône ☰ à gauche de l'en-tête) |
-| Mise en page | Barre latérale redimensionnable en glissant son bord droit (largeur mémorisée dans `%APPDATA%\mm-gpui\ui.json`) ; barres de défilement visibles seulement pendant le défilement |
-| Cache local | Derniers messages de chaque canal (60) et leurs auteurs gardés dans `%LOCALAPPDATA%\mm-gpui\cache\<serveur>` : un canal déjà ouvert s'affiche instantanément, puis la réponse du serveur remplace l'affichage. 40 Mo au plus (les canaux les plus anciens sont retirés), effacé à la déconnexion |
+| Mise en page | Barre latérale redimensionnable en glissant son bord droit (largeur mémorisée dans `%APPDATA%\matterfew\ui.json`) ; barres de défilement visibles seulement pendant le défilement |
+| Cache local | Derniers messages de chaque canal (60) et leurs auteurs gardés dans `%LOCALAPPDATA%\matterfew\cache\<serveur>` : un canal déjà ouvert s'affiche instantanément, puis la réponse du serveur remplace l'affichage. 40 Mo au plus (les canaux les plus anciens sont retirés), effacé à la déconnexion |
 | Temps réel | WebSocket « fiable » : en cas de coupure, le serveur rejoue les événements manqués ; s'il ne le peut plus, rattrapage ciblé (canaux, non-lus, messages modifiés depuis le dernier connu, fil ouvert). Présence rafraîchie chaque minute |
 | Notifications | Notification Windows selon vos préférences Mattermost, comme le client web : niveau « tous / mentions / aucun » de l'utilisateur ou du canal, canaux en sourdine, « Ne pas déranger », fils suivis ; rien pour ce qui est déjà affiché. Au nom de l'application, une par canal ; un clic ouvre le canal ; le bouton de la barre des tâches clignote |
 | Intégration Windows | Icône de l'application intégrée à l'exécutable (fenêtre, barre des tâches, explorateur, menu Démarrer), dessinée par le code et convertie à la compilation (`build.rs`). Pastille sur l'icône de la barre des tâches (nombre de mentions, point pour les non-lus, « ! » si la session a expiré), icône dans la zone de notification (état, menu Ouvrir / Quitter) ; fermer la fenêtre la réduit dans cette zone ; une seule instance (relancer ramène la fenêtre) |
@@ -41,8 +41,8 @@ Non couvert : coller une image depuis le presse-papiers,
 appels, plugins, réorganisation des canaux par glisser-déposer.
 
 > **Au premier lancement sous Windows**, l'application crée un raccourci
-> « Mattermost (mm-gpui) » dans le menu Démarrer et une entrée
-> `HKCU\Software\Classes\AppUserModelId\MmGpui.Client` : Windows n'affiche
+> « Matterfew » dans le menu Démarrer et une entrée
+> `HKCU\Software\Classes\AppUserModelId\Matterfew.Client` : Windows n'affiche
 > les notifications d'une application non installée qu'à cette condition.
 > Les supprimer suffit pour tout retirer.
 
@@ -69,7 +69,7 @@ Trois façons de se connecter, au choix sur l'écran d'accueil :
    d'environnement `MM_URL` + `MM_TOKEN`.
 
 La connexion est mémorisée : jeton dans le Gestionnaire d'identifiants Windows,
-adresse du serveur dans `%APPDATA%\mm-gpui\config.json`. « Déconnexion » oublie
+adresse du serveur dans `%APPDATA%\matterfew\config.json`. « Déconnexion » oublie
 le jeton ; pour une session (cas 1 et 2), elle est aussi fermée côté serveur.
 
 ### Tests
@@ -120,7 +120,7 @@ cartes) sont calculés à partir de ces mêmes couleurs : ils suivent donc le th
 
 Les règles du plugin Autolink du serveur sont lues dans sa configuration,
 mais Mattermost ne la montre qu'aux administrateurs. Sinon, recopiez les
-règles dans `%APPDATA%\mm-gpui\autolinks.json`, au même format que le plugin
+règles dans `%APPDATA%\matterfew\autolinks.json`, au même format que le plugin
 (un fichier à part : un client plus ancien encore ouvert réécrirait `ui.json`
 sans elles) :
 

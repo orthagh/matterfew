@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=Mattermost (mm-gpui)
+Name=Matterfew
 Comment=Client de bureau Mattermost
-Exec=mm-gpui
-Icon=${SNAP}/share/icons/hicolor/512x512/apps/mm-gpui.png
+Exec=matterfew
+Icon=${SNAP}/share/icons/hicolor/512x512/apps/matterfew.png
 Terminal=false
 Type=Application
 Categories=Network;InstantMessaging;Chat;
-StartupWMClass=mm-gpui
+StartupWMClass=matterfew

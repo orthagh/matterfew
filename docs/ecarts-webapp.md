@@ -1,6 +1,6 @@
 # Écarts avec le client web officiel
 
-Comparaison fonctionnelle entre mm-gpui (voir [FONCTIONNALITES.md](FONCTIONNALITES.md))
+Comparaison fonctionnelle entre matterfew (voir [FONCTIONNALITES.md](FONCTIONNALITES.md))
 et la webapp officielle ([mattermost/mattermost](https://github.com/mattermost/mattermost),
 branche `master`, novembre 2026). Le design (couleurs, typographie, espacements,
 Compass) est traité ailleurs : seuls les fonctions et comportements sont listés ici.
@@ -98,7 +98,7 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 
 ## 6. Paramètres utilisateur (Ctrl+Maj+A)
 
-Aucun écran de paramètres dans mm-gpui : les préférences serveur sont lues
+Aucun écran de paramètres dans matterfew : les préférences serveur sont lues
 (thème, catégories, non lus, nombre de MP) mais rien n'est modifiable.
 
 | Réglage | Où (`user.settings.*`) | Chez nous | Effort | Valeur |

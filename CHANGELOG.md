@@ -10,6 +10,12 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 
 ## [Non publié]
 
+### Modifié
+
+- L'application s'appelle désormais **Matterfew** (dépôt
+  `orthagh/matterfew`). Réglages, cache et connexion enregistrés sous
+  l'ancien nom sont repris automatiquement au premier lancement.
+
 ### Ajouté
 
 - Liens vers ce serveur (message, canal, message direct) et `~canal`

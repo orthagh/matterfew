@@ -4,7 +4,7 @@
 //! authentification…), puis on récupère le cookie de session `MMAUTHTOKEN`
 //! que Mattermost dépose une fois la connexion réussie.
 //!
-//! Cette fenêtre tourne dans un processus séparé (`mm-gpui --sso-login URL`)
+//! Cette fenêtre tourne dans un processus séparé (`matterfew --sso-login URL`)
 //! pour ne pas mélanger sa boucle d'événements avec celle de GPUI. Le jeton
 //! est transmis au processus principal sur la sortie standard.
 
@@ -20,7 +20,7 @@ const TOKEN_PREFIX: &str = "MMAUTHTOKEN ";
 /// Dossier où le navigateur intégré garde ses cookies (pour ne pas avoir à
 /// se reconnecter à GitLab à chaque fois).
 pub fn webview_data_dir() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|d| d.join("mm-gpui").join("webview"))
+    dirs::data_local_dir().map(|d| d.join("matterfew").join("webview"))
 }
 
 /// Efface la session du navigateur intégré (à la déconnexion).

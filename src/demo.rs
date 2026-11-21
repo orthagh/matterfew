@@ -1,4 +1,4 @@
-//! Mode démo (`mm-gpui --demo`) : un faux serveur qui répond aux mêmes
+//! Mode démo (`matterfew --demo`) : un faux serveur qui répond aux mêmes
 //! commandes que le vrai backend, avec des données fictives. Sert à
 //! travailler l'interface et à faire des captures sans compte Mattermost.
 
@@ -763,7 +763,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             send(Event::FullImage { file_id, result: Ok(Arc::new(bytes)) });
         }
         Command::Download { file, open } => {
-            let dir = std::env::temp_dir().join("mm-gpui-demo");
+            let dir = std::env::temp_dir().join("matterfew-demo");
             let _ = std::fs::create_dir_all(&dir);
             let path = dir.join(&file.name);
             let _ = std::fs::write(&path, format!("{}\n", t!("demo.download_content", name = file.name)));

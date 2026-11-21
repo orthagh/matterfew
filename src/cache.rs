@@ -4,7 +4,7 @@
 //! serveur réponde ; sa réponse remplace ensuite l'affichage.
 //!
 //! Un fichier JSON par canal (derniers messages et leurs auteurs), dans
-//! `%LOCALAPPDATA%\mm-gpui\cache\<serveur>\`. Taille bornée : au plus
+//! `%LOCALAPPDATA%\matterfew\cache\<serveur>\`. Taille bornée : au plus
 //! [`MAX_POSTS`] messages par canal et [`MAX_BYTES`] au total (les canaux
 //! ouverts le moins récemment sont retirés d'abord). Effacé à la déconnexion.
 
@@ -35,7 +35,7 @@ pub fn dir_for(server_url: &str) -> Option<PathBuf> {
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
         .collect();
-    (!host.is_empty()).then(|| dirs::cache_dir().map(|d| d.join("mm-gpui").join("cache").join(host)))?
+    (!host.is_empty()).then(|| dirs::cache_dir().map(|d| d.join("matterfew").join("cache").join(host)))?
 }
 
 fn file(dir: &Path, channel_id: &str) -> Option<PathBuf> {
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn aller_retour_et_limite() {
-        let dir = std::env::temp_dir().join(format!("mm-gpui-cache-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("matterfew-cache-test-{}", std::process::id()));
         let posts: Vec<Post> = (0..80)
             .map(|i| Post { id: format!("p{i}"), user_id: "u1".into(), message: format!("m{i}"), ..Default::default() })
             .collect();

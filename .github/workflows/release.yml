@@ -100,7 +100,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p target/packages
-          tar -czf target/packages/mm-gpui-linux-x64.tar.gz -C target/dist mm-gpui
+          tar -czf target/packages/matterfew-linux-x64.tar.gz -C target/dist matterfew
       - uses: actions/upload-artifact@v4
         with:
           name: packages-${{ matrix.name }}
@@ -126,8 +126,8 @@ jobs:
       - name: Contenu du snap
         run: |
           mkdir -p packaging/snap/payload/bin packaging/snap/payload/share/icons/hicolor/512x512/apps packaging/snap/payload/share/applications
-          tar -xzf linux/mm-gpui-linux-x64.tar.gz -C packaging/snap/payload/bin
-          cp assets/icons/512x512.png packaging/snap/payload/share/icons/hicolor/512x512/apps/mm-gpui.png
+          tar -xzf linux/matterfew-linux-x64.tar.gz -C packaging/snap/payload/bin
+          cp assets/icons/512x512.png packaging/snap/payload/share/icons/hicolor/512x512/apps/matterfew.png
           sed -i "s/^version: .*/version: '${{ needs.version.outputs.version }}'/" packaging/snap/snapcraft.yaml
       - uses: snapcore/action-build@v1
         id: snap
@@ -155,18 +155,18 @@ jobs:
           path: linux
       - name: Exécutable et icône à côté du manifeste
         run: |
-          tar -xzf linux/mm-gpui-linux-x64.tar.gz -C packaging/flatpak
+          tar -xzf linux/matterfew-linux-x64.tar.gz -C packaging/flatpak
           cp assets/icons/512x512.png packaging/flatpak/icon.png
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: mm-gpui-${{ needs.version.outputs.version }}.flatpak
-          manifest-path: packaging/flatpak/io.github.orthagh.MattermostRustClient.yml
+          bundle: matterfew-${{ needs.version.outputs.version }}.flatpak
+          manifest-path: packaging/flatpak/io.github.orthagh.Matterfew.yml
           cache-key: flatpak-${{ github.sha }}
           upload-artifact: false
       - uses: actions/upload-artifact@v4
         with:
           name: packages-flatpak
-          path: mm-gpui-*.flatpak
+          path: matterfew-*.flatpak
           if-no-files-found: error
 
   publish:

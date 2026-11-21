@@ -262,7 +262,7 @@ Variantes [CU:Button] :
 
 ---
 
-## 6. Idées à adopter pour mm-gpui (par priorité)
+## 6. Idées à adopter pour matterfew (par priorité)
 
 État actuel relevé dans `src/ui/view.rs` et `src/theme.rs` : ligne de canal de 33 px en 15 px, actif à 0.16 avec bordure de 4 px ; badge de 18 px ; en-tête de catégorie de 30 px en 13.5 px gras ; texte de message en 14.5 px ; opacités ad hoc (0.06, 0.13, 0.18, 0.38, 0.45, 0.55, 0.85, 0.88…).
 

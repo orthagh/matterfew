@@ -3,7 +3,7 @@
 //!
 //! Les règles viennent de la configuration du plugin sur le serveur (lisible
 //! seulement par un administrateur) et du fichier `autolinks.json` placé à
-//! côté de `ui.json` (`%APPDATA%\mm-gpui\`) :
+//! côté de `ui.json` (`%APPDATA%\matterfew\`) :
 //!
 //! ```json
 //! [
@@ -78,9 +78,9 @@ fn in_scope(scope: &[String], channel_id: Option<&str>) -> bool {
     })
 }
 
-/// Fichier des règles locales : `%APPDATA%\mm-gpui\autolinks.json`.
+/// Fichier des règles locales : `%APPDATA%\matterfew\autolinks.json`.
 pub fn local_file() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("mm-gpui").join("autolinks.json"))
+    dirs::config_dir().map(|d| d.join("matterfew").join("autolinks.json"))
 }
 
 /// Règles du fichier local (aucune s'il manque ou s'il est illisible).

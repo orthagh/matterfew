@@ -1,10 +1,13 @@
-# mm-gpui
+# Matterfew
 
 > [!WARNING]
 > This is a personal project, shaped around my own needs and my team's
 > Mattermost server. It is not meant to be a general-purpose client: some
 > features may be missing, and others may behave differently from the
 > official apps. Use it at your own risk.
+>
+> Matterfew is an unofficial client, not affiliated with or endorsed by
+> Mattermost, Inc. "Mattermost" is a trademark of Mattermost, Inc.
 
 A native, lightweight desktop client for [Mattermost](https://mattermost.com),
 written in Rust with [GPUI](https://gpui.rs), the UI engine behind Zed. No
@@ -25,7 +28,7 @@ More details (in French) in [docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md).
 ## Install
 
 Download the latest version from
-[Releases](https://github.com/orthagh/mattermost_rust_client/releases):
+[Releases](https://github.com/orthagh/matterfew/releases):
 Windows installer, macOS disk image, snap or flatpak for Linux.
 
 Releases are not signed yet: Windows and macOS ask for confirmation on first

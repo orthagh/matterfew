@@ -1679,7 +1679,7 @@ impl ChatApp {
             match entry {
                 ClipboardEntry::ExternalPaths(p) => paths.extend(p.paths().iter().cloned()),
                 ClipboardEntry::Image(image) if !has_text => {
-                    let dir = std::env::temp_dir().join("mm-gpui").join("collages");
+                    let dir = std::env::temp_dir().join("matterfew").join("collages");
                     let name =
                         format!("image-{}.{}", chrono::Local::now().format("%Y%m%d-%H%M%S"), image.format.extension());
                     if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(&name), &image.bytes).is_ok() {

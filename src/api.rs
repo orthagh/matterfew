@@ -517,13 +517,13 @@ impl Client {
 
         let http = reqwest::Client::builder()
             .default_headers(headers)
-            .user_agent(concat!("mm-gpui/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("matterfew/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
         let plain = reqwest::Client::builder()
-            .user_agent(concat!("mm-gpui/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("matterfew/", env!("CARGO_PKG_VERSION")))
             .connect_timeout(std::time::Duration::from_secs(10))
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
@@ -1232,7 +1232,7 @@ pub async fn login_with_password(
 ) -> Result<String, LoginError> {
     let base = server.trim_end_matches('/');
     let http = reqwest::Client::builder()
-        .user_agent(concat!("mm-gpui/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("matterfew/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(std::time::Duration::from_secs(10))
         .timeout(std::time::Duration::from_secs(30))
         .build()

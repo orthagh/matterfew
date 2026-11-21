@@ -20,6 +20,7 @@ mod fuzzy;
 mod icons;
 mod locale;
 mod markdown;
+mod migrate;
 mod notify;
 mod notify_rules;
 mod rich;
@@ -134,6 +135,10 @@ fn main() {
         sso::run_login_window(&url);
     }
     // Déjà lancée : on ramène l'instance existante au premier plan.
+    // Données de l'ancien nom (« mm-gpui ») : reprises une fois.
+    if !args.iter().any(|a| a == "--demo") {
+        migrate::run();
+    }
     if !args.iter().any(|a| a == "--demo") && !desktop::single_instance() {
         return;
     }

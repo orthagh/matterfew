@@ -1,5 +1,5 @@
 app:
-  window_title: "Mattermost — GPUI client"
+  window_title: "Matterfew"
 sidebar:
   unreads: "Unreads"
   favorites: "Favorites"

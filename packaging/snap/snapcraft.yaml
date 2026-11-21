@@ -1,7 +1,7 @@
 # Snap construit à partir de l'exécutable Linux compilé par la release
 # (déposé dans payload/ par le workflow). Version remplacée par celle du tag.
-name: mm-gpui
-title: Mattermost (mm-gpui)
+name: matterfew
+title: Matterfew
 version: '0.0.0'
 summary: Client de bureau Mattermost natif, en Rust avec GPUI
 description: |
@@ -9,15 +9,15 @@ description: |
   les fils, les notifications, l'éditeur Markdown et le thème de votre
   serveur.
 license: MIT
-website: https://github.com/orthagh/mattermost_rust_client
+website: https://github.com/orthagh/matterfew
 base: core22
 grade: stable
 confinement: strict
 
 apps:
-  mm-gpui:
-    command: bin/mm-gpui
-    desktop: share/applications/mm-gpui.desktop
+  matterfew:
+    command: bin/matterfew
+    desktop: share/applications/matterfew.desktop
     extensions: [gnome]
     plugs:
       - network
@@ -30,7 +30,7 @@ apps:
       - removable-media
 
 parts:
-  mm-gpui:
+  matterfew:
     plugin: dump
     source: payload
     stage-packages:
@@ -41,4 +41,4 @@ parts:
     plugin: dump
     source: gui
     organize:
-      mm-gpui.desktop: share/applications/mm-gpui.desktop
+      matterfew.desktop: share/applications/matterfew.desktop

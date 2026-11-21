@@ -19,8 +19,8 @@ fn main() {
 
     let mut res = winresource::WindowsResource::new();
     res.set_icon_with_id(out.to_str().unwrap(), "1");
-    res.set("ProductName", "Mattermost (mm-gpui)");
-    res.set("FileDescription", "Mattermost — client GPUI");
+    res.set("ProductName", "Matterfew");
+    res.set("FileDescription", "Matterfew");
     res.compile().expect("compilation des ressources Windows");
 }
 

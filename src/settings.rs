@@ -1,5 +1,5 @@
 //! Préférences d'affichage locales (largeur de la barre latérale…),
-//! enregistrées dans `%APPDATA%\mm-gpui\ui.json`.
+//! enregistrées dans `%APPDATA%\matterfew\ui.json`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -39,7 +39,7 @@ impl Default for UiSettings {
 }
 
 fn file() -> Option<PathBuf> {
-    dirs::config_dir().map(|d| d.join("mm-gpui").join("ui.json"))
+    dirs::config_dir().map(|d| d.join("matterfew").join("ui.json"))
 }
 
 impl UiSettings {

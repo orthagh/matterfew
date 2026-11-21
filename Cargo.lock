@@ -4505,6 +4505,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "matterfew"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "chrono",
+ "chrono-tz",
+ "dirs 6.0.0",
+ "emojis",
+ "futures",
+ "gpui-kit",
+ "gpui-pre",
+ "image",
+ "keyring",
+ "ksni",
+ "notify-rust",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "pulldown-cmark",
+ "raw-window-handle",
+ "regex",
+ "reqwest",
+ "rust-i18n",
+ "serde",
+ "serde_json",
+ "sys-locale",
+ "tao",
+ "tokio",
+ "tokio-tungstenite",
+ "tray-icon",
+ "twemoji-assets",
+ "windows 0.62.2",
+ "windows-registry 0.6.1",
+ "winresource",
+ "wry",
+ "zbus 5.19.0",
+]
+
+[[package]]
 name = "maybe-rayon"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4594,46 +4634,6 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "mm-gpui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-channel",
- "chrono",
- "chrono-tz",
- "dirs 6.0.0",
- "emojis",
- "futures",
- "gpui-kit",
- "gpui-pre",
- "image",
- "keyring",
- "ksni",
- "notify-rust",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "pulldown-cmark",
- "raw-window-handle",
- "regex",
- "reqwest",
- "rust-i18n",
- "serde",
- "serde_json",
- "sys-locale",
- "tao",
- "tokio",
- "tokio-tungstenite",
- "tray-icon",
- "twemoji-assets",
- "windows 0.62.2",
- "windows-registry 0.6.1",
- "winresource",
- "wry",
- "zbus 5.19.0",
 ]
 
 [[package]]
