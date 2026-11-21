@@ -28,7 +28,7 @@ chrono = "0.4"
 
 # Contenu des messages
 pulldown-cmark = { version = "0.13", default-features = false }
-emojis = "0.7"
+emojis = "0.9"
 
 
 # Mémorisation de la connexion (jeton dans le coffre du système)
