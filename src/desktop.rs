@@ -197,7 +197,9 @@ mod windows_impl {
     }
 
     /// Titre de la fenêtre principale (sert à retrouver l'instance déjà lancée).
-    pub const WINDOW_TITLE: &str = "Mattermost — client GPUI";
+    pub fn window_title() -> String {
+        t!("app.window_title").to_string()
+    }
 
     /// Une seule instance : si l'application tourne déjà (éventuellement
     /// réduite dans la zone de notification), on ramène sa fenêtre au premier
@@ -214,7 +216,7 @@ mod windows_impl {
             if GetLastError() != ERROR_ALREADY_EXISTS {
                 return true;
             }
-            if let Ok(hwnd) = FindWindowW(PCWSTR::null(), &HSTRING::from(WINDOW_TITLE)) {
+            if let Ok(hwnd) = FindWindowW(PCWSTR::null(), &HSTRING::from(window_title())) {
                 show_window(hwnd.0 as isize);
             }
             false
@@ -294,11 +296,15 @@ mod windows_impl {
                     Some(px) => {
                         let Ok(icon) = hicon_from_rgba(&px, 16) else { return };
                         let label = if expired {
-                            "Session expirée".to_string()
+                            t!("tray.session_expired").to_string()
                         } else if mentions > 0 {
-                            format!("{mentions} mention(s)")
+                            if mentions == 1 {
+                                t!("tray.mentions.one").to_string()
+                            } else {
+                                t!("tray.mentions.other", count = mentions).to_string()
+                            }
                         } else {
-                            "Messages non lus".to_string()
+                            t!("tray.unread").to_string()
                         };
                         let _ = taskbar.SetOverlayIcon(to_hwnd(hwnd), icon, &HSTRING::from(label));
                         let _ = DestroyIcon(icon);
@@ -323,8 +329,8 @@ mod windows_impl {
             use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
             let menu = Menu::new();
-            let open = MenuItem::with_id("open", "Ouvrir", true, None);
-            let quit = MenuItem::with_id("quit", "Quitter", true, None);
+            let open = MenuItem::with_id("open", t!("tray.open"), true, None);
+            let quit = MenuItem::with_id("quit", t!("tray.quit"), true, None);
             menu.append_items(&[&open, &PredefinedMenuItem::separator(), &quit]).ok()?;
 
             let icon = tray_icon::Icon::from_rgba(icons::tray_icon(32, 0, false), 32, 32).ok()?;
@@ -370,8 +376,9 @@ mod windows_impl {
             }
             let tooltip = match (mentions, unread) {
                 (0, false) => DISPLAY_NAME.to_string(),
-                (0, true) => format!("{DISPLAY_NAME} — messages non lus"),
-                (n, _) => format!("{DISPLAY_NAME} — {n} mention(s)"),
+                (0, true) => format!("{DISPLAY_NAME} — {}", t!("tray.unread_lower")),
+                (1, _) => format!("{DISPLAY_NAME} — {}", t!("tray.mentions.one")),
+                (n, _) => format!("{DISPLAY_NAME} — {}", t!("tray.mentions.other", count = n)),
             };
             let _ = self.icon.set_tooltip(Some(tooltip));
         }
@@ -382,7 +389,10 @@ mod windows_impl {
 mod other {
     use super::ClickTarget;
 
-    pub const WINDOW_TITLE: &str = "Mattermost — client GPUI";
+    pub fn window_title() -> String {
+        t!("app.window_title").to_string()
+    }
+
     pub fn single_instance() -> bool {
         true
     }

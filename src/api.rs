@@ -481,6 +481,18 @@ impl PostList {
     }
 }
 
+/// Jeton refusé par le serveur (HTTP 401) : la session a expiré.
+#[derive(Debug)]
+pub struct Unauthorized;
+
+impl std::fmt::Display for Unauthorized {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&t!("errors.token_rejected"))
+    }
+}
+
+impl std::error::Error for Unauthorized {}
+
 #[derive(Clone)]
 pub struct Client {
     http: reqwest::Client,
@@ -494,8 +506,8 @@ pub struct Client {
 impl Client {
     pub fn new(server_url: &str, token: &str) -> Result<Self> {
         let mut headers = HeaderMap::new();
-        let mut auth =
-            HeaderValue::from_str(&format!("Bearer {token}")).context("jeton invalide (caractères non autorisés)")?;
+        let mut auth = HeaderValue::from_str(&format!("Bearer {token}"))
+            .with_context(|| t!("errors.invalid_token").to_string())?;
         auth.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth);
         headers.insert("X-Requested-With", HeaderValue::from_static("XMLHttpRequest"));
@@ -564,7 +576,7 @@ impl Client {
     async fn decode<T: for<'de> Deserialize<'de>>(resp: reqwest::Response, path: &str) -> Result<T> {
         let status = resp.status();
         if status == reqwest::StatusCode::UNAUTHORIZED {
-            anyhow::bail!("Jeton refusé par le serveur (invalide, expiré ou révoqué).");
+            anyhow::bail!(Unauthorized);
         }
         if !status.is_success() {
             // Mattermost renvoie {"message": "..."} en cas d'erreur.
@@ -573,9 +585,9 @@ impl Client {
                 .ok()
                 .and_then(|v| v.get("message").and_then(|m| m.as_str()).map(str::to_string))
                 .unwrap_or(body);
-            anyhow::bail!("{path} : HTTP {status} — {msg}");
+            anyhow::bail!("{}", t!("errors.http_message", what = path, status = status, message = msg));
         }
-        resp.json::<T>().await.with_context(|| format!("{path} : réponse illisible"))
+        resp.json::<T>().await.with_context(|| t!("errors.unreadable_response", what = path).to_string())
     }
 
     pub async fn me(&self) -> Result<User> {
@@ -709,8 +721,12 @@ impl Client {
     /// Envoie un fichier dans un canal ; renvoie sa description (dont l'id
     /// à joindre au message).
     pub async fn upload_file(&self, channel_id: &str, path: &std::path::Path) -> Result<FileInfo> {
-        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "fichier".into());
-        let bytes = tokio::fs::read(path).await.with_context(|| format!("lecture de {}", path.display()))?;
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| t!("files.default_name").to_string());
+        let bytes =
+            tokio::fs::read(path).await.with_context(|| t!("errors.read_file", path = path.display()).to_string())?;
         let part = reqwest::multipart::Part::bytes(bytes).file_name(name);
         let form = reqwest::multipart::Form::new().text("channel_id", channel_id.to_string()).part("files", part);
         let resp = self
@@ -727,7 +743,7 @@ impl Client {
             file_infos: Vec<FileInfo>,
         }
         let uploaded: Uploaded = Self::decode(resp, "/files").await?;
-        uploaded.file_infos.into_iter().next().context("le serveur n'a pas renvoyé le fichier")
+        uploaded.file_infos.into_iter().next().with_context(|| t!("errors.no_file_returned").to_string())
     }
 
     /// Image désignée par une URL complète. Sur le serveur Mattermost (proxy
@@ -738,10 +754,10 @@ impl Client {
         let http = if same_server { &self.http } else { &self.plain };
         let resp = http.get(url).send().await.map_err(|e| network_error(&self.base, e))?;
         if !resp.status().is_success() {
-            anyhow::bail!("{url} : HTTP {}", resp.status());
+            anyhow::bail!("{}", t!("errors.http", what = url, status = resp.status()));
         }
         if resp.content_length().is_some_and(|n| n as usize > MAX) {
-            anyhow::bail!("{url} : image trop lourde");
+            anyhow::bail!("{}", t!("errors.image_too_large", url = url));
         }
         // Lecture par morceaux : on s'arrête dès que la limite est dépassée,
         // même si le serveur n'a pas annoncé de taille.
@@ -749,7 +765,7 @@ impl Client {
         let mut bytes = Vec::new();
         while let Some(chunk) = resp.chunk().await? {
             bytes.extend_from_slice(&chunk);
-            anyhow::ensure!(bytes.len() <= MAX, "{url} : image trop lourde");
+            anyhow::ensure!(bytes.len() <= MAX, "{}", t!("errors.image_too_large", url = url));
         }
         Ok(bytes)
     }
@@ -1058,7 +1074,7 @@ impl Client {
             .await
             .map_err(|e| network_error(&self.base, e))?;
         if !resp.status().is_success() {
-            anyhow::bail!("{path} : HTTP {}", resp.status());
+            anyhow::bail!("{}", t!("errors.http", what = path, status = resp.status()));
         }
         Ok(resp.bytes().await?.to_vec())
     }
@@ -1157,7 +1173,8 @@ impl Client {
         let resp = req.send().await.map_err(|e| network_error(&self.base, e))?;
         let _: serde_json::Value = Self::decode(resp, path).await.or_else(|e| {
             // Certaines réponses de succès ont un corps vide.
-            if e.to_string().contains("réponse illisible") { Ok(serde_json::Value::Null) } else { Err(e) }
+            let decode = e.chain().any(|c| c.downcast_ref::<reqwest::Error>().is_some_and(reqwest::Error::is_decode));
+            if decode { Ok(serde_json::Value::Null) } else { Err(e) }
         })?;
         Ok(())
     }
@@ -1204,11 +1221,12 @@ pub async fn login_with_password(
             .get("Token")
             .and_then(|v| v.to_str().ok())
             .map(str::to_string)
-            .ok_or_else(|| LoginError::Other("Le serveur n'a pas renvoyé de jeton de session.".into()));
+            .ok_or_else(|| LoginError::Other(t!("errors.no_session_token").to_string()));
     }
     let err: serde_json::Value = resp.json().await.unwrap_or_default();
     let id = err.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-    let message = err.get("message").and_then(|v| v.as_str()).unwrap_or("Connexion refusée.");
+    let refused = t!("errors.login_refused");
+    let message = err.get("message").and_then(|v| v.as_str()).unwrap_or(&refused);
     if id.contains("mfa") && mfa.is_empty() {
         Err(LoginError::MfaRequired)
     } else {
@@ -1228,7 +1246,7 @@ pub async fn logout(server: &str, token: &str) {
 /// complète des erreurs internes de reqwest.
 fn network_error(base: &str, err: reqwest::Error) -> anyhow::Error {
     if err.is_timeout() {
-        return anyhow::anyhow!("Le serveur {base} ne répond pas (délai dépassé).");
+        return anyhow::anyhow!("{}", t!("errors.timeout", server = base));
     }
     // La cause la plus profonde est en général la plus parlante
     // (« Hôte inconnu », « Connexion refusée », certificat invalide…).
@@ -1236,5 +1254,5 @@ fn network_error(base: &str, err: reqwest::Error) -> anyhow::Error {
     while let Some(next) = cause.source() {
         cause = next;
     }
-    anyhow::anyhow!("Serveur injoignable ({base}) : {cause}")
+    anyhow::anyhow!("{}", t!("errors.unreachable", server = base, cause = cause))
 }

@@ -438,7 +438,18 @@ pub enum Event {
     },
     PrefsChanged,
     Connection(bool),
-    Error(String),
+    /// Erreur à afficher ; `expired` : le serveur a refusé le jeton.
+    Error {
+        message: String,
+        expired: bool,
+    },
+}
+
+impl Event {
+    pub fn error(err: &anyhow::Error) -> Self {
+        let expired = err.chain().any(|e| e.is::<crate::api::Unauthorized>());
+        Event::Error { message: format!("{err:#}"), expired }
+    }
 }
 
 pub struct Backend {
@@ -461,7 +472,7 @@ pub fn start(server_url: String, token: String) -> Backend {
                 .expect("runtime tokio");
             rt.block_on(async move {
                 if let Err(err) = run(server_url, token, cmd_rx, ev_tx.clone()).await {
-                    let _ = ev_tx.send(Event::Error(format!("{err:#}"))).await;
+                    let _ = ev_tx.send(Event::error(&err)).await;
                 }
             });
         })
@@ -503,7 +514,7 @@ impl Ctx {
         match result {
             Ok(v) => Some(v),
             Err(err) => {
-                self.emit(Event::Error(format!("{err:#}"))).await;
+                self.emit(Event::error(&err)).await;
                 None
             }
         }
@@ -756,7 +767,7 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
                         .take(10)
                         .map(|e| Suggestion {
                             label: format!(":{}:", e.name),
-                            detail: "emoji personnalisé".into(),
+                            detail: t!("autocomplete.custom_emoji").into(),
                             insert: format!(":{}: ", e.name),
                             user_id: None,
                             glyph: Some(e.name),
@@ -876,9 +887,9 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             let n = emails.len();
             client.invite_by_email(&team_id, &emails).await?;
             ctx.emit(Event::Notice(if n == 1 {
-                "Invitation envoyée.".into()
+                t!("team.invitation_sent.one").into()
             } else {
-                format!("{n} invitations envoyées.")
+                t!("team.invitation_sent.other", count = n).into()
             }))
             .await;
         }
@@ -990,7 +1001,13 @@ async fn websocket_loop(ctx: Ctx, mut outgoing: mpsc::UnboundedReceiver<Value>) 
     loop {
         match websocket_session(&ctx, &mut outgoing, &mut state).await {
             Ok(()) => delay = Duration::from_secs(1),
-            Err(err) => ctx.emit(Event::Error(format!("temps réel : {err:#}"))).await,
+            Err(err) => {
+                let mut event = Event::error(&err);
+                if let Event::Error { message, .. } = &mut event {
+                    *message = t!("errors.realtime", error = message).to_string();
+                }
+                ctx.emit(event).await
+            }
         }
         ctx.emit(Event::Connection(false)).await;
         if ctx.ev.is_closed() {
@@ -1033,7 +1050,7 @@ async fn websocket_session(
             _ = ping.tick() => {
                 // Plus rien reçu (même pas les réponses aux pings) : connexion morte.
                 if last_activity.elapsed() > Duration::from_secs(75) {
-                    anyhow::bail!("le serveur ne répond plus");
+                    anyhow::bail!("{}", t!("errors.server_silent"));
                 }
                 socket.send(Message::Ping(Vec::new().into())).await?;
             }
@@ -1068,7 +1085,7 @@ async fn websocket_session(
                                 ctx.emit(Event::Resync).await;
                             }
                         } else if seq != state.next_seq {
-                            anyhow::bail!("événements manqués ({} attendu, {seq} reçu), reprise", state.next_seq);
+                            anyhow::bail!("{}", t!("errors.missed_events", expected = state.next_seq, got = seq));
                         } else {
                             state.next_seq = seq + 1;
                         }
@@ -1228,7 +1245,7 @@ async fn status_polling(ctx: Ctx) {
 fn unique_path(dir: &Path, name: &str) -> PathBuf {
     // Pas de séparateurs de chemin venant du serveur dans le nom.
     let name: String = name.chars().map(|c| if matches!(c, '/' | '\\' | ':') { '_' } else { c }).collect();
-    let name = if name.trim().trim_matches('.').is_empty() { "fichier".to_string() } else { name };
+    let name = if name.trim().trim_matches('.').is_empty() { t!("files.default_name").to_string() } else { name };
     let candidate = dir.join(&name);
     if !candidate.exists() {
         return candidate;
@@ -1248,7 +1265,7 @@ mod tests {
     fn unique_path_stays_in_dir_and_avoids_collisions() {
         let dir = std::env::temp_dir().join(format!("mm-gpui-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        assert_eq!(unique_path(&dir, ".."), dir.join("fichier"));
+        assert_eq!(unique_path(&dir, ".."), dir.join(&*t!("files.default_name")));
         assert_eq!(unique_path(&dir, "../../x.txt"), dir.join(".._.._x.txt"));
         std::fs::write(dir.join("a.txt"), "").unwrap();
         assert_eq!(unique_path(&dir, "a.txt"), dir.join("a (1).txt"));

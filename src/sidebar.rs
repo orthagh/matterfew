@@ -109,7 +109,7 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
         if !ids.is_empty() {
             sections.push(Section {
                 id: "unreads".into(),
-                title: "Non lus".into(),
+                title: t!("sidebar.unreads").into(),
                 collapsible: false,
                 collapsed: false,
                 channel_ids: ids.into_iter().map(|c| c.channel.id.clone()).collect(),
@@ -176,9 +176,9 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
 
 fn category_title(category: &SidebarCategory) -> String {
     match category.kind.as_str() {
-        "favorites" => "Favoris".into(),
-        "channels" => "Canaux".into(),
-        "direct_messages" => "Messages directs".into(),
+        "favorites" => t!("sidebar.favorites").into(),
+        "channels" => t!("sidebar.channels").into(),
+        "direct_messages" => t!("sidebar.direct_messages").into(),
         _ => category.display_name.clone(),
     }
 }

@@ -32,5 +32,7 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 - Windows : notifications, pastille de la barre des tâches, zone de
   notification, une seule instance.
 - Cache local des derniers messages ; WebSocket fiable avec rattrapage.
+- Interface en anglais, français et portugais du Brésil (catalogues
+  `locales/*.yml`), langue du système détectée, `MM_LANG` pour la forcer.
 - CI (format, Clippy, tests sur Windows, Linux, macOS, audit des dépendances)
   et installateurs sur tag (Windows, macOS, Linux snap et flatpak).

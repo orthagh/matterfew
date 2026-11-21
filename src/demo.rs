@@ -962,10 +962,10 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             send(Event::ChannelCreated(c));
         }
         Command::CreateCategory { team_id, name } => {
-            send(Event::Notice(format!("Catégorie « {name} » créée (démo, équipe {team_id}).")));
+            send(Event::Notice(t!("demo.category_created", name = name, team = team_id).into()));
         }
         Command::InviteByEmail { emails, .. } => {
-            send(Event::Notice(format!("{} invitation(s) envoyée(s) (démo).", emails.len())));
+            send(Event::Notice(t!("demo.invitations_sent", count = emails.len()).into()));
         }
         Command::PatchChannel { channel_id, purpose, header } => {
             if let Some(c) = demo.channels.iter_mut().find(|c| c.id == channel_id) {
@@ -1073,18 +1073,18 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                     .filter(|n| n.starts_with(&term))
                     .map(|n| Suggestion {
                         label: format!(":{n}:"),
-                        detail: "emoji personnalisé".into(),
+                        detail: t!("autocomplete.custom_emoji").into(),
                         insert: format!(":{n}: "),
                         user_id: None,
                         glyph: Some(n.to_string()),
                     })
                     .collect(),
                 AcKind::Command => [
-                    ("/away", "Passer en « Absent »"),
-                    ("/dnd", "Ne pas déranger"),
-                    ("/online", "Passer en ligne"),
-                    ("/me", "Message à la troisième personne"),
-                    ("/shrug", "¯\\_(ツ)_/¯"),
+                    ("/away", t!("demo.cmd_away")),
+                    ("/dnd", t!("demo.cmd_dnd")),
+                    ("/online", t!("demo.cmd_online")),
+                    ("/me", t!("demo.cmd_me")),
+                    ("/shrug", "¯\\_(ツ)_/¯".into()),
                 ]
                 .iter()
                 .filter(|(c, _)| c.starts_with(&term))

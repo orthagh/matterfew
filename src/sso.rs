@@ -33,14 +33,14 @@ pub fn clear_webview_data() {
 /// Côté application : lance la fenêtre de connexion et attend le jeton.
 /// Bloquant, à appeler depuis un thread d'arrière-plan.
 pub fn login_in_browser(server_url: &str) -> Result<String> {
-    let exe = std::env::current_exe().context("chemin de l'application introuvable")?;
+    let exe = std::env::current_exe().with_context(|| t!("errors.app_path").to_string())?;
     let mut child = Command::new(exe)
         .args(["--sso-login", server_url])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .context("impossible d'ouvrir la fenêtre de connexion")?;
-    let stdout = child.stdout.take().context("sortie de la fenêtre de connexion")?;
+        .with_context(|| t!("sso.open_failed").to_string())?;
+    let stdout = child.stdout.take().with_context(|| t!("sso.output").to_string())?;
     let token = BufReader::new(stdout)
         .lines()
         .map_while(|l| l.ok())
@@ -48,7 +48,7 @@ pub fn login_in_browser(server_url: &str) -> Result<String> {
     let _ = child.wait();
     match token {
         Some(token) if !token.is_empty() => Ok(token),
-        _ => bail!("Connexion annulée."),
+        _ => bail!("{}", t!("sso.cancelled")),
     }
 }
 
@@ -63,7 +63,7 @@ pub fn run_login_window(server_url: &str) -> ! {
     let server = server_url.trim_end_matches('/').to_string();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("Connexion à Mattermost")
+        .with_title(t!("sso.window_title"))
         .with_inner_size(LogicalSize::new(560.0, 760.0))
         .build(&event_loop)
         .expect("fenêtre de connexion");

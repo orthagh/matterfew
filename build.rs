@@ -4,7 +4,7 @@
 //! (`src/icons.rs`), convertie ici en `.ico` puis intégrée comme ressource
 //! n° 1 : c'est celle que GPUI charge pour ses fenêtres.
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::duplicated_attributes)]
 #[path = "src/icons.rs"]
 mod icons;
 

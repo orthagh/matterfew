@@ -63,7 +63,7 @@ mod imp {
                 let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
                 let factory: ISpellCheckerFactory =
                     CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER).ok()?;
-                for language in ["fr-FR", "fr", "en-US"] {
+                for language in super::languages(&rust_i18n::locale()) {
                     let tag = HSTRING::from(language);
                     if factory.IsSupported(&tag).is_ok_and(|b| b.as_bool()) {
                         let inner = factory.CreateSpellChecker(&tag).ok()?;
@@ -166,6 +166,24 @@ mod imp {
 
 pub use imp::Checker;
 
+/// Dictionnaires à essayer, par ordre de préférence : celui de la langue de
+/// l'interface d'abord, puis l'anglais, puis le français.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn languages(ui_locale: &str) -> Vec<&'static str> {
+    let first: &[&str] = match ui_locale {
+        "fr" => &["fr-FR", "fr"],
+        "pt-BR" => &["pt-BR", "pt"],
+        _ => &[],
+    };
+    let mut out = first.to_vec();
+    for tag in ["en-US", "fr-FR", "fr"] {
+        if !out.contains(&tag) {
+            out.push(tag);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::skip;
@@ -183,6 +201,13 @@ mod tests {
         assert!(skip(t, &at("pagge")));
         assert!(skip(t, &at("foo")));
         assert!(!skip(t, &at("voir")));
+    }
+
+    #[test]
+    fn langue_du_dictionnaire() {
+        assert_eq!(super::languages("en"), ["en-US", "fr-FR", "fr"]);
+        assert_eq!(super::languages("fr"), ["fr-FR", "fr", "en-US"]);
+        assert_eq!(super::languages("pt-BR")[0], "pt-BR");
     }
 
     /// Manuel : vérifie que le correcteur de Windows répond.

@@ -1,6 +1,12 @@
 // En version optimisée, pas de console noire à côté de la fenêtre sous Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+#[macro_use]
+extern crate rust_i18n;
+
+// Catalogues de traduction (locales/*.yml), anglais par défaut.
+i18n!("locales", fallback = "en");
+
 mod api;
 mod autolink;
 mod backend;
@@ -12,6 +18,7 @@ mod editor;
 mod emoji;
 mod fuzzy;
 mod icons;
+mod locale;
 mod markdown;
 mod notify;
 mod notify_rules;
@@ -119,6 +126,7 @@ impl AssetSource for AppAssets {
 }
 
 fn main() {
+    locale::init();
     // Fenêtre de connexion « via Mattermost » (processus séparé, voir sso.rs).
     let args: Vec<String> = std::env::args().collect();
     if let Some(ix) = args.iter().position(|a| a == "--sso-login") {
@@ -147,7 +155,7 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions { title: Some(desktop::WINDOW_TITLE.into()), ..Default::default() }),
+            titlebar: Some(TitlebarOptions { title: Some(desktop::window_title().into()), ..Default::default() }),
             ..Default::default()
         };
 

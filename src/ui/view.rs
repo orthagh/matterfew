@@ -60,13 +60,14 @@ impl ChatApp {
         }
     }
 
-    fn status_label(&self, user_id: &str) -> &'static str {
+    fn status_label(&self, user_id: &str) -> SharedString {
         match self.status_of(user_id) {
-            "online" => "En ligne",
-            "away" => "Absent",
-            "dnd" => "Ne pas déranger",
-            _ => "Hors ligne",
+            "online" => t!("status.online"),
+            "away" => t!("status.away"),
+            "dnd" => t!("status.dnd"),
+            _ => t!("status.offline"),
         }
+        .into()
     }
 
     /// Avatar avec pastille de présence ; `ring` = couleur du fond derrière.
@@ -98,8 +99,8 @@ impl ChatApp {
         let p = self.palette;
         let connecting = self.screen == Screen::Connecting;
         let busy = self.login_busy;
-        let label = |text: &'static str| div().text_sm().font_semibold().child(text);
-        let separator = |text: &'static str| {
+        let label = |text: SharedString| div().text_sm().font_semibold().child(text);
+        let separator = |text: SharedString| {
             h_flex()
                 .gap_3()
                 .py_1()
@@ -111,12 +112,12 @@ impl ChatApp {
         let token_section = if self.show_token {
             v_flex()
                 .gap_2()
-                .child(label("Jeton d'accès personnel"))
+                .child(label(t!("login.token").into()))
                 .child(Input::new(&self.token_input).mask_toggle())
                 .child(
                     Button::new("connect-token")
                         .outline()
-                        .label("Se connecter avec le jeton")
+                        .label(t!("login.connect_token"))
                         .on_click(cx.listener(|this, _, window, cx| this.connect(window, cx))),
                 )
                 .into_any_element()
@@ -127,7 +128,7 @@ impl ChatApp {
                 .text_color(p.link)
                 .cursor_pointer()
                 .hover(|s| s.underline())
-                .child("Utiliser plutôt un jeton d'accès personnel")
+                .child(t!("login.use_token"))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.show_token = true;
                     cx.notify();
@@ -158,47 +159,40 @@ impl ChatApp {
                     .bg(p.center_bg)
                     .text_color(p.center_color)
                     .shadow_lg()
-                    .child(div().text_2xl().font_bold().child("Connexion à Mattermost"))
-                    .child(label("Serveur"))
+                    .child(div().text_2xl().font_bold().child(t!("sso.window_title")))
+                    .child(label(t!("login.server").into()))
                     .child(Input::new(&self.url_input))
                     .child(
                         Button::new("login-browser")
                             .primary()
                             .label(if busy == Some("browser") {
-                                "Terminez la connexion dans la fenêtre ouverte…"
+                                t!("login.finish_in_window")
                             } else {
-                                "Se connecter via Mattermost"
+                                t!("login.via_mattermost")
                             })
                             .loading(busy == Some("browser") || connecting)
                             .on_click(cx.listener(|this, _, window, cx| this.login_browser(window, cx))),
                     )
-                    .child(div().text_xs().text_color(p.muted()).child(
-                        "Ouvre la page de connexion de votre serveur : GitLab, mot de passe, double authentification…",
-                    ))
-                    .child(separator("ou avec votre e-mail"))
-                    .child(label("E-mail"))
+                    .child(div().text_xs().text_color(p.muted()).child(t!("login.via_mattermost_hint")))
+                    .child(separator(t!("login.or_email").into()))
+                    .child(label(t!("login.email").into()))
                     .child(Input::new(&self.email_input))
-                    .child(label("Mot de passe"))
+                    .child(label(t!("login.password").into()))
                     .child(Input::new(&self.password_input).mask_toggle())
                     .when(self.show_mfa, |el| {
-                        el.child(label("Code de double authentification")).child(Input::new(&self.mfa_input))
+                        el.child(label(t!("login.mfa_code").into())).child(Input::new(&self.mfa_input))
                     })
                     .child(
                         Button::new("login-password")
                             .outline()
-                            .label("Se connecter")
+                            .label(t!("login.sign_in"))
                             .loading(busy == Some("password"))
                             .on_click(cx.listener(|this, _, window, cx| this.login_password(window, cx))),
                     )
                     .when_some(self.error.clone(), |el, err| el.child(div().text_sm().text_color(p.error).child(err)))
-                    .child(separator("avancé"))
+                    .child(separator(t!("login.advanced").into()))
                     .child(token_section)
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(p.muted())
-                            .child("La connexion est mémorisée dans le gestionnaire d'identifiants Windows."),
-                    ),
+                    .child(div().text_xs().text_color(p.muted()).child(t!("login.remembered"))),
             )
     }
 
@@ -298,8 +292,8 @@ impl ChatApp {
                                     .bg(p.mention_bg)
                                     .text_color(p.mention_color)
                                     .text_size(px(10.))
+                                    .line_height(px(14.))
                                     .font_bold()
-                                    .pt(px(2.))
                                     .child(if mentions > 99 { "99+".to_string() } else { mentions.to_string() }),
                             )
                         })
@@ -416,8 +410,8 @@ impl ChatApp {
                             .justify_center()
                             .rounded_full()
                             .text_size(px(11.))
+                            .line_height(px(18.))
                             .font_bold()
-                            .pt(px(2.))
                             .bg(p.mention_bg)
                             .text_color(p.mention_color)
                             .child(state.mentions.to_string()),
@@ -473,41 +467,43 @@ impl ChatApp {
             let mut menu = menu.min_w(px(220.));
             if panels {
                 menu = menu
-                    .item(act("Messages épinglés", IconName::Pin, |this, _, cx| this.show_pinned(cx)))
-                    .item(act("Messages enregistrés", IconName::Bookmark, |this, _, cx| this.show_saved(cx)))
+                    .item(act(&t!("panels.pinned"), IconName::Pin, |this, _, cx| this.show_pinned(cx)))
+                    .item(act(&t!("panels.saved"), IconName::Bookmark, |this, _, cx| this.show_saved(cx)))
                     .separator();
             }
             if unread {
-                menu = menu.item(act("Marquer comme lu", IconName::CheckCheck, |this, id, cx| {
+                menu = menu.item(act(&t!("channel_menu.mark_read"), IconName::CheckCheck, |this, id, cx| {
                     this.mark_channels_read(vec![id], cx)
                 }));
             }
             menu = menu
                 .item(act(
-                    if favorite { "Retirer des favoris" } else { "Ajouter aux favoris" },
+                    &if favorite { t!("channel_menu.unfavorite") } else { t!("channel_menu.favorite") },
                     IconName::Star,
                     |this, id, cx| this.toggle_favorite(id, cx),
                 ))
                 .item(act(
-                    if muted { "Réactiver les notifications" } else { "Mettre en sourdine" },
+                    &if muted { t!("channel_menu.unmute") } else { t!("channel_menu.mute") },
                     if muted { IconName::Bell } else { IconName::BellOff },
                     |this, id, cx| this.toggle_muted(id, cx),
                 ))
-                .item(act("Copier le lien", IconName::Link, |this, id, cx| this.copy_channel_link(&id, cx)));
+                .item(act(&t!("channel_menu.copy_link"), IconName::Link, |this, id, cx| {
+                    this.copy_channel_link(&id, cx)
+                }));
             if !direct {
                 if panels {
                     let (entity, id) = (entity.clone(), id.clone());
                     menu = menu.separator().item(
-                        PopupMenuItem::new("Ajouter des membres").icon(Icon::new(IconName::UserPlus)).on_click(
-                            move |_, window, cx| {
+                        PopupMenuItem::new(t!("channel_menu.add_members"))
+                            .icon(Icon::new(IconName::UserPlus))
+                            .on_click(move |_, window, cx| {
                                 entity.update(cx, |this, cx| this.open_add_members(id.clone(), window, cx))
-                            },
-                        ),
+                            }),
                     );
                 }
                 menu = menu
                     .separator()
-                    .item(act("Quitter le canal", IconName::LogOut, |this, id, cx| this.leave_channel(id, cx)));
+                    .item(act(&t!("channel_menu.leave"), IconName::LogOut, |this, id, cx| this.leave_channel(id, cx)));
             }
             menu
         }
@@ -590,7 +586,7 @@ impl ChatApp {
 
         let me_id = self.me_id().to_string();
         let me_name = self.me.as_ref().map(User::display_name).unwrap_or_default();
-        let status = if self.connected { self.status_label(&me_id) } else { "Reconnexion…" };
+        let status = if self.connected { self.status_label(&me_id) } else { t!("sidebar.reconnecting").into() };
         let account_menu = self.account_menu(cx);
 
         let resize_handle = div()
@@ -612,7 +608,7 @@ impl ChatApp {
                 .rounded(px(16.))
                 .with_size(px(32.))
                 .primary()
-                .tooltip("Créer un canal, une catégorie, inviter…")
+                .tooltip(t!("sidebar.create_tooltip"))
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                     let item = |label: &str, icon: IconName, kind: super::CreateKind| {
                         let entity = entity.clone();
@@ -621,10 +617,10 @@ impl ChatApp {
                         })
                     };
                     menu.min_w(px(240.))
-                        .item(item("Créer un canal", IconName::Hash, super::CreateKind::Channel))
-                        .item(item("Créer une catégorie", IconName::FolderPlus, super::CreateKind::Category))
+                        .item(item(&t!("create.channel_title"), IconName::Hash, super::CreateKind::Channel))
+                        .item(item(&t!("create.category_title"), IconName::FolderPlus, super::CreateKind::Category))
                         .separator()
-                        .item(item("Inviter dans l'équipe", IconName::UserPlus, super::CreateKind::Invite))
+                        .item(item(&t!("create.invite_title"), IconName::UserPlus, super::CreateKind::Invite))
                 })
         };
         let goto = cx.listener(|this, _, window, cx| this.open_switcher(window, cx));
@@ -679,7 +675,7 @@ impl ChatApp {
                                         .bg(p.away)
                                         .text_color(black())
                                         .text_size(px(10.))
-                                        .child("DÉMO"),
+                                        .child(t!("sidebar.demo_badge")),
                                 )
                             })
                             .on_click(open_team),
@@ -701,7 +697,7 @@ impl ChatApp {
                         .text_sm()
                         .text_color(p.sidebar_text.opacity(0.7))
                         .child(Icon::new(IconName::Search).size(px(14.)))
-                        .child(div().flex_1().truncate().child("Aller à un canal…"))
+                        .child(div().flex_1().truncate().child(t!("sidebar.goto_channel")))
                         .child(
                             div()
                                 .flex_none()
@@ -769,20 +765,20 @@ impl ChatApp {
                         let alpha = sorting == "alpha" || sorting.is_empty();
                         let mut menu = menu
                             .min_w(px(240.))
-                            .label("Trier")
-                            .item(sort("Par ordre alphabétique", "alpha", alpha))
-                            .item(sort("Par activité récente", "recent", sorting == "recent"));
+                            .label(t!("category_menu.sort"))
+                            .item(sort(&t!("category_menu.sort_alpha"), "alpha", alpha))
+                            .item(sort(&t!("category_menu.sort_recent"), "recent", sorting == "recent"));
                         if !dm {
-                            menu = menu.item(sort("Ordre manuel", "manual", sorting == "manual"));
+                            menu = menu.item(sort(&t!("category_menu.sort_manual"), "manual", sorting == "manual"));
                         }
                         let (entity2, id2) = (entity.clone(), id.clone());
                         let (entity, id) = (entity.clone(), id.clone());
                         menu.separator()
                             .item(
                                 PopupMenuItem::new(if muted {
-                                    "Réactiver la catégorie"
+                                    t!("category_menu.unmute")
                                 } else {
-                                    "Mettre la catégorie en sourdine"
+                                    t!("category_menu.mute")
                                 })
                                 .icon(Icon::new(if muted { IconName::Bell } else { IconName::BellOff }))
                                 .on_click(move |_, _, cx| {
@@ -790,7 +786,7 @@ impl ChatApp {
                                 }),
                             )
                             .item(
-                                PopupMenuItem::new("Marquer la catégorie comme lue")
+                                PopupMenuItem::new(t!("category_menu.mark_read"))
                                     .icon(Icon::new(IconName::CheckCheck))
                                     .on_click(move |_, _, cx| {
                                         entity.update(cx, |this, cx| this.mark_category_read(&id, cx))
@@ -810,7 +806,7 @@ impl ChatApp {
             .icon(Icon::new(IconName::EllipsisVertical).text_color(p.sidebar_text))
             .ghost()
             .small()
-            .tooltip("Statut et compte")
+            .tooltip(t!("account.tooltip"))
             .dropdown_menu(move |menu, _, _| {
                 let status = |label: &str, value: &'static str, icon: IconName| {
                     let entity = entity.clone();
@@ -821,14 +817,14 @@ impl ChatApp {
                 };
                 let entity = entity.clone();
                 menu.min_w(px(220.))
-                    .label("Statut")
-                    .item(status("En ligne", "online", IconName::CircleCheck))
-                    .item(status("Absent", "away", IconName::Moon))
-                    .item(status("Ne pas déranger", "dnd", IconName::CircleMinus))
-                    .item(status("Hors ligne", "offline", IconName::Circle))
+                    .label(t!("account.status"))
+                    .item(status(&t!("status.online"), "online", IconName::CircleCheck))
+                    .item(status(&t!("status.away"), "away", IconName::Moon))
+                    .item(status(&t!("status.dnd"), "dnd", IconName::CircleMinus))
+                    .item(status(&t!("status.offline"), "offline", IconName::Circle))
                     .separator()
                     .item(
-                        PopupMenuItem::new("Se déconnecter")
+                        PopupMenuItem::new(t!("account.log_out"))
                             .icon(Icon::new(IconName::LogOut))
                             .on_click(move |_, window, cx| entity.update(cx, |this, cx| this.logout(window, cx))),
                     )
@@ -954,7 +950,7 @@ impl ChatApp {
             })
             .child(div().text_xs().text_color(p.muted()).child(format_time(post.create_at)))
             .when(ephemeral, |el| {
-                el.child(div().text_xs().italic().text_color(p.muted()).child("(visible uniquement par vous)"))
+                el.child(div().text_xs().italic().text_color(p.muted()).child(t!("post.only_visible_to_you")))
             })
             .when(post.is_pinned, |el| {
                 el.child(
@@ -963,7 +959,7 @@ impl ChatApp {
                         .text_xs()
                         .text_color(p.link)
                         .child(Icon::new(IconName::Pin).size(px(12.)))
-                        .child("Épinglé"),
+                        .child(t!("post.pinned")),
                 )
             })
             .when(self.is_saved(&post.id), |el| {
@@ -973,7 +969,7 @@ impl ChatApp {
                         .text_xs()
                         .text_color(p.away)
                         .child(Icon::new(IconName::Bookmark).size(px(12.)))
-                        .child("Enregistré"),
+                        .child(t!("post.saved")),
                 )
             });
 
@@ -1008,7 +1004,7 @@ impl ChatApp {
                             }
                         }),
                 )
-                .when(post.edit_at > 0, |el| el.child(div().text_xs().text_color(p.muted()).child("(modifié)")))
+                .when(post.edit_at > 0, |el| el.child(div().text_xs().text_color(p.muted()).child(t!("post.edited"))))
                 .into_any_element()
         };
 
@@ -1065,7 +1061,8 @@ impl ChatApp {
                     .hover(|s| s.border_color(p.center_color.opacity(0.24)).text_color(p.center_color))
                     .child(Icon::new(IconName::FaceSlightlySmilingPlus).size(px(15.)))
                     .tooltip(|window, cx| {
-                        gpui_kit::component::tooltip::Tooltip::new("Ajouter une réaction").build(window, cx)
+                        gpui_kit::component::tooltip::Tooltip::new(SharedString::from(t!("post.add_reaction")))
+                            .build(window, cx)
                     })
                     .on_click(move |_, window, cx| {
                         let target = PickerTarget::Reaction(post_id.clone());
@@ -1077,9 +1074,9 @@ impl ChatApp {
             let entity = entity.clone();
             let root = post.id.clone();
             let label = if post.reply_count == 1 {
-                "↩ 1 réponse".to_string()
+                format!("↩ {}", t!("threads.replies.one"))
             } else {
-                format!("↩ {} réponses", post.reply_count)
+                format!("↩ {}", t!("threads.replies.other", count = post.reply_count))
             };
             div()
                 .id(key("replies"))
@@ -1205,7 +1202,7 @@ impl ChatApp {
                                         })
                                         .size(px(12.)),
                                     )
-                                    .child(if condensed { "Afficher tout" } else { "Réduire" })
+                                    .child(if condensed { t!("post.show_more") } else { t!("post.show_less") })
                                     .on_click(move |_, _, cx| {
                                         let id = id.clone();
                                         entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
@@ -1371,20 +1368,22 @@ impl ChatApp {
         if confirming {
             let (e1, e2, pid) = (entity.clone(), entity.clone(), post_id.clone());
             return bar
-                .child(div().px_2().text_xs().child("Supprimer ce message ?"))
+                .child(div().px_2().text_xs().child(t!("post_menu.delete_confirm")))
                 .child(
                     Button::new(id("del-yes"))
-                        .label("Supprimer")
+                        .label(t!("common.delete"))
                         .xsmall()
                         .danger()
                         .on_click(move |_, _, cx| e1.update(cx, |this, cx| this.delete_post(pid.clone(), cx))),
                 )
-                .child(Button::new(id("del-no")).label("Annuler").xsmall().ghost().on_click(move |_, _, cx| {
-                    e2.update(cx, |this, cx| {
-                        this.confirm_delete = None;
-                        cx.notify();
-                    })
-                }));
+                .child(Button::new(id("del-no")).label(t!("common.cancel")).xsmall().ghost().on_click(
+                    move |_, _, cx| {
+                        e2.update(cx, |this, cx| {
+                            this.confirm_delete = None;
+                            cx.notify();
+                        })
+                    },
+                ));
         }
 
         for name in QUICK_REACTIONS {
@@ -1407,7 +1406,7 @@ impl ChatApp {
                     .icon(Icon::new(IconName::FaceSlightlySmilingPlus).size(px(16.)))
                     .xsmall()
                     .ghost()
-                    .tooltip("Ajouter une réaction")
+                    .tooltip(t!("post.add_reaction"))
                     .on_click(move |_, window, cx| {
                         entity.update(cx, |this, cx| {
                             this.open_emoji_picker(PickerTarget::Reaction(pid.clone()), window, cx)
@@ -1423,7 +1422,7 @@ impl ChatApp {
                     .icon(Icon::new(IconName::Reply).size(px(16.)))
                     .xsmall()
                     .ghost()
-                    .tooltip("Répondre dans le fil")
+                    .tooltip(t!("post.reply_in_thread"))
                     .on_click(move |_, window, cx| {
                         entity.update(cx, |this, cx| this.open_thread(pid.clone(), window, cx))
                     }),
@@ -1439,7 +1438,7 @@ impl ChatApp {
                 .icon(Icon::new(IconName::Ellipsis).size(px(16.)))
                 .xsmall()
                 .ghost()
-                .tooltip("Plus d'actions")
+                .tooltip(t!("post.more_actions"))
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                     let item =
                         |label: &str,
@@ -1452,37 +1451,41 @@ impl ChatApp {
                         };
                     let mut menu = menu.min_w(px(230.));
                     if pane == Pane::Channel {
-                        menu = menu.item(item("Répondre", IconName::Reply, |this, id, window, cx| {
+                        menu = menu.item(item(&t!("post_menu.reply"), IconName::Reply, |this, id, window, cx| {
                             this.open_thread(id, window, cx)
                         }));
                     }
                     menu = menu
-                        .item(item("Marquer comme non lu", IconName::MailOpen, |this, id, _, cx| {
+                        .item(item(&t!("post_menu.mark_unread"), IconName::MailOpen, |this, id, _, cx| {
                             this.mark_unread_from(id, cx)
                         }))
                         .item(item(
-                            if saved { "Retirer des enregistrés" } else { "Enregistrer" },
+                            &if saved { t!("post_menu.unsave") } else { t!("post_menu.save") },
                             IconName::Bookmark,
                             |this, id, _, cx| this.toggle_saved(id, cx),
                         ))
                         .item(item(
-                            if pinned { "Désépingler du canal" } else { "Épingler au canal" },
+                            &if pinned { t!("post_menu.unpin") } else { t!("post_menu.pin") },
                             IconName::Pin,
                             |this, id, _, _| this.toggle_pinned(id),
                         ))
                         .separator()
-                        .item(item("Copier le lien", IconName::Link, |this, id, _, cx| this.copy_post_link(&id, cx)))
-                        .item(item("Copier le texte", IconName::Copy, |this, id, _, cx| this.copy_post_text(&id, cx)));
+                        .item(item(&t!("post_menu.copy_link"), IconName::Link, |this, id, _, cx| {
+                            this.copy_post_link(&id, cx)
+                        }))
+                        .item(item(&t!("post_menu.copy_text"), IconName::Copy, |this, id, _, cx| {
+                            this.copy_post_text(&id, cx)
+                        }));
                     if mine {
                         let (e, id) = (entity.clone(), pid.clone());
                         menu = menu
                             .separator()
-                            .item(PopupMenuItem::new("Modifier").icon(Icon::new(IconName::Pencil)).on_click(
+                            .item(PopupMenuItem::new(t!("post_menu.edit")).icon(Icon::new(IconName::Pencil)).on_click(
                                 move |_, window, cx| {
                                     e.update(cx, |this, cx| this.start_edit(pane, id.clone(), window, cx))
                                 },
                             ))
-                            .item(item("Supprimer", IconName::Trash, |this, id, _, cx| {
+                            .item(item(&t!("common.delete"), IconName::Trash, |this, id, _, cx| {
                                 this.confirm_delete = Some(id);
                                 cx.notify();
                             }));
@@ -1535,7 +1538,7 @@ impl ChatApp {
                 .child(format_button(Format::Bullet, IconName::List, cx))
                 .child(format_button(Format::Numbered, IconName::ListOrdered, cx))
         });
-        let tool = |id: String, icon: IconName, tip: &'static str| {
+        let tool = |id: String, icon: IconName, tip: SharedString| {
             Button::new(SharedString::from(id)).icon(Icon::new(icon)).ghost().small().tooltip(tip)
         };
         let toolbar = h_flex()
@@ -1544,28 +1547,25 @@ impl ChatApp {
             .pb_2()
             .gap_1()
             .child(
-                tool(format!("fmt-toggle-{pane:?}"), IconName::Type, "Mise en forme")
+                tool(format!("fmt-toggle-{pane:?}"), IconName::Type, t!("composer.formatting").into())
                     .toggled(show_formatting)
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_formatting(cx))),
             )
-            .child(tool(format!("emoji-{pane:?}"), IconName::FaceSlightlySmiling, "Insérer un emoji").on_click(
-                cx.listener(move |this, _, window, cx| {
-                    this.open_emoji_picker(PickerTarget::Composer(pane), window, cx)
-                }),
-            ))
             .child(
-                tool(
-                    format!("attach-{pane:?}"),
-                    IconName::Paperclip,
-                    "Joindre des fichiers (ou glissez-les dans la fenêtre)",
-                )
-                .on_click(cx.listener(move |this, _, window, cx| this.pick_files(pane, window, cx))),
+                tool(format!("emoji-{pane:?}"), IconName::FaceSlightlySmiling, t!("composer.insert_emoji").into())
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_emoji_picker(PickerTarget::Composer(pane), window, cx)
+                    })),
+            )
+            .child(
+                tool(format!("attach-{pane:?}"), IconName::Paperclip, t!("composer.attach_files").into())
+                    .on_click(cx.listener(move |this, _, window, cx| this.pick_files(pane, window, cx))),
             )
             .child(
                 tool(
                     format!("preview-{pane:?}"),
                     if previewing { IconName::EyeOff } else { IconName::Eye },
-                    if previewing { "Revenir à l'écriture" } else { "Aperçu de la mise en forme" },
+                    if previewing { t!("composer.back_to_writing") } else { t!("composer.preview") }.into(),
                 )
                 .toggled(previewing)
                 .on_click(cx.listener(move |this, _, window, cx| this.toggle_preview(pane, window, cx))),
@@ -1574,14 +1574,10 @@ impl ChatApp {
             .child(
                 Button::new(SharedString::from(format!("send-{pane:?}")))
                     .icon(Icon::new(IconName::SendHorizontal))
-                    .when(editing, |b| b.label("Enregistrer"))
+                    .when(editing, |b| b.label(t!("common.save")))
                     .primary()
                     .disabled(text.trim().is_empty() && !self.attachments.iter().any(|a| a.pane == pane))
-                    .tooltip(if editing {
-                        "Enregistrer (Entrée)"
-                    } else {
-                        "Envoyer (Entrée) — Maj+Entrée pour aller à la ligne"
-                    })
+                    .tooltip(if editing { t!("composer.save_tooltip") } else { t!("composer.send_tooltip") })
                     .on_click(cx.listener(move |this, _, window, cx| this.send_from(pane, window, cx))),
             );
         let input: AnyElement = if previewing {
@@ -1593,7 +1589,7 @@ impl ChatApp {
                 .min_h(px(44.))
                 .text_size(px(BODY_TEXT))
                 .child(if text.trim().is_empty() {
-                    div().text_color(p.muted()).child("Rien à prévisualiser.").into_any_element()
+                    div().text_color(p.muted()).child(t!("composer.nothing_to_preview")).into_any_element()
                 } else {
                     TextView::markdown(SharedString::from(format!("preview-text-{pane:?}")), prepared)
                         .into_any_element()
@@ -1653,13 +1649,13 @@ impl ChatApp {
                                 .rounded_t(px(8.))
                                 .bg(p.away.opacity(0.16))
                                 .text_xs()
-                                .child(div().flex_1().font_semibold().child("Modification du message"))
+                                .child(div().flex_1().font_semibold().child(t!("composer.editing_message")))
                                 .child(
                                     Button::new(SharedString::from(format!("cancel-edit-{pane:?}")))
                                         .icon(Icon::new(IconName::X))
                                         .xsmall()
                                         .ghost()
-                                        .tooltip("Annuler la modification (Échap)")
+                                        .tooltip(t!("composer.cancel_edit"))
                                         .on_click(cx.listener(|this, _, window, cx| this.cancel_edit(window, cx))),
                                 ),
                         )
@@ -1863,10 +1859,10 @@ impl ChatApp {
                     .rounded(px(4.))
                     .border_1()
                     .border_color(p.border())
-                    .child(div().text_xs().text_color(p.muted()).child(format!(
-                        "Message de {} dans {}",
-                        self.user_name(&user_id),
-                        channel
+                    .child(div().text_xs().text_color(p.muted()).child(t!(
+                        "post.permalink_from",
+                        author = self.user_name(&user_id),
+                        channel = channel
                     )))
                     .child(div().text_sm().line_clamp(4).child(markdown::plain_text(&message)))
                     .into_any_element(),
@@ -1901,7 +1897,7 @@ impl ChatApp {
                         .justify_center()
                         .text_xs()
                         .text_color(p.muted())
-                        .child("Chargement de l'aperçu…")
+                        .child(t!("files.loading_preview"))
                         .into_any_element(),
                 };
                 let (entity, file) = (entity.clone(), file.clone());
@@ -1925,8 +1921,11 @@ impl ChatApp {
             } else {
                 let (e1, e2) = (entity.clone(), entity.clone());
                 let (f1, f2) = (file.clone(), file.clone());
-                let kind =
-                    if file.extension.is_empty() { "Fichier".to_string() } else { file.extension.to_uppercase() };
+                let kind = if file.extension.is_empty() {
+                    t!("files.file").to_string()
+                } else {
+                    file.extension.to_uppercase()
+                };
                 others = others.child(
                     h_flex()
                         .id(id)
@@ -1957,7 +1956,7 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::ExternalLink))
                                 .small()
                                 .ghost()
-                                .tooltip("Ouvrir")
+                                .tooltip(t!("common.open"))
                                 .on_click(move |_, _, cx| {
                                     let file = f1.clone();
                                     e1.update(cx, |this, cx| this.download(file, true, cx));
@@ -1968,7 +1967,7 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::Download))
                                 .small()
                                 .ghost()
-                                .tooltip("Télécharger")
+                                .tooltip(t!("common.download"))
                                 .on_click(move |_, _, cx| {
                                     let file = f2.clone();
                                     e2.update(cx, |this, cx| this.download(file, false, cx));
@@ -1990,9 +1989,9 @@ impl ChatApp {
         Some(h_flex().flex_wrap().gap_2().px_3().pt_2().children(list.into_iter().map(|a| {
             let local_id = a.local_id;
             let status = match (&a.file_id, &a.error) {
-                (_, Some(err)) => div().text_color(p.error).child(format!("échec : {err}")),
+                (_, Some(err)) => div().text_color(p.error).child(t!("composer.upload_failed", error = err)),
                 (Some(_), None) => div().text_color(p.muted()).child(human_size(a.size)),
-                (None, None) => div().text_color(p.muted()).child("envoi…"),
+                (None, None) => div().text_color(p.muted()).child(t!("composer.uploading")),
             };
             h_flex()
                 .gap_2()
@@ -2030,10 +2029,10 @@ impl ChatApp {
         let ac = self.autocomplete.as_ref().filter(|a| a.pane == pane && !a.items.is_empty())?;
         let p = self.palette;
         let title = match ac.kind {
-            crate::backend::AcKind::User => "Personnes",
-            crate::backend::AcKind::Channel => "Canaux",
-            crate::backend::AcKind::Emoji => "Emojis",
-            crate::backend::AcKind::Command => "Commandes",
+            crate::backend::AcKind::User => t!("autocomplete.people"),
+            crate::backend::AcKind::Channel => t!("sidebar.channels"),
+            crate::backend::AcKind::Emoji => t!("autocomplete.emojis"),
+            crate::backend::AcKind::Command => t!("autocomplete.commands"),
         };
         let rows = ac.items.iter().enumerate().map(|(i, item)| {
             let selected = i == ac.selected;
@@ -2134,7 +2133,7 @@ impl ChatApp {
             .map(|c| self.channel_badge(&c.channel, 32., p.center_bg));
         let actions = self.channel_id.clone().zip(state).map(|(channel_id, state)| {
             let side = self.side.as_ref().map(|s| s.kind.clone());
-            let icon_button = |id: &'static str, icon: IconName, on: bool, tip: &'static str| {
+            let icon_button = |id: &'static str, icon: IconName, on: bool, tip: SharedString| {
                 Button::new(id).icon(Icon::new(icon)).ghost().small().toggled(on).tooltip(tip)
             };
             h_flex()
@@ -2146,7 +2145,7 @@ impl ChatApp {
                         "hdr-mentions",
                         IconName::AtSign,
                         side == Some(PanelKind::Mentions),
-                        "Mentions récentes (toutes équipes)",
+                        t!("header.mentions_tooltip").into(),
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.show_mentions(cx))),
                 )
@@ -2155,7 +2154,7 @@ impl ChatApp {
                         "hdr-threads",
                         IconName::MessagesSquare,
                         side == Some(PanelKind::Threads),
-                        "Fils suivis de ce canal",
+                        t!("header.threads_tooltip").into(),
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.show_threads(cx))),
                 )
@@ -2164,7 +2163,7 @@ impl ChatApp {
                         "hdr-files",
                         IconName::FolderOpen,
                         side == Some(PanelKind::Files),
-                        "Fichiers et liens du canal",
+                        t!("header.files_tooltip").into(),
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.show_files(cx))),
                 )
@@ -2173,7 +2172,8 @@ impl ChatApp {
                         "hdr-members",
                         IconName::Users,
                         self.settings.show_members,
-                        if self.settings.show_members { "Masquer les membres" } else { "Afficher les membres" },
+                        if self.settings.show_members { t!("header.hide_members") } else { t!("header.show_members") }
+                            .into(),
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.toggle_members(cx))),
                 )
@@ -2182,7 +2182,7 @@ impl ChatApp {
                         .icon(Icon::new(IconName::Ellipsis))
                         .ghost()
                         .small()
-                        .tooltip("Épinglés, enregistrés, favori, sourdine…")
+                        .tooltip(t!("header.more_tooltip"))
                         .dropdown_menu_with_anchor(
                             Anchor::TopRight,
                             self.channel_menu(&channel_id, state.muted, true, cx),
@@ -2204,7 +2204,7 @@ impl ChatApp {
                         )
                         .ghost()
                         .xsmall()
-                        .tooltip(if favorite { "Retirer des favoris" } else { "Ajouter aux favoris" })
+                        .tooltip(if favorite { t!("channel_menu.unfavorite") } else { t!("channel_menu.favorite") })
                         .on_click(cx.listener(move |this, _, _, cx| this.toggle_favorite(channel_id.clone(), cx))),
                 )
                 .when(state.muted, |el| el.child(Icon::new(IconName::BellOff).size(px(14.)).text_color(p.muted())))
@@ -2228,7 +2228,7 @@ impl ChatApp {
                         .icon(Icon::new(IconName::Menu))
                         .ghost()
                         .small()
-                        .tooltip("Canaux")
+                        .tooltip(t!("sidebar.channels"))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_drawer(super::Drawer::Channels, cx))),
                 )
             })
@@ -2269,7 +2269,7 @@ impl ChatApp {
                     }),
             )
             .when(self.loading_older, |el| {
-                el.child(div().text_xs().text_color(p.muted()).child("Chargement de l'historique…"))
+                el.child(div().text_xs().text_color(p.muted()).child(t!("messages.loading_history")))
             })
             .children(actions.map(|a| a.flex_shrink(1.).min_w_0().justify_end()))
     }
@@ -2301,8 +2301,8 @@ impl ChatApp {
                 .items_center()
                 .justify_center()
                 .gap_1()
-                .child(div().text_size(px(16.)).font_semibold().child("Aucun message pour l'instant"))
-                .child(div().text_color(p.muted()).child("Écrivez le premier message de ce canal."))
+                .child(div().text_size(px(16.)).font_semibold().child(t!("messages.empty_title")))
+                .child(div().text_color(p.muted()).child(t!("messages.empty_hint")))
                 .into_any_element()
         } else if self.loading_posts && self.posts.is_empty() {
             div()
@@ -2311,7 +2311,7 @@ impl ChatApp {
                 .items_center()
                 .justify_center()
                 .text_color(p.muted())
-                .child("Chargement…")
+                .child(t!("common.loading"))
                 .into_any_element()
         } else {
             let entity = entity.clone();
@@ -2322,10 +2322,12 @@ impl ChatApp {
                     MessageScroller::new("messages", self.scroller.clone(), move |ix, _, cx| {
                         entity.read(cx).render_post(&entity, Pane::Channel, ix, cx)
                     })
-                    .with_jump_button_label("Revenir aux messages les plus récents")
+                    .with_jump_button_label(t!("messages.jump_tooltip"))
                     .with_jump_button_renderer({
                         let (bg, fg) = (p.button_bg, p.button_color);
-                        move |b| b.label("Revenir au présent").bg(bg).text_color(fg).border_color(bg).shadow_md()
+                        move |b| {
+                            b.label(t!("messages.jump_to_present")).bg(bg).text_color(fg).border_color(bg).shadow_md()
+                        }
                     })
                     // Pas d'espace imposé entre les lignes : chaque message gère le sien.
                     .with_row_style(StyleRefinement::default().pb(px(0.))),
@@ -2397,7 +2399,7 @@ impl ChatApp {
                         .gap_2()
                         .border_b_1()
                         .border_color(p.border())
-                        .child(div().text_size(px(16.)).font_bold().child("Fil"))
+                        .child(div().text_size(px(16.)).font_bold().child(t!("threads.thread")))
                         .child(div().flex_1().truncate().text_size(px(12.)).text_color(p.muted()).child(channel))
                         .child(
                             Button::new("close-thread")
@@ -2624,13 +2626,15 @@ impl ChatApp {
                                                 .text_color(p.muted())
                                                 .child(Icon::new(IconName::Clock).size(px(15.))),
                                         )
-                                        .child(v_flex().child(format!("{clock} heure locale")).when(!is_me, |d| {
-                                            d.child(div().text_xs().text_color(p.muted()).child(gap))
-                                        })),
+                                        .child(
+                                            v_flex().child(t!("profile.local_time", time = clock)).when(!is_me, |d| {
+                                                d.child(div().text_xs().text_color(p.muted()).child(gap))
+                                            }),
+                                        ),
                                 )
                             })
                             .when(u.is_system_admin(), |el| {
-                                el.child(line(IconName::Shield, "Administrateur système".to_string()))
+                                el.child(line(IconName::Shield, t!("profile.system_admin").to_string()))
                             }),
                     )
                     .when(!is_me && !in_dm, |el| {
@@ -2639,7 +2643,7 @@ impl ChatApp {
                                 .primary()
                                 .w_full()
                                 .icon(Icon::new(IconName::SendHorizontal))
-                                .label("Envoyer un message")
+                                .label(t!("profile.send_message"))
                                 .on_click(move |_, window, cx| {
                                     let uid = uid.clone();
                                     entity.update(cx, |this, cx| {
@@ -2662,7 +2666,7 @@ impl ChatApp {
             None => div()
                 .p_5()
                 .text_color(p.muted())
-                .child(format!("Chargement du profil de @{}…", card.username))
+                .child(t!("profile.loading", username = card.username))
                 .into_any_element(),
             Some(u) => self.profile_body(u, cx),
         };
@@ -2703,21 +2707,21 @@ impl ChatApp {
         let p = self.palette;
         let entity = cx.entity();
         let (title, subtitle) = match side.kind {
-            PanelKind::Pinned => ("Messages épinglés".to_string(), side.subject.clone()),
-            PanelKind::Saved => ("Messages enregistrés".to_string(), String::new()),
-            PanelKind::Search => ("Rechercher".to_string(), String::new()),
+            PanelKind::Pinned => (t!("panels.pinned").to_string(), side.subject.clone()),
+            PanelKind::Saved => (t!("panels.saved").to_string(), String::new()),
+            PanelKind::Search => (t!("search.placeholder").to_string(), String::new()),
             PanelKind::Threads => (
-                "Fils suivis".to_string(),
+                t!("panels.threads").to_string(),
                 self.channel_id
                     .as_ref()
                     .and_then(|id| self.channels.get(id))
                     .map(|c| self.channel_title(&c.channel))
                     .unwrap_or_default(),
             ),
-            PanelKind::Mentions => ("Mentions récentes".to_string(), "Toutes équipes".to_string()),
-            PanelKind::Channel => ("À propos".to_string(), String::new()),
+            PanelKind::Mentions => (t!("panels.mentions").to_string(), t!("panels.all_teams").to_string()),
+            PanelKind::Channel => (t!("panels.about").to_string(), String::new()),
             PanelKind::Files => (
-                "Fichiers".to_string(),
+                t!("panels.files").to_string(),
                 self.channel_id
                     .as_ref()
                     .and_then(|id| self.channels.get(id))
@@ -2734,84 +2738,81 @@ impl ChatApp {
             self.render_channel_info(cx).unwrap_or_else(|| div().into_any_element())
         } else {
             match &side.posts {
-            None => div().p_5().text_color(p.muted()).child("Chargement…").into_any_element(),
-            Some(posts) if posts.is_empty() && searching && side.subject.is_empty() => div()
-                .p_5()
-                .text_color(p.muted())
-                .child("Tapez dans le champ de recherche en haut, puis Entrée. Les filtres proposés s'affichent pendant la saisie.")
-                .into_any_element(),
-            Some(posts) if posts.is_empty() => div()
-                .p_5()
-                .text_color(p.muted())
-                .child(match side.kind {
-                    PanelKind::Pinned => "Aucun message épinglé dans ce canal. Épinglez-en un depuis son menu « ⋯ ».",
-                    PanelKind::Saved => "Aucun message enregistré. Enregistrez-en un depuis son menu « ⋯ ».",
-                    PanelKind::Search => "Aucun message ne correspond. Essayez d'autres mots, ou from:nom, in:canal.",
-                    PanelKind::Threads => "",
-                    PanelKind::Mentions => "Personne ne vous a mentionné récemment.",
-                    PanelKind::Files | PanelKind::Channel => "",
-                })
-                .into_any_element(),
-            Some(posts) => v_flex()
-                .id("side-list")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .children(posts.iter().map(|post| {
-                    let channel = match self.channels.get(&post.channel_id) {
-                        Some(c) => self.channel_title(&c.channel),
-                        None => self
-                            .channel_teams
-                            .get(&post.channel_id)
-                            .and_then(|t| self.teams.iter().find(|team| &team.id == t))
-                            .map(|team| format!("autre équipe : {}", team.display_name))
-                            .unwrap_or_default(),
-                    };
-                    let (entity, jump) = (entity.clone(), post.clone());
-                    let custom: Vec<String> = post.metadata.emojis.iter().map(|e| e.name.clone()).collect();
-                    v_flex()
-                        .id(SharedString::from(format!("side-{}", post.id)))
-                        .px_5()
-                        .py_3()
-                        .gap_1()
-                        .cursor_pointer()
-                        .hover(|s| s.bg(p.hover()))
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .text_xs()
-                                .text_color(p.muted())
-                                .child(self.channel_badge_by_id(&post.channel_id, 16.))
-                                .child(channel),
-                        )
-                        .child(
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .child(self.avatar(&post.user_id, 24., p.center_bg))
-                                .child(div().font_semibold().child(self.user_name(&post.user_id)))
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(p.muted())
-                                        .child(format!("{}, {}", day_label(post.create_at), format_hour(post.create_at))),
+                None => div().p_5().text_color(p.muted()).child(t!("common.loading")).into_any_element(),
+                Some(posts) if posts.is_empty() && searching && side.subject.is_empty() => {
+                    div().p_5().text_color(p.muted()).child(t!("search.empty_hint")).into_any_element()
+                }
+                Some(posts) if posts.is_empty() => div()
+                    .p_5()
+                    .text_color(p.muted())
+                    .child(match side.kind {
+                        PanelKind::Pinned => t!("panels.pinned_empty"),
+                        PanelKind::Saved => t!("panels.saved_empty"),
+                        PanelKind::Search => t!("search.no_results"),
+                        PanelKind::Threads => "".into(),
+                        PanelKind::Mentions => t!("panels.mentions_empty"),
+                        PanelKind::Files | PanelKind::Channel => "".into(),
+                    })
+                    .into_any_element(),
+                Some(posts) => v_flex()
+                    .id("side-list")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .children(posts.iter().map(|post| {
+                        let channel = match self.channels.get(&post.channel_id) {
+                            Some(c) => self.channel_title(&c.channel),
+                            None => self
+                                .channel_teams
+                                .get(&post.channel_id)
+                                .and_then(|t| self.teams.iter().find(|team| &team.id == t))
+                                .map(|team| t!("search.other_team", team = team.display_name).to_string())
+                                .unwrap_or_default(),
+                        };
+                        let (entity, jump) = (entity.clone(), post.clone());
+                        let custom: Vec<String> = post.metadata.emojis.iter().map(|e| e.name.clone()).collect();
+                        v_flex()
+                            .id(SharedString::from(format!("side-{}", post.id)))
+                            .px_5()
+                            .py_3()
+                            .gap_1()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(p.hover()))
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .text_xs()
+                                    .text_color(p.muted())
+                                    .child(self.channel_badge_by_id(&post.channel_id, 16.))
+                                    .child(channel),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(self.avatar(&post.user_id, 24., p.center_bg))
+                                    .child(div().font_semibold().child(self.user_name(&post.user_id)))
+                                    .child(div().text_xs().text_color(p.muted()).child(format!(
+                                        "{}, {}",
+                                        day_label(post.create_at),
+                                        format_hour(post.create_at)
+                                    ))),
+                            )
+                            .child(
+                                div().text_size(px(BODY_TEXT)).line_clamp(6).child(
+                                    TextView::markdown(
+                                        SharedString::from(format!("side-text-{}", post.id)),
+                                        markdown::prepare_for(&post.message, &custom, Some(&post.channel_id)),
+                                    )
+                                    .image_source(emoji_resolver(self.custom_emojis.clone())),
                                 ),
-                        )
-                        .child(
-                            div().text_size(px(BODY_TEXT)).line_clamp(6).child(
-                                TextView::markdown(
-                                    SharedString::from(format!("side-text-{}", post.id)),
-                                    markdown::prepare_for(&post.message, &custom, Some(&post.channel_id)),
-                                )
-                                .image_source(emoji_resolver(self.custom_emojis.clone())),
-                            ),
-                        )
-                        .on_click(move |_, window, cx| {
-                            let post = jump.clone();
-                            entity.update(cx, |this, cx| this.jump_to_post(post, window, cx));
-                        })
-                }))
-                .into_any_element(),
+                            )
+                            .on_click(move |_, window, cx| {
+                                let post = jump.clone();
+                                entity.update(cx, |this, cx| this.jump_to_post(post, window, cx));
+                            })
+                    }))
+                    .into_any_element(),
             }
         };
         Some(
@@ -2883,16 +2884,12 @@ impl ChatApp {
     fn render_threads_list(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = self.palette;
         let Some(all) = &self.threads else {
-            return div().p_5().text_color(p.muted()).child("Chargement…").into_any_element();
+            return div().p_5().text_color(p.muted()).child(t!("common.loading")).into_any_element();
         };
         let current = self.channel_id.clone().unwrap_or_default();
         let threads: Vec<_> = all.iter().filter(|t| t.post.channel_id == current).collect();
         if threads.is_empty() {
-            return div()
-                .p_5()
-                .text_color(p.muted())
-                .child("Vous ne suivez aucun fil dans ce canal. Répondre à un message suffit pour suivre son fil.")
-                .into_any_element();
+            return div().p_5().text_color(p.muted()).child(t!("threads.empty")).into_any_element();
         }
         let entity = cx.entity();
         v_flex()
@@ -2905,8 +2902,11 @@ impl ChatApp {
                     self.channels.get(&t.post.channel_id).map(|c| self.channel_title(&c.channel)).unwrap_or_default();
                 let unread = t.unread_replies > 0;
                 let (entity, jump) = (entity.clone(), t.post.clone());
-                let replies =
-                    if t.reply_count == 1 { "1 réponse".to_string() } else { format!("{} réponses", t.reply_count) };
+                let replies = if t.reply_count == 1 {
+                    t!("threads.replies.one")
+                } else {
+                    t!("threads.replies.other", count = t.reply_count)
+                };
                 v_flex()
                     .id(SharedString::from(format!("thr-{}", t.id)))
                     .px_5()
@@ -2934,9 +2934,9 @@ impl ChatApp {
                                             p.button_color
                                         })
                                         .child(if t.unread_replies == 1 {
-                                            "1 nouvelle".to_string()
+                                            t!("threads.new_replies.one")
                                         } else {
-                                            format!("{} nouvelles", t.unread_replies)
+                                            t!("threads.new_replies.other", count = t.unread_replies)
                                         }),
                                 )
                             }),
@@ -2978,7 +2978,7 @@ impl ChatApp {
                             })))
                             .when(t.participants.len() > 5, |el| el.child(format!("+{}", t.participants.len() - 5)))
                             .child(div().text_color(p.link).font_semibold().child(replies))
-                            .child(format!("dernière réponse {}", day_label(t.last_reply_at).to_lowercase())),
+                            .child(t!("threads.last_reply", day = day_label_inline(t.last_reply_at))),
                     )
                     .on_click(move |_, window, cx| {
                         let post = jump.clone();
@@ -3027,12 +3027,13 @@ impl ChatApp {
                 .filter(|s| matches!(*s, "online" | "away" | "dnd"))
                 .unwrap_or("offline")
         };
+        // Groupes désignés par un identifiant stable ; le titre affiché est traduit.
         let groups: [(&str, MemberFilter<'_>); 5] = [
-            ("Administrateurs", Box::new(|id| is_admin(id))),
-            ("En ligne", Box::new(|id| !is_admin(id) && status(id) == "online")),
-            ("Absent", Box::new(|id| !is_admin(id) && status(id) == "away")),
-            ("Ne pas déranger", Box::new(|id| !is_admin(id) && status(id) == "dnd")),
-            ("Hors ligne", Box::new(|id| !is_admin(id) && status(id) == "offline")),
+            ("admins", Box::new(|id| is_admin(id))),
+            ("online", Box::new(|id| !is_admin(id) && status(id) == "online")),
+            ("away", Box::new(|id| !is_admin(id) && status(id) == "away")),
+            ("dnd", Box::new(|id| !is_admin(id) && status(id) == "dnd")),
+            ("offline", Box::new(|id| !is_admin(id) && status(id) == "offline")),
         ];
         let mut list = v_flex().id("members-list").flex_1().min_h_0().overflow_y_scroll().pb_3();
         for (title, keep) in groups {
@@ -3061,7 +3062,7 @@ impl ChatApp {
                     .child(div().flex_none().w(px(14.)).text_color(p.muted()).child(
                         Icon::new(if collapsed { IconName::ChevronRight } else { IconName::ChevronDown }).size(px(13.)),
                     ))
-                    .child(div().flex_none().child(title))
+                    .child(div().flex_none().child(member_group_title(title)))
                     .child(
                         div()
                             .flex_none()
@@ -3079,11 +3080,11 @@ impl ChatApp {
             for id in people {
                 let user_id = id.clone();
                 let offline = status(id) == "offline";
-                let role = (title == "Administrateurs").then(|| {
+                let role = (title == "admins").then(|| -> SharedString {
                     if self.users.get(id).is_some_and(|u| u.is_system_admin()) {
-                        "Admin système"
+                        t!("members.system_admin").into()
                     } else {
-                        "Admin du canal"
+                        t!("members.channel_admin").into()
                     }
                 });
                 list = list.child(
@@ -3107,7 +3108,7 @@ impl ChatApp {
                                         .truncate()
                                         .text_sm()
                                         .font_semibold()
-                                        .when(role.is_some(), |d| d.text_color(group_color("Administrateurs", &p)))
+                                        .when(role.is_some(), |d| d.text_color(group_color("admins", &p)))
                                         .child(self.user_name(id)),
                                 )
                                 .when_some(self.users.get(id).map(|u| u.username.clone()), |el, name| {
@@ -3122,7 +3123,7 @@ impl ChatApp {
                                     .child(Icon::new(IconName::Shield).size(px(14.)))
                                     .id(SharedString::from(format!("mbr-role-{id}")))
                                     .tooltip(move |window, cx| {
-                                        gpui_kit::component::tooltip::Tooltip::new(role).build(window, cx)
+                                        gpui_kit::component::tooltip::Tooltip::new(role.clone()).build(window, cx)
                                     }),
                             )
                         })
@@ -3135,7 +3136,7 @@ impl ChatApp {
         let hidden = total - ids.len() as i64;
         if hidden > 0 {
             list = list.child(
-                div().px_4().pt_3().text_xs().text_color(p.muted()).child(format!("et {hidden} autres membres")),
+                div().px_4().pt_3().text_xs().text_color(p.muted()).child(t!("members.hidden_count", count = hidden)),
             );
         }
         Some(
@@ -3156,10 +3157,10 @@ impl ChatApp {
                         .gap_2()
                         .border_b_1()
                         .border_color(p.border())
-                        .child(div().text_size(px(15.)).font_bold().child("Membres"))
+                        .child(div().text_size(px(15.)).font_bold().child(t!("members.title")))
                         .when(total > 0, |el| el.child(div().text_sm().text_color(p.muted()).child(total.to_string()))),
                 )
-                .when(ids.is_empty(), |el| el.child(div().p_4().text_color(p.muted()).child("Chargement…")))
+                .when(ids.is_empty(), |el| el.child(div().p_4().text_color(p.muted()).child(t!("common.loading"))))
                 .child(list)
                 .into_any_element(),
         )
@@ -3181,8 +3182,8 @@ impl ChatApp {
                 .py_1p5()
                 .text_xs()
                 .child(Icon::new(IconName::SpellCheck).size(px(14.)).text_color(p.error))
-                .child(div().text_color(p.muted()).child("Orthographe :"))
-                .child(div().font_semibold().text_color(p.error).child(format!("« {word} »")))
+                .child(div().text_color(p.muted()).child(t!("spelling.label")))
+                .child(div().font_semibold().text_color(p.error).child(t!("spelling.word", word = word)))
                 .children(first.suggestions.iter().enumerate().map(|(i, s)| {
                     let (w, s2) = (word.clone(), s.clone());
                     div()
@@ -3201,14 +3202,14 @@ impl ChatApp {
                         }))
                 }))
                 .when(first.suggestions.is_empty(), |el| {
-                    el.child(div().text_color(p.muted()).child("aucune proposition"))
+                    el.child(div().text_color(p.muted()).child(t!("spelling.no_suggestions")))
                 })
                 .child(div().flex_1())
                 .when(more > 0, |el| {
                     el.child(div().text_color(p.muted()).child(if more == 1 {
-                        "1 autre mot".to_string()
+                        t!("spelling.more.one")
                     } else {
-                        format!("{more} autres mots")
+                        t!("spelling.more.other", count = more)
                     }))
                 })
                 .child(
@@ -3217,7 +3218,7 @@ impl ChatApp {
                         .text_color(p.link)
                         .cursor_pointer()
                         .hover(|st| st.underline())
-                        .child("Ajouter au dictionnaire")
+                        .child(t!("spelling.add_to_dictionary"))
                         .on_click(cx.listener(move |this, _, _, cx| this.learn_word(pane, word.clone(), cx))),
                 )
                 .into_any_element(),
@@ -3262,7 +3263,7 @@ impl ChatApp {
                         .ghost()
                         .small()
                         .toggled(self.search_open)
-                        .tooltip("Rechercher (Ctrl+F)")
+                        .tooltip(t!("search.tooltip"))
                         .on_click(cx.listener(|this, _, window, cx| this.open_search(window, cx))),
                 )
                 .when(self.search_open, |el| el.child(deferred(self.render_search_dropdown(cx)).with_priority(2)))
@@ -3355,7 +3356,7 @@ impl ChatApp {
         let p = self.palette;
         let value = self.search_input.read(cx).value().to_string();
         let word = value.rsplit(' ').next().unwrap_or("").to_string();
-        let section = |title: &'static str| {
+        let section = |title: SharedString| {
             div().px_2().pt_2().pb_1().text_xs().font_semibold().text_color(p.muted()).child(title)
         };
         // Une ligne cliquable qui insère un filtre (ou lance une recherche).
@@ -3402,7 +3403,7 @@ impl ChatApp {
                 })
                 .collect();
             people.sort_by_key(|u| crate::fuzzy::fold(&u.username));
-            list = list.child(section("Messages de"));
+            list = list.child(section(t!("search.from_section").into()));
             for u in people.into_iter().take(7) {
                 let avatar = self.avatar(&u.id, 20., p.center_bg).into_any_element();
                 list = list.child(row(
@@ -3426,7 +3427,7 @@ impl ChatApp {
                 })
                 .collect();
             channels.sort_by_key(|c| std::cmp::Reverse(c.channel.recency()));
-            list = list.child(section("Dans le canal"));
+            list = list.child(section(t!("search.in_section").into()));
             for c in channels.into_iter().take(7) {
                 let lock = if c.channel.kind == "P" { IconName::Lock } else { IconName::Hash };
                 list = list.child(row(
@@ -3439,7 +3440,7 @@ impl ChatApp {
                 ));
             }
         } else if word.starts_with('#') && word.len() > 1 {
-            list = list.child(section("Étiquettes"));
+            list = list.child(section(t!("search.hashtags").into()));
             for tag in
                 self.recent_hashtags().into_iter().filter(|t| crate::fuzzy::fold(t).starts_with(&lower[1..])).take(7)
             {
@@ -3454,16 +3455,16 @@ impl ChatApp {
             }
         } else {
             // Filtres de la syntaxe Mattermost, en pastilles.
-            let filters: [(&str, &str, &str); 6] = [
-                ("from:", "De", "sg-f-from"),
-                ("in:", "Dans", "sg-f-in"),
-                ("on:", "Le (date)", "sg-f-on"),
-                ("after:", "Après", "sg-f-after"),
-                ("before:", "Avant", "sg-f-before"),
-                ("-", "Exclure un mot", "sg-f-not"),
+            let filters: [(&str, SharedString, &str); 6] = [
+                ("from:", t!("search.filter_from").into(), "sg-f-from"),
+                ("in:", t!("search.filter_in").into(), "sg-f-in"),
+                ("on:", t!("search.filter_on").into(), "sg-f-on"),
+                ("after:", t!("search.filter_after").into(), "sg-f-after"),
+                ("before:", t!("search.filter_before").into(), "sg-f-before"),
+                ("-", t!("search.filter_exclude").into(), "sg-f-not"),
             ];
-            list = list.child(section("Filtres")).child(h_flex().flex_wrap().gap_1p5().px_2().pb_1().children(
-                filters.into_iter().map(|(token, label, id)| {
+            list = list.child(section(t!("search.filters").into())).child(
+                h_flex().flex_wrap().gap_1p5().px_2().pb_1().children(filters.into_iter().map(|(token, label, id)| {
                     let token = token.to_string();
                     h_flex()
                         .id(id)
@@ -3485,11 +3486,11 @@ impl ChatApp {
                                 this.insert_search_token(token.clone(), window, cx);
                             }),
                         )
-                }),
-            ));
+                })),
+            );
 
             // Suggestions toutes prêtes pour ce canal et cette personne.
-            list = list.child(section("Suggestions"));
+            list = list.child(section(t!("search.suggestions").into()));
             let current = self.channel_id.as_ref().and_then(|id| self.channels.get(id));
             if let Some(c) = current {
                 match c.channel.direct_partner(self.me_id()).and_then(|id| self.users.get(&id)) {
@@ -3497,7 +3498,7 @@ impl ChatApp {
                         list = list.child(row(
                             "sg-s-partner".into(),
                             icon(IconName::Users),
-                            format!("Messages de {}", self.user_name(&partner.id)),
+                            t!("search.messages_from", name = self.user_name(&partner.id)).into(),
                             format!("from:{}", partner.username),
                             SearchPick::Insert(format!("from:{}", partner.username)),
                             cx,
@@ -3507,7 +3508,7 @@ impl ChatApp {
                         list = list.child(row(
                             "sg-s-here".into(),
                             icon(IconName::Hash),
-                            format!("Dans {}", self.channel_title(&c.channel)),
+                            t!("search.in_channel", channel = self.channel_title(&c.channel)).into(),
                             format!("in:{}", c.channel.name),
                             SearchPick::Insert(format!("in:{}", c.channel.name)),
                             cx,
@@ -3520,7 +3521,7 @@ impl ChatApp {
                 list = list.child(row(
                     "sg-s-mine".into(),
                     icon(IconName::Pencil),
-                    "Mes messages".into(),
+                    t!("search.my_messages").into(),
                     format!("from:{}", me.username),
                     SearchPick::Insert(format!("from:{}", me.username)),
                     cx,
@@ -3531,7 +3532,7 @@ impl ChatApp {
                 .child(row(
                     "sg-s-today".into(),
                     icon(IconName::Clock),
-                    "Aujourd'hui".into(),
+                    t!("dates.today").into(),
                     format!("on:{today}"),
                     SearchPick::Insert(format!("on:{today}")),
                     cx,
@@ -3539,7 +3540,7 @@ impl ChatApp {
                 .child(row(
                     "sg-s-week".into(),
                     icon(IconName::Clock),
-                    "Ces 7 derniers jours".into(),
+                    t!("search.last_7_days").into(),
                     format!("after:{}", today - chrono::Duration::days(8)),
                     SearchPick::Insert(format!("after:{}", today - chrono::Duration::days(8))),
                     cx,
@@ -3548,7 +3549,7 @@ impl ChatApp {
             // Étiquettes vues récemment dans le canal : un clic les recherche.
             let tags = self.recent_hashtags();
             if !tags.is_empty() {
-                list = list.child(section("Étiquettes du canal")).child(
+                list = list.child(section(t!("search.channel_hashtags").into())).child(
                     h_flex().flex_wrap().gap_1p5().px_2().pb_1().children(tags.into_iter().take(8).map(|tag| {
                         let terms = format!("#{tag}");
                         div()
@@ -3577,7 +3578,7 @@ impl ChatApp {
             // Recherches récentes.
             if !self.settings.recent_searches.is_empty() {
                 list = list.child(
-                    h_flex().child(section("Recherches récentes")).child(div().flex_1()).child(
+                    h_flex().child(section(t!("search.recent").into())).child(div().flex_1()).child(
                         div()
                             .id("sg-forget")
                             .px_2()
@@ -3586,7 +3587,7 @@ impl ChatApp {
                             .text_color(p.link)
                             .cursor_pointer()
                             .hover(|s| s.underline())
-                            .child("Effacer")
+                            .child(t!("search.clear"))
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(|this, _, _, cx| {
@@ -3644,7 +3645,7 @@ impl ChatApp {
                     .border_color(p.border())
                     .text_xs()
                     .text_color(p.muted())
-                    .child("Entrée pour chercher · \"expression exacte\" · mot* pour un début de mot"),
+                    .child(t!("search.syntax_hint")),
             )
             .into_any_element()
     }
@@ -3723,7 +3724,7 @@ impl ChatApp {
         let links = self.channel_links();
         let loaded = self.channel_id.as_ref().is_some_and(|id| self.channel_files.contains_key(id));
 
-        let tab = |t: FilesTab, label: &'static str, count: usize, cx: &mut Context<Self>| {
+        let tab = |t: FilesTab, label: SharedString, count: usize, cx: &mut Context<Self>| {
             let active = self.files_tab == t;
             h_flex()
                 .id(SharedString::from(format!("ftab-{t:?}")))
@@ -3746,16 +3747,16 @@ impl ChatApp {
             .px_3()
             .border_b_1()
             .border_color(p.border())
-            .child(tab(FilesTab::Media, "Médias", media.len(), cx))
-            .child(tab(FilesTab::Documents, "Fichiers", documents.len(), cx))
-            .child(tab(FilesTab::Links, "Liens", links.len(), cx));
+            .child(tab(FilesTab::Media, t!("files.tab_media").into(), media.len(), cx))
+            .child(tab(FilesTab::Documents, t!("panels.files").into(), documents.len(), cx))
+            .child(tab(FilesTab::Links, t!("files.tab_links").into(), links.len(), cx));
 
-        let empty = |text: &'static str| div().p_5().text_color(p.muted()).child(text).into_any_element();
-        let meta = |user_id: &str, at: i64| format!("{} · {}", self.user_name(user_id), day_label(at).to_lowercase());
+        let empty = |text: SharedString| div().p_5().text_color(p.muted()).child(text).into_any_element();
+        let meta = |user_id: &str, at: i64| format!("{} · {}", self.user_name(user_id), day_label_inline(at));
 
         let body: AnyElement = match self.files_tab {
             FilesTab::Media if media.is_empty() => {
-                empty(if loaded { "Aucune image ni vidéo dans ce canal." } else { "Chargement…" })
+                empty(if loaded { t!("files.no_media") } else { t!("common.loading") }.into())
             }
             FilesTab::Media => {
                 // Galerie justifiée : chaque ligne remplit la largeur, les images
@@ -3796,7 +3797,7 @@ impl ChatApp {
                     .into_any_element()
             }
             FilesTab::Documents if documents.is_empty() => {
-                empty(if loaded { "Aucun fichier dans ce canal." } else { "Chargement…" })
+                empty(if loaded { t!("files.no_files") } else { t!("common.loading") }.into())
             }
             FilesTab::Documents => v_flex()
                 .id("docs-list")
@@ -3828,7 +3829,7 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::ExternalLink))
                                 .ghost()
                                 .small()
-                                .tooltip("Ouvrir")
+                                .tooltip(t!("common.open"))
                                 .on_click(move |_, _, cx| {
                                     let file = f1.clone();
                                     e1.update(cx, |this, cx| this.download(file, true, cx));
@@ -3839,7 +3840,7 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::Download))
                                 .ghost()
                                 .small()
-                                .tooltip("Télécharger")
+                                .tooltip(t!("common.download"))
                                 .on_click(move |_, _, cx| {
                                     let file = f2.clone();
                                     e2.update(cx, |this, cx| this.download(file, false, cx));
@@ -3847,7 +3848,7 @@ impl ChatApp {
                         )
                 }))
                 .into_any_element(),
-            FilesTab::Links if links.is_empty() => empty("Aucun lien dans les messages chargés de ce canal."),
+            FilesTab::Links if links.is_empty() => empty(t!("files.no_links").into()),
             FilesTab::Links => v_flex()
                 .id("links-list")
                 .flex_1()
@@ -4058,12 +4059,14 @@ impl ChatApp {
                 .child(initials)
                 .into_any_element(),
         };
-        let kind = if team.team_type == "O" { "Équipe ouverte à tous" } else { "Équipe sur invitation" };
+        let kind = if team.team_type == "O" { t!("team.open") } else { t!("team.invite_only") };
         let members = match info {
-            Some(i) => format!("{} membres, dont {} actifs", i.total, i.active),
-            None => "Chargement…".to_string(),
+            Some(i) if i.total == 1 => t!("team.members.one", active = i.active).to_string(),
+            Some(i) => t!("team.members.other", count = i.total, active = i.active).to_string(),
+            None => t!("common.loading").to_string(),
         };
-        let since = (team.create_at > 0).then(|| format!("Créée {}", day_label(team.create_at).to_lowercase()));
+        let since =
+            (team.create_at > 0).then(|| t!("team.created", day = day_label_inline(team.create_at)).to_string());
         let admin = info.is_some_and(|i| i.admin);
         let description: AnyElement = if editing {
             v_flex()
@@ -4073,15 +4076,15 @@ impl ChatApp {
                     h_flex()
                         .gap_2()
                         .justify_end()
-                        .child(Button::new("team-desc-cancel").label("Annuler").ghost().small().on_click(cx.listener(
-                            |this, _, _, cx| {
+                        .child(Button::new("team-desc-cancel").label(t!("common.cancel")).ghost().small().on_click(
+                            cx.listener(|this, _, _, cx| {
                                 this.team_card = Some(false);
                                 cx.notify();
-                            },
-                        )))
+                            }),
+                        ))
                         .child(
                             Button::new("team-desc-save")
-                                .label("Enregistrer")
+                                .label(t!("common.save"))
                                 .primary()
                                 .small()
                                 .on_click(cx.listener(|this, _, _, cx| this.save_team_description(cx))),
@@ -4099,7 +4102,7 @@ impl ChatApp {
                         .text_sm()
                         .when(team.description.is_empty(), |d| d.italic().text_color(p.muted()))
                         .child(if team.description.is_empty() {
-                            "Pas encore de description.".to_string()
+                            t!("common.no_description").to_string()
                         } else {
                             team.description.clone()
                         }),
@@ -4110,7 +4113,7 @@ impl ChatApp {
                             .icon(Icon::new(IconName::PencilLine))
                             .ghost()
                             .xsmall()
-                            .tooltip("Modifier la description")
+                            .tooltip(t!("team.edit_description"))
                             .on_click(cx.listener(|this, _, window, cx| this.edit_team_description(window, cx))),
                     )
                 })
@@ -4193,7 +4196,11 @@ impl ChatApp {
                                     v_flex()
                                         .gap_1()
                                         .child(
-                                            div().text_xs().font_semibold().text_color(p.muted()).child("Description"),
+                                            div()
+                                                .text_xs()
+                                                .font_semibold()
+                                                .text_color(p.muted())
+                                                .child(t!("common.description")),
                                         )
                                         .child(description),
                                 ),
@@ -4211,20 +4218,22 @@ impl ChatApp {
         let state = self.channels.get(&id)?;
         let channel = &state.channel;
         let p = self.palette;
-        let kind = if channel.kind == "P" { "Canal privé" } else { "Canal public" };
+        let kind = if channel.kind == "P" { t!("channel_card.private") } else { t!("channel_card.public") };
         let members = match self.members.get(&id) {
-            Some((_, total)) => format!("{total} membres"),
-            None => "Membres : chargement…".to_string(),
+            Some((_, 1)) => t!("channel_card.members.one").to_string(),
+            Some((_, total)) => t!("channel_card.members.other", count = total).to_string(),
+            None => t!("channel_card.members_loading").to_string(),
         };
-        let since = (channel.create_at > 0).then(|| format!("Créé {}", day_label(channel.create_at).to_lowercase()));
+        let since = (channel.create_at > 0)
+            .then(|| t!("channel_card.created", day = day_label_inline(channel.create_at)).to_string());
         let favorite = self.is_favorite(&id);
-        let section = |title: &'static str| div().text_xs().font_semibold().text_color(p.muted()).child(title);
+        let section = |title: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(title);
         // Markdown rendu (liens cliquables), ou une invite si vide.
-        let text_or = |text: &str, empty: &'static str| {
-            let id = SharedString::from(format!("ch-info-{}", empty.len()));
+        let text_or = |key: &str, text: &str, empty: SharedString| {
+            let id = SharedString::from(format!("ch-info-{key}"));
             div().min_w_0().text_sm().when(text.is_empty(), |d| d.italic().text_color(p.muted())).child(
                 if text.is_empty() {
-                    empty.to_string().into_any_element()
+                    empty.into_any_element()
                 } else {
                     TextView::markdown(id, markdown::prepare(text))
                         .on_link_click(|url, _, _, cx| open_link(url, cx))
@@ -4235,23 +4244,23 @@ impl ChatApp {
         let details: AnyElement = if editing {
             v_flex()
                 .gap_2()
-                .child(section("Description"))
+                .child(section(t!("common.description").into()))
                 .child(Input::new(&self.channel_purpose_input))
-                .child(section("En-tête"))
+                .child(section(t!("channel_card.header").into()))
                 .child(Input::new(&self.channel_header_input))
                 .child(
                     h_flex()
                         .gap_2()
                         .justify_end()
-                        .child(Button::new("ch-card-cancel").label("Annuler").ghost().small().on_click(cx.listener(
-                            |this, _, _, cx| {
+                        .child(Button::new("ch-card-cancel").label(t!("common.cancel")).ghost().small().on_click(
+                            cx.listener(|this, _, _, cx| {
                                 this.channel_editing = false;
                                 cx.notify();
-                            },
-                        )))
+                            }),
+                        ))
                         .child(
                             Button::new("ch-card-save")
-                                .label("Enregistrer")
+                                .label(t!("common.save"))
                                 .primary()
                                 .small()
                                 .on_click(cx.listener(|this, _, _, cx| this.save_channel_card(cx))),
@@ -4265,22 +4274,26 @@ impl ChatApp {
                     v_flex()
                         .gap_1()
                         .child(
-                            h_flex().child(div().flex_1().child(section("Description"))).child(
+                            h_flex().child(div().flex_1().child(section(t!("common.description").into()))).child(
                                 Button::new("ch-card-edit")
                                     .icon(Icon::new(IconName::PencilLine))
                                     .ghost()
                                     .xsmall()
-                                    .tooltip("Modifier la description et l'en-tête")
+                                    .tooltip(t!("channel_card.edit"))
                                     .on_click(cx.listener(|this, _, window, cx| this.edit_channel_card(window, cx))),
                             ),
                         )
-                        .child(text_or(&channel.purpose, "Pas encore de description.")),
+                        .child(text_or("purpose", &channel.purpose, t!("common.no_description").into())),
                 )
-                .child(v_flex().gap_1().child(section("En-tête")).child(text_or(&channel.header, "Pas d'en-tête.")))
+                .child(v_flex().gap_1().child(section(t!("channel_card.header").into())).child(text_or(
+                    "header",
+                    &channel.header,
+                    t!("channel_card.no_header").into(),
+                )))
                 .into_any_element()
         };
         let (fav_id, mute_id, link_id, add_id) = (id.clone(), id.clone(), id.clone(), id.clone());
-        let action = |key: &'static str, icon: IconName, label: &'static str| {
+        let action = |key: &'static str, icon: IconName, label: SharedString| {
             v_flex()
                 .id(key)
                 .flex_1()
@@ -4356,7 +4369,12 @@ impl ChatApp {
                                     action(
                                         "ch-card-fav",
                                         IconName::Star,
-                                        if favorite { "Retirer des favoris" } else { "Favori" },
+                                        if favorite {
+                                            t!("channel_menu.unfavorite")
+                                        } else {
+                                            t!("channel_card.favorite")
+                                        }
+                                        .into(),
                                     )
                                     .on_click(
                                         cx.listener(move |this, _, _, cx| this.toggle_favorite(fav_id.clone(), cx)),
@@ -4366,23 +4384,25 @@ impl ChatApp {
                                     action(
                                         "ch-card-mute",
                                         if state.muted { IconName::Bell } else { IconName::BellOff },
-                                        if state.muted { "Réactiver" } else { "Sourdine" },
+                                        if state.muted { t!("channel_card.unmute") } else { t!("channel_card.mute") }
+                                            .into(),
                                     )
                                     .on_click(
                                         cx.listener(move |this, _, _, cx| this.toggle_muted(mute_id.clone(), cx)),
                                     ),
                                 )
                                 .child(
-                                    action("ch-card-link", IconName::Link, "Copier le lien").on_click(
-                                        cx.listener(move |this, _, _, cx| this.copy_channel_link(&link_id, cx)),
-                                    ),
+                                    action("ch-card-link", IconName::Link, t!("channel_menu.copy_link").into())
+                                        .on_click(
+                                            cx.listener(move |this, _, _, cx| this.copy_channel_link(&link_id, cx)),
+                                        ),
                                 )
-                                .child(action("ch-card-add", IconName::UserPlus, "Ajouter").on_click(cx.listener(
-                                    move |this, _, window, cx| {
+                                .child(action("ch-card-add", IconName::UserPlus, t!("common.add").into()).on_click(
+                                    cx.listener(move |this, _, window, cx| {
                                         this.close_channel_card(cx);
                                         this.open_add_members(add_id.clone(), window, cx)
-                                    },
-                                ))),
+                                    }),
+                                )),
                         ),
                 )
                 .into_any_element(),
@@ -4395,12 +4415,14 @@ impl ChatApp {
         let kind = self.create?;
         let p = self.palette;
         let (title, icon, action) = match kind {
-            super::CreateKind::Channel => ("Créer un canal", IconName::Hash, "Créer le canal"),
-            super::CreateKind::Category => ("Créer une catégorie", IconName::FolderPlus, "Créer la catégorie"),
-            super::CreateKind::Invite => ("Inviter dans l'équipe", IconName::UserPlus, "Envoyer les invitations"),
+            super::CreateKind::Channel => (t!("create.channel_title"), IconName::Hash, t!("create.channel_submit")),
+            super::CreateKind::Category => {
+                (t!("create.category_title"), IconName::FolderPlus, t!("create.category_submit"))
+            }
+            super::CreateKind::Invite => (t!("create.invite_title"), IconName::UserPlus, t!("create.invite_submit")),
         };
-        let label = |t: &'static str| div().text_xs().font_semibold().text_color(p.muted()).child(t);
-        let choice = |id: &'static str, on: bool, icon: IconName, t: &'static str, hint: &'static str| {
+        let label = |t: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(t);
+        let choice = |id: &'static str, on: bool, icon: IconName, t: SharedString, hint: SharedString| {
             h_flex()
                 .id(id)
                 .flex_1()
@@ -4462,48 +4484,67 @@ impl ChatApp {
                         .child(
                             v_flex()
                                 .gap_1()
-                                .child(label(match kind {
-                                    super::CreateKind::Invite => "Adresses e-mail (séparées par des virgules)",
-                                    _ => "Nom",
-                                }))
+                                .child(label(
+                                    match kind {
+                                        super::CreateKind::Invite => t!("create.emails_label"),
+                                        _ => t!("create.name_label"),
+                                    }
+                                    .into(),
+                                ))
                                 .child(Input::new(&self.create_name_input))
                                 .when(kind == super::CreateKind::Channel && !name.is_empty(), |el| {
-                                    el.child(div().text_xs().text_color(p.muted()).child(format!("Lien : ~{name}")))
+                                    el.child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(p.muted())
+                                            .child(t!("create.link_preview", name = name)),
+                                    )
                                 }),
                         )
                         .when(kind == super::CreateKind::Channel, |el| {
                             el.child(
                                 v_flex()
                                     .gap_1()
-                                    .child(label("Description"))
+                                    .child(label(t!("common.description").into()))
                                     .child(Input::new(&self.create_purpose_input)),
                             )
                             .child(
                                 h_flex()
                                     .gap_2()
                                     .child(
-                                        choice("create-public", !self.create_private, IconName::Hash, "Public", "Ouvert à toute l'équipe")
-                                            .on_click(cx.listener(|this, _, _, cx| {
+                                        choice(
+                                            "create-public",
+                                            !self.create_private,
+                                            IconName::Hash,
+                                            t!("create.public").into(),
+                                            t!("create.public_hint").into(),
+                                        )
+                                        .on_click(cx.listener(
+                                            |this, _, _, cx| {
                                                 this.create_private = false;
                                                 cx.notify();
-                                            })),
+                                            },
+                                        )),
                                     )
                                     .child(
-                                        choice("create-private", self.create_private, IconName::Lock, "Privé", "Sur invitation")
-                                            .on_click(cx.listener(|this, _, _, cx| {
+                                        choice(
+                                            "create-private",
+                                            self.create_private,
+                                            IconName::Lock,
+                                            t!("create.private").into(),
+                                            t!("create.private_hint").into(),
+                                        )
+                                        .on_click(cx.listener(
+                                            |this, _, _, cx| {
                                                 this.create_private = true;
                                                 cx.notify();
-                                            })),
+                                            },
+                                        )),
                                     ),
                             )
                         })
                         .when(kind == super::CreateKind::Invite, |el| {
-                            el.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(p.muted())
-                                    .child("Chaque personne reçoit un courriel pour rejoindre l'équipe (si l'administrateur l'autorise)."),
-                            )
+                            el.child(div().text_xs().text_color(p.muted()).child(t!("create.invite_hint")))
                         })
                         .child(
                             h_flex()
@@ -4511,7 +4552,7 @@ impl ChatApp {
                                 .justify_end()
                                 .child(
                                     Button::new("create-cancel")
-                                        .label("Annuler")
+                                        .label(t!("common.cancel"))
                                         .ghost()
                                         .on_click(cx.listener(|this, _, _, cx| this.close_create(cx))),
                                 )
@@ -4538,12 +4579,10 @@ impl ChatApp {
         let p = self.palette;
         let title = self.channels.get(&add.channel_id).map(|c| self.channel_title(&c.channel)).unwrap_or_default();
         let body: AnyElement = match &add.results {
-            None => div().p_4().text_color(p.muted()).child("Recherche…").into_any_element(),
-            Some(users) if users.is_empty() => div()
-                .p_4()
-                .text_color(p.muted())
-                .child("Personne à ajouter : tout le monde est déjà dans le canal, ou aucun nom ne correspond.")
-                .into_any_element(),
+            None => div().p_4().text_color(p.muted()).child(t!("members.searching")).into_any_element(),
+            Some(users) if users.is_empty() => {
+                div().p_4().text_color(p.muted()).child(t!("members.nobody_to_add")).into_any_element()
+            }
             Some(users) => v_flex()
                 .id("add-members-list")
                 .max_h(px(360.))
@@ -4573,12 +4612,12 @@ impl ChatApp {
                                 .text_sm()
                                 .text_color(p.online)
                                 .child(Icon::new(IconName::CircleCheck).size(px(15.)))
-                                .child("Ajouté")
+                                .child(t!("members.added"))
                                 .into_any_element()
                         } else {
                             Button::new(SharedString::from(format!("add-{}", u.id)))
                                 .icon(Icon::new(IconName::UserPlus))
-                                .label("Ajouter")
+                                .label(t!("common.add"))
                                 .small()
                                 .primary()
                                 .on_click(cx.listener(move |this, _, _, cx| this.add_member(uid.clone(), cx)))
@@ -4625,7 +4664,7 @@ impl ChatApp {
                                         .flex_1()
                                         .text_size(px(16.))
                                         .font_bold()
-                                        .child(format!("Ajouter des membres à {title}")),
+                                        .child(t!("members.add_to", channel = title)),
                                 )
                                 .child(
                                     Button::new("add-members-close")
@@ -4752,7 +4791,7 @@ impl ChatApp {
                         )
                         .child(div().h(px(1.)).bg(p.border()))
                         .child(v_flex().py_1().children(rows).when(empty, |el| {
-                            el.child(div().px_4().py_3().text_color(p.muted()).child("Aucun canal ne correspond."))
+                            el.child(div().px_4().py_3().text_color(p.muted()).child(t!("switcher.no_match")))
                         })),
                 )
                 .into_any_element(),
@@ -4790,9 +4829,9 @@ impl ChatApp {
             names.into_iter().filter(|n| n.contains(&query)).map(|n| (n.clone(), String::new())).collect()
         };
         if query.is_empty() {
-            push_group(&mut rows, "Personnalisés", custom);
+            push_group(&mut rows, &t!("emoji.custom"), custom);
             for (title, list) in crate::emoji::catalog() {
-                push_group(&mut rows, title, list.clone());
+                push_group(&mut rows, &t!(*title), list.clone());
             }
         } else {
             let mut found = custom;
@@ -4891,9 +4930,7 @@ impl ChatApp {
                             Input::new(&self.emoji_search)
                                 .prefix(Icon::new(IconName::Search).size(px(14.)).text_color(p.muted())),
                         )
-                        .when(empty, |el| {
-                            el.child(div().p_2().text_color(p.muted()).child("Aucun emoji ne correspond."))
-                        })
+                        .when(empty, |el| el.child(div().p_2().text_color(p.muted()).child(t!("emoji.no_match"))))
                         .child(list),
                 )
                 .into_any_element(),
@@ -4905,7 +4942,7 @@ impl ChatApp {
         let viewer = self.viewer.as_ref()?;
         let file = viewer.file.clone();
         let light = white();
-        let action = |id: &'static str, icon: IconName, tip: &'static str| {
+        let action = |id: &'static str, icon: IconName, tip: SharedString| {
             div()
                 .id(id)
                 .p_2()
@@ -4914,7 +4951,7 @@ impl ChatApp {
                 .text_color(light.opacity(0.85))
                 .hover(|s| s.bg(light.opacity(0.12)).text_color(light))
                 .child(Icon::new(icon).size(px(20.)))
-                .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip).build(window, cx))
+                .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx))
         };
 
         let content: AnyElement = match (&viewer.image, &viewer.error) {
@@ -4939,7 +4976,7 @@ impl ChatApp {
                 // Un clic sur l'image ne ferme pas la visionneuse.
                 .on_click(|_, _, cx| cx.stop_propagation())
                 .into_any_element(),
-            (None, None) => div().text_color(light.opacity(0.8)).child("Chargement…").into_any_element(),
+            (None, None) => div().text_color(light.opacity(0.8)).child(t!("common.loading")).into_any_element(),
         };
 
         Some(
@@ -4976,21 +5013,22 @@ impl ChatApp {
                                         .child(div().truncate().font_semibold().child(file.name.clone()))
                                         .child(div().text_xs().text_color(light.opacity(0.6)).child(file.human_size())),
                                 )
-                                .child(action("viewer-download", IconName::Download, "Télécharger").on_click(
-                                    cx.listener({
-                                        let file = file.clone();
-                                        move |this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            this.download(file.clone(), false, cx);
-                                        }
-                                    }),
-                                ))
-                                .child(action("viewer-close", IconName::X, "Fermer (Échap)").on_click(cx.listener(
-                                    |this, _, _, cx| {
+                                .child(
+                                    action("viewer-download", IconName::Download, t!("common.download").into())
+                                        .on_click(cx.listener({
+                                            let file = file.clone();
+                                            move |this, _, _, cx| {
+                                                cx.stop_propagation();
+                                                this.download(file.clone(), false, cx);
+                                            }
+                                        })),
+                                )
+                                .child(action("viewer-close", IconName::X, t!("viewer.close").into()).on_click(
+                                    cx.listener(|this, _, _, cx| {
                                         cx.stop_propagation();
                                         this.close_viewer(cx);
-                                    },
-                                ))),
+                                    }),
+                                )),
                         )
                         .child(div().flex_1().min_h_0().p_6().flex().items_center().justify_center().child(content)),
                 ),
@@ -5039,36 +5077,56 @@ fn format_time(ms: i64) -> String {
 
 /// « Aujourd'hui », « Hier », « jeudi 19 novembre » ou « 3 mars 2025 ».
 fn day_label(ms: i64) -> String {
+    day_label_with(ms, false)
+}
+
+/// Comme `day_label`, au fil d'une phrase (« hier », « today »).
+fn day_label_inline(ms: i64) -> String {
+    day_label_with(ms, true)
+}
+
+fn day_label_with(ms: i64, inline: bool) -> String {
     use chrono::Datelike;
-    const DAYS: [&str; 7] = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
-    const MONTHS: [&str; 12] = [
-        "janvier",
-        "février",
-        "mars",
-        "avril",
-        "mai",
-        "juin",
-        "juillet",
-        "août",
-        "septembre",
-        "octobre",
-        "novembre",
-        "décembre",
-    ];
     let Some(t) = local(ms) else { return String::new() };
     let today = chrono::Local::now().date_naive();
     let date = t.date_naive();
-    let month = MONTHS[date.month0() as usize];
+    let month = t!(MONTHS[date.month0() as usize]);
     if date == today {
-        "Aujourd'hui".into()
+        if inline { t!("dates.today_inline") } else { t!("dates.today") }.into()
     } else if Some(date) == today.pred_opt() {
-        "Hier".into()
+        if inline { t!("dates.yesterday_inline") } else { t!("dates.yesterday") }.into()
     } else if date.year() == today.year() {
-        format!("{} {} {month}", DAYS[date.weekday().num_days_from_monday() as usize], date.day())
+        let weekday = t!(WEEKDAYS[date.weekday().num_days_from_monday() as usize]);
+        t!("dates.this_year", weekday = weekday, day = date.day(), month = month).into()
     } else {
-        format!("{} {month} {}", date.day(), date.year())
+        t!("dates.other_year", day = date.day(), month = month, year = date.year()).into()
     }
 }
+
+/// Clés des jours de la semaine (lundi d'abord) et des mois.
+const WEEKDAYS: [&str; 7] = [
+    "dates.weekdays.monday",
+    "dates.weekdays.tuesday",
+    "dates.weekdays.wednesday",
+    "dates.weekdays.thursday",
+    "dates.weekdays.friday",
+    "dates.weekdays.saturday",
+    "dates.weekdays.sunday",
+];
+const MONTHS: [&str; 12] = [
+    "dates.months.january",
+    "dates.months.february",
+    "dates.months.march",
+    "dates.months.april",
+    "dates.months.may",
+    "dates.months.june",
+    "dates.months.july",
+    "dates.months.august",
+    "dates.months.september",
+    "dates.months.october",
+    "dates.months.november",
+    "dates.months.december",
+];
 
 fn date_separator(ms: i64, p: &Palette) -> impl IntoElement {
     h_flex()
@@ -5118,7 +5176,7 @@ fn new_messages_separator(p: &Palette) -> impl IntoElement {
         .pt_3()
         .gap_3()
         .child(div().flex_1().h(px(1.)).bg(p.new_separator))
-        .child(div().text_size(px(12.)).font_semibold().text_color(p.new_separator).child("Nouveaux messages"))
+        .child(div().text_size(px(12.)).font_semibold().text_color(p.new_separator).child(t!("messages.new_messages")))
         .child(div().flex_1().h(px(1.)).bg(p.new_separator))
 }
 
@@ -5187,12 +5245,11 @@ fn local_time(tz: &str) -> Option<(String, String)> {
 
 fn offset_label(minutes: i32) -> String {
     if minutes == 0 {
-        return "même heure que vous".into();
+        return t!("time.same_as_you").into();
     }
     let (h, m) = (minutes.abs() / 60, minutes.abs() % 60);
-    let span = if m == 0 { format!("{h} h") } else { format!("{h} h {m:02}") };
-    let way = if minutes > 0 { "d'avance" } else { "de retard" };
-    format!("{span} {way}")
+    let span = if m == 0 { t!("time.hours", h = h) } else { t!("time.hours_minutes", h = h, m = format!("{m:02}")) };
+    if minutes > 0 { t!("time.ahead", span = span) } else { t!("time.behind", span = span) }.into()
 }
 
 #[cfg(test)]
@@ -5201,9 +5258,12 @@ mod profile_tests {
 
     #[test]
     fn decalage_horaire_lisible() {
-        assert_eq!(offset_label(0), "même heure que vous");
-        assert_eq!(offset_label(-360), "6 h de retard");
-        assert_eq!(offset_label(330), "5 h 30 d'avance");
+        assert_eq!(offset_label(0), t!("time.same_as_you"));
+        assert_eq!(offset_label(-360), t!("time.behind", span = t!("time.hours", h = 6)));
+        assert_eq!(offset_label(330), t!("time.ahead", span = t!("time.hours_minutes", h = 5, m = "30")));
+        // Avec le catalogue français, le texte d'origine.
+        let fr = |span| t!("time.ahead", locale = "fr", span = span);
+        assert_eq!(fr(t!("time.hours_minutes", locale = "fr", h = 5, m = "30")), "5 h 30 d'avance");
     }
 }
 
@@ -5377,32 +5437,37 @@ fn justify_rows(files: &[FileInfo], width: f32, target: f32, gap: f32) -> Vec<Ve
 /// « Novembre 2026 ».
 fn month_label(ms: i64) -> String {
     use chrono::Datelike as _;
-    const MONTHS: [&str; 12] = [
-        "Janvier",
-        "Février",
-        "Mars",
-        "Avril",
-        "Mai",
-        "Juin",
-        "Juillet",
-        "Août",
-        "Septembre",
-        "Octobre",
-        "Novembre",
-        "Décembre",
-    ];
     let Some(date) = chrono::DateTime::from_timestamp_millis(ms) else { return String::new() };
     let date = date.with_timezone(&chrono::Local);
-    format!("{} {}", MONTHS[date.month0() as usize], date.year())
+    let month = t!(MONTHS[date.month0() as usize]);
+    t!("dates.month_year", month = capitalize(&month), year = date.year()).into()
+}
+
+/// Première lettre en majuscule (« novembre » → « Novembre »).
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
+/// Titre affiché d'un groupe de la liste des membres.
+fn member_group_title(group: &str) -> SharedString {
+    match group {
+        "admins" => t!("members.groups.admins"),
+        "online" => t!("status.online"),
+        "away" => t!("status.away"),
+        "dnd" => t!("status.dnd"),
+        _ => t!("status.offline"),
+    }
+    .into()
 }
 
 /// Couleur d'un groupe de la liste des membres.
-fn group_color(title: &str, p: &Palette) -> Hsla {
-    match title {
-        "Administrateurs" => p.button_bg,
-        "En ligne" => p.online,
-        "Absent" => p.away,
-        "Ne pas déranger" => p.dnd,
+fn group_color(group: &str, p: &Palette) -> Hsla {
+    match group {
+        "admins" => p.button_bg,
+        "online" => p.online,
+        "away" => p.away,
+        "dnd" => p.dnd,
         _ => p.center_color.opacity(0.5),
     }
 }

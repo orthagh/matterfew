@@ -178,7 +178,11 @@ pub(crate) fn channel_slug(display: &str) -> String {
         }
     }
     let slug: String = slug.trim_end_matches('-').chars().take(64).collect();
-    if slug.len() < 2 { format!("canal-{}", chrono::Utc::now().timestamp_millis() % 100_000) } else { slug }
+    if slug.len() < 2 {
+        format!("{}-{}", t!("create.slug_fallback"), chrono::Utc::now().timestamp_millis() % 100_000)
+    } else {
+        slug
+    }
 }
 
 /// Démarrage : selon la ligne de commande (connexion mémorisée), ou démo.
@@ -432,29 +436,45 @@ impl ChatApp {
         };
         let initial_url = auto.as_ref().map(|(u, ..)| u.clone()).or_else(credentials::last_server).unwrap_or(env_url);
 
-        let url_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("https://chat.exemple.org").default_value(initial_url));
-        let token_input = cx.new(|cx| InputState::new(window, cx).placeholder("Jeton d'accès personnel").masked(true));
-        let email_input = cx.new(|cx| InputState::new(window, cx).placeholder("prenom.nom@exemple.org"));
-        let password_input = cx.new(|cx| InputState::new(window, cx).placeholder("Mot de passe").masked(true));
-        let mfa_input = cx.new(|cx| InputState::new(window, cx).placeholder("Code à 6 chiffres"));
-        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher"));
-        let team_desc_input = cx.new(|cx| InputState::new(window, cx).placeholder("Décrivez l'équipe en une phrase"));
+        let url_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(t!("login.server_placeholder").to_string())
+                .default_value(initial_url)
+        });
+        let token_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("login.token").to_string()).masked(true));
+        let email_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("login.email_placeholder").to_string()));
+        let password_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("login.password").to_string()).masked(true));
+        let mfa_input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("login.mfa_placeholder").to_string()));
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder(t!("search.placeholder").to_string()));
+        let team_desc_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("team.description_placeholder").to_string()));
         let create_name_input = cx.new(|cx| InputState::new(window, cx));
         let create_purpose_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("À quoi sert ce canal ? (facultatif)"));
-        let channel_purpose_input = cx.new(|cx| InputState::new(window, cx).placeholder("À quoi sert ce canal ?"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("create.purpose_placeholder").to_string()));
+        let channel_purpose_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("channel_card.purpose_placeholder").to_string()));
         let channel_header_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Liens utiles, consignes… (Markdown)"));
-        let member_search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Nom ou identifiant"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("channel_card.header_placeholder").to_string()));
+        let member_search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("members.search_placeholder").to_string()));
         let switcher_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Aller à un canal ou une conversation"));
-        let emoji_search = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher un emoji"));
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("switcher.placeholder").to_string()));
+        let emoji_search =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("emoji.search_placeholder").to_string()));
         let composer = cx.new(|cx| {
-            TextareaState::new(window, cx).auto_grow(1, 8).submit_on_enter(true).placeholder("Écrire un message")
+            TextareaState::new(window, cx)
+                .auto_grow(1, 8)
+                .submit_on_enter(true)
+                .placeholder(t!("composer.placeholder").to_string())
         });
         let thread_composer = cx.new(|cx| {
-            TextareaState::new(window, cx).auto_grow(1, 6).submit_on_enter(true).placeholder("Répondre dans le fil…")
+            TextareaState::new(window, cx)
+                .auto_grow(1, 6)
+                .submit_on_enter(true)
+                .placeholder(t!("composer.reply_placeholder").to_string())
         });
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
         let thread_scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
@@ -835,7 +855,7 @@ impl ChatApp {
     fn server_input(&mut self, cx: &mut Context<Self>) -> Option<String> {
         let url = self.url_input.read(cx).value().trim().trim_end_matches('/').to_string();
         if url.is_empty() {
-            self.error = Some("Indiquez l'adresse du serveur Mattermost.".into());
+            self.error = Some(t!("login.missing_server").into());
             cx.notify();
             return None;
         }
@@ -863,7 +883,7 @@ impl ChatApp {
             move || sso::login_in_browser(&url).map_err(|e| e.to_string())
         });
         cx.spawn_in(window, async move |this, cx| {
-            let result = result.recv().await.unwrap_or_else(|_| Err("Connexion interrompue.".into()));
+            let result = result.recv().await.unwrap_or_else(|_| Err(t!("login.interrupted").into()));
             let _ = this.update_in(cx, |this, window, cx| {
                 this.login_busy = None;
                 match result {
@@ -889,7 +909,7 @@ impl ChatApp {
         let password = self.password_input.read(cx).value().to_string();
         let mfa = if self.show_mfa { self.mfa_input.read(cx).value().trim().to_string() } else { String::new() };
         if email.is_empty() || password.is_empty() {
-            self.error = Some("Indiquez votre e-mail et votre mot de passe.".into());
+            self.error = Some(t!("login.missing_credentials").into());
             cx.notify();
             return;
         }
@@ -906,8 +926,7 @@ impl ChatApp {
             }
         });
         cx.spawn_in(window, async move |this, cx| {
-            let result =
-                result.recv().await.unwrap_or_else(|_| Err(LoginError::Other("Connexion interrompue.".into())));
+            let result = result.recv().await.unwrap_or_else(|_| Err(LoginError::Other(t!("login.interrupted").into())));
             let _ = this.update_in(cx, |this, window, cx| {
                 this.login_busy = None;
                 match result {
@@ -919,7 +938,7 @@ impl ChatApp {
                     }
                     Err(LoginError::MfaRequired) => {
                         this.show_mfa = true;
-                        this.error = Some("Saisissez le code de votre application d'authentification.".into());
+                        this.error = Some(t!("login.mfa_required").into());
                         this.mfa_input.update(cx, |s, cx| s.focus(window, cx));
                         cx.notify();
                     }
@@ -947,7 +966,7 @@ impl ChatApp {
         }
         let token = token.trim().to_string();
         if token.is_empty() {
-            self.error = Some("Le jeton est vide.".into());
+            self.error = Some(t!("login.empty_token").into());
             cx.notify();
             return;
         }
@@ -1224,7 +1243,7 @@ impl ChatApp {
         // Pièces jointes : on attend la fin de leur envoi.
         let pending: Vec<&Attachment> = self.attachments.iter().filter(|a| a.pane == pane).collect();
         if pending.iter().any(|a| a.file_id.is_none() && a.error.is_none()) {
-            self.info = Some("Envoi des fichiers en cours, patientez un instant…".into());
+            self.info = Some(t!("composer.uploading_wait").into());
             cx.notify();
             return;
         }
@@ -1304,7 +1323,7 @@ impl ChatApp {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Joindre".into()),
+            prompt: Some(t!("composer.attach_prompt").to_string().into()),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = paths.await {
@@ -1322,7 +1341,7 @@ impl ChatApp {
     /// Télécharge un fichier joint ; `open` : l'ouvrir avec l'application
     /// par défaut, sinon le ranger dans Téléchargements.
     fn download(&mut self, file: FileInfo, open: bool, cx: &mut Context<Self>) {
-        self.info = Some(format!("Téléchargement de {}…", file.name));
+        self.info = Some(t!("files.downloading", name = file.name).into());
         self.send(Command::Download { file, open });
         cx.notify();
     }
@@ -1546,7 +1565,11 @@ impl ChatApp {
             // « Écrire à Léa » pour un message direct, « Écrire dans Général » sinon.
             let prompt = self.channel_id.as_ref().and_then(|id| self.channels.get(id)).map(|c| {
                 let title = self.channel_title(&c.channel);
-                if c.channel.is_direct() { format!("Écrire à {title}") } else { format!("Écrire dans {title}") }
+                if c.channel.is_direct() {
+                    t!("composer.write_to", name = title).to_string()
+                } else {
+                    t!("composer.write_in", channel = title).to_string()
+                }
             });
             if let Some(prompt) = prompt {
                 self.composer.update(cx, |s, cx| s.set_placeholder(prompt, window, cx));
@@ -1592,25 +1615,25 @@ impl ChatApp {
 
     fn copy(&mut self, text: String, what: &str, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
-        self.flash(format!("{what} copié dans le presse-papiers."), cx);
+        self.flash(t!("clipboard.copied", what = what).into(), cx);
     }
 
     fn copy_post_link(&mut self, post_id: &str, cx: &mut Context<Self>) {
         let server = self.server_url.clone().unwrap_or_default();
         let link = format!("{server}/{}/pl/{post_id}", self.team_name());
-        self.copy(link, "Lien du message", cx);
+        self.copy(link, &t!("clipboard.message_link"), cx);
     }
 
     fn copy_post_text(&mut self, post_id: &str, cx: &mut Context<Self>) {
         let text = self.find_post(post_id).map(|p| p.message.clone()).unwrap_or_default();
-        self.copy(text, "Texte du message", cx);
+        self.copy(text, &t!("clipboard.message_text"), cx);
     }
 
     fn copy_channel_link(&mut self, channel_id: &str, cx: &mut Context<Self>) {
         let server = self.server_url.clone().unwrap_or_default();
         let name = self.channels.get(channel_id).map(|c| c.channel.name.clone()).unwrap_or_default();
         let link = format!("{server}/{}/channels/{name}", self.team_name());
-        self.copy(link, "Lien du canal", cx);
+        self.copy(link, &t!("clipboard.channel_link"), cx);
     }
 
     fn find_post(&self, post_id: &str) -> Option<&Post> {
@@ -1639,7 +1662,7 @@ impl ChatApp {
             self.raw_prefs.retain(|p| !(p.category == "flagged_post" && p.name == post_id));
         }
         self.send(Command::SavePost { post_id, save });
-        self.flash(if save { "Message enregistré.".into() } else { "Message retiré des enregistrés.".into() }, cx);
+        self.flash(if save { t!("post_menu.saved_flash").into() } else { t!("post_menu.unsaved_flash").into() }, cx);
     }
 
     fn toggle_pinned(&mut self, post_id: String) {
@@ -1793,9 +1816,9 @@ impl ChatApp {
     /// Fenêtre « + » : créer un canal, une catégorie, inviter quelqu'un.
     fn open_create(&mut self, kind: CreateKind, window: &mut Window, cx: &mut Context<Self>) {
         let placeholder = match kind {
-            CreateKind::Channel => "Nom du canal",
-            CreateKind::Category => "Nom de la catégorie",
-            CreateKind::Invite => "adresse@exemple.org, autre@exemple.org",
+            CreateKind::Channel => t!("create.channel_name"),
+            CreateKind::Category => t!("create.category_name"),
+            CreateKind::Invite => t!("create.invite_placeholder"),
         };
         self.create = Some(kind);
         self.create_private = false;
@@ -1840,7 +1863,7 @@ impl ChatApp {
                     .map(str::to_string)
                     .collect();
                 if emails.is_empty() {
-                    self.flash("Aucune adresse e-mail reconnue.".into(), cx);
+                    self.flash(t!("create.no_email").into(), cx);
                     return;
                 }
                 self.send(Command::InviteByEmail { team_id, emails });
@@ -2424,7 +2447,7 @@ impl ChatApp {
                     self.select_team(team_id, cx);
                     self.side = side;
                 }
-                _ => self.flash("Ce message est dans un canal d'une autre équipe.".into(), cx),
+                _ => self.flash(t!("search.other_team_post").into(), cx),
             }
             return;
         }
@@ -2811,7 +2834,7 @@ impl ChatApp {
                         Ok((Some(format), bytes)) => {
                             viewer.image = Some(Arc::new(Image::from_bytes(format, bytes.to_vec())));
                         }
-                        Ok((None, _)) => viewer.error = Some("Format d'image non pris en charge.".into()),
+                        Ok((None, _)) => viewer.error = Some(t!("viewer.unsupported_format").into()),
                         Err(err) => viewer.error = Some(err),
                     }
                 }
@@ -2819,14 +2842,14 @@ impl ChatApp {
             Event::Downloaded { path, open } => {
                 if open && is_executable(&path) {
                     cx.reveal_path(&path);
-                    self.flash("Fichier exécutable : montré dans l'Explorateur plutôt que lancé.".into(), cx);
+                    self.flash(t!("files.executable_revealed").into(), cx);
                 } else if open {
                     cx.open_with_system(&path);
                     self.info = None;
                 } else {
                     cx.reveal_path(&path);
                     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                    self.flash(format!("Enregistré dans Téléchargements : {name}"), cx);
+                    self.flash(t!("files.saved_to_downloads", name = name).into(), cx);
                 }
             }
             Event::Uploaded { local_id, file } => {
@@ -3069,9 +3092,9 @@ impl ChatApp {
                     }
                 }
             }
-            Event::Error(message) => {
+            Event::Error { message, expired } => {
                 eprintln!("erreur : {message}");
-                if self.screen == Screen::Chat && message.contains("Jeton refusé") {
+                if self.screen == Screen::Chat && expired {
                     self.session_expired = true;
                 }
                 if self.screen == Screen::Connecting {
@@ -3180,7 +3203,8 @@ impl ChatApp {
             let sender = self.user_name(&post.user_id);
             let title = match self.channels.get(&post.channel_id) {
                 Some(state) if !state.channel.is_direct() => {
-                    format!("{sender} dans {}", self.channel_title(&state.channel))
+                    t!("notifications.title_in_channel", sender = sender, channel = self.channel_title(&state.channel))
+                        .into()
                 }
                 _ => sender,
             };
@@ -3276,9 +3300,9 @@ impl ChatApp {
             .collect();
         match names.as_slice() {
             [] => None,
-            [one] => Some(format!("{one} est en train d'écrire…")),
-            [a, b] => Some(format!("{a} et {b} sont en train d'écrire…")),
-            _ => Some("Plusieurs personnes sont en train d'écrire…".to_string()),
+            [one] => Some(t!("typing.one", name = one).into()),
+            [a, b] => Some(t!("typing.two", first = a, second = b).into()),
+            _ => Some(t!("typing.many").into()),
         }
     }
 
@@ -3472,6 +3496,6 @@ mod slug_tests {
     fn noms_courts() {
         assert_eq!(channel_slug("Équipe Support N2"), "equipe-support-n2");
         assert_eq!(channel_slug("  Dév / Backend !  "), "dev-backend");
-        assert!(channel_slug("🚀").starts_with("canal-"));
+        assert!(channel_slug("🚀").starts_with(&format!("{}-", t!("create.slug_fallback"))));
     }
 }

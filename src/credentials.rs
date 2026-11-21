@@ -54,7 +54,7 @@ fn read_config() -> Option<Config> {
 }
 
 fn entry(server_url: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new(SERVICE, server_url).context("coffre d'identifiants indisponible")
+    keyring::Entry::new(SERVICE, server_url).with_context(|| t!("errors.credential_store").to_string())
 }
 
 /// Connexion enregistrée, s'il y en a une.
@@ -65,12 +65,12 @@ pub fn load() -> Option<Saved> {
 }
 
 pub fn save(server_url: &str, token: &str, kind: AuthKind) -> Result<()> {
-    let dir = dir().context("dossier de configuration introuvable")?;
+    let dir = dir().with_context(|| t!("errors.config_dir").to_string())?;
     std::fs::create_dir_all(&dir)?;
     let config = Config { server_url: server_url.to_string(), auth: kind };
     std::fs::write(dir.join("config.json"), serde_json::to_string_pretty(&config)?)?;
     let _ = std::fs::remove_file(dir.join("server.txt"));
-    entry(server_url)?.set_password(token).context("impossible d'enregistrer le jeton")?;
+    entry(server_url)?.set_password(token).with_context(|| t!("errors.save_token").to_string())?;
     Ok(())
 }
 

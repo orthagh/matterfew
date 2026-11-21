@@ -22,19 +22,20 @@ pub enum Format {
 
 impl Format {
     /// Nom affiché dans l'infobulle, avec le raccourci clavier.
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Format::Bold => "Gras (Ctrl+B)",
-            Format::Italic => "Italique (Ctrl+I)",
-            Format::Strike => "Barré (Ctrl+Maj+X)",
-            Format::Code => "Code (Ctrl+Alt+C)",
-            Format::Link => "Lien (Ctrl+Alt+K)",
-            Format::Heading => "Titre",
-            Format::Quote => "Citation",
-            Format::Bullet => "Liste à puces",
-            Format::Numbered => "Liste numérotée",
-            Format::CodeBlock => "Bloc de code",
+            Format::Bold => t!("editor.bold"),
+            Format::Italic => t!("editor.italic"),
+            Format::Strike => t!("editor.strike"),
+            Format::Code => t!("editor.code"),
+            Format::Link => t!("editor.link"),
+            Format::Heading => t!("editor.heading"),
+            Format::Quote => t!("editor.quote"),
+            Format::Bullet => t!("editor.bullet"),
+            Format::Numbered => t!("editor.numbered"),
+            Format::CodeBlock => t!("editor.code_block"),
         }
+        .to_string()
     }
 }
 

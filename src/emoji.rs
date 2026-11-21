@@ -152,7 +152,7 @@ pub fn replace_shortcodes(text: &str) -> String {
 
 /// Catalogue des emojis standard par catégorie, pour le sélecteur :
 /// (catégorie, [(nom, caractère)]). Calculé une seule fois.
-/// Une catégorie du sélecteur : (titre, [(nom, caractère)]).
+/// Une catégorie du sélecteur : (clé de traduction du titre, [(nom, caractère)]).
 pub type EmojiGroup = (&'static str, Vec<(String, String)>);
 
 pub fn catalog() -> &'static [EmojiGroup] {
@@ -162,15 +162,15 @@ pub fn catalog() -> &'static [EmojiGroup] {
         emojis::Group::iter()
             .map(|group| {
                 let label = match group {
-                    emojis::Group::SmileysAndEmotion => "Smileys et émotions",
-                    emojis::Group::PeopleAndBody => "Personnes",
-                    emojis::Group::AnimalsAndNature => "Animaux et nature",
-                    emojis::Group::FoodAndDrink => "Nourriture et boissons",
-                    emojis::Group::TravelAndPlaces => "Voyages et lieux",
-                    emojis::Group::Activities => "Activités",
-                    emojis::Group::Objects => "Objets",
-                    emojis::Group::Symbols => "Symboles",
-                    emojis::Group::Flags => "Drapeaux",
+                    emojis::Group::SmileysAndEmotion => "emoji.smileys",
+                    emojis::Group::PeopleAndBody => "emoji.people",
+                    emojis::Group::AnimalsAndNature => "emoji.animals",
+                    emojis::Group::FoodAndDrink => "emoji.food",
+                    emojis::Group::TravelAndPlaces => "emoji.travel",
+                    emojis::Group::Activities => "emoji.activities",
+                    emojis::Group::Objects => "emoji.objects",
+                    emojis::Group::Symbols => "emoji.symbols",
+                    emojis::Group::Flags => "emoji.flags",
                 };
                 let list = group
                     .emojis()

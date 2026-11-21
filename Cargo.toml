@@ -6,7 +6,6 @@ description = "Client de bureau Mattermost natif, en Rust avec GPUI"
 license = "MIT"
 authors = ["Alexandre Delaunay"]
 repository = "https://github.com/orthagh/mattermost_rust_client"
-homepage = "https://github.com/orthagh/mattermost_rust_client"
 readme = "README.md"
 
 [dependencies]
@@ -43,6 +42,8 @@ raw-window-handle = "0.6"
 chrono-tz = "0.10"
 twemoji-assets = "1.5"
 regex = "1"
+rust-i18n = "4"
+sys-locale = "0.3"
 
 # Intégration Windows : notifications avec identité et clic, pastille de la
 # barre des tâches, icône de la zone de notification.
