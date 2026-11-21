@@ -33,11 +33,10 @@ pub fn find(name: &str) -> Option<String> {
         ("_medium_skin_tone", emojis::SkinTone::Medium),
     ];
     for (suffix, tone) in TONES {
-        if let Some(base) = name.strip_suffix(suffix) {
-            if let Some(e) = by_name(base) {
+        if let Some(base) = name.strip_suffix(suffix)
+            && let Some(e) = by_name(base) {
                 return Some(e.with_skin_tone(tone).unwrap_or(e).as_str().to_string());
             }
-        }
     }
     None
 }
@@ -53,7 +52,7 @@ pub fn twemoji_svg(emoji: &str) -> Option<&'static str> {
     use twemoji_assets::svg::SvgTwemojiAsset;
     let asset = SvgTwemojiAsset::from_emoji(emoji)
         .or_else(|| SvgTwemojiAsset::from_emoji(&emoji.replace('\u{fe0f}', "")))?;
-    Some(&**asset)
+    Some(**asset)
 }
 
 /// « 😄 » → « 1f604 » (pour une adresse d'image), et l'inverse.
@@ -152,9 +151,12 @@ pub fn replace_shortcodes(text: &str) -> String {
 
 /// Catalogue des emojis standard par catégorie, pour le sélecteur :
 /// (catégorie, [(nom, caractère)]). Calculé une seule fois.
-pub fn catalog() -> &'static [(&'static str, Vec<(String, String)>)] {
+/// Une catégorie du sélecteur : (titre, [(nom, caractère)]).
+pub type EmojiGroup = (&'static str, Vec<(String, String)>);
+
+pub fn catalog() -> &'static [EmojiGroup] {
     use std::sync::OnceLock;
-    static CATALOG: OnceLock<Vec<(&'static str, Vec<(String, String)>)>> = OnceLock::new();
+    static CATALOG: OnceLock<Vec<EmojiGroup>> = OnceLock::new();
     CATALOG.get_or_init(|| {
         emojis::Group::iter()
             .map(|group| {

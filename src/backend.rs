@@ -53,6 +53,8 @@ pub enum SideKind {
     Mentions,
     /// Fichiers et liens du canal (chargés par `LoadChannelFiles`).
     Files,
+    /// Informations du canal (rien à charger).
+    Channel,
 }
 
 /// Une proposition de l'autocomplétion.
@@ -104,6 +106,7 @@ pub enum Command {
     /// Carte de l'équipe : nombre de membres, droit de modifier.
     LoadTeamInfo { team_id: String },
     SaveTeamDescription { team_id: String, description: String },
+    PatchChannel { channel_id: String, purpose: String, header: String },
     /// Personnes à ajouter au canal (recherche dans l'équipe).
     SearchUsersForChannel { team_id: String, channel_id: String, term: String },
     AddChannelMember { channel_id: String, user_id: String },
@@ -122,7 +125,7 @@ pub enum Command {
     MarkChannelsRead { channel_ids: Vec<String> },
     SetStatus { status: String },
     /// Commande « / » envoyée depuis la zone de saisie.
-    ExecuteCommand { channel_id: String, team_id: String, root_id: String, command: String },
+    Slash { channel_id: String, team_id: String, root_id: String, command: String },
     /// Télécharge un fichier joint ; `open` : l'ouvrir ensuite (sinon,
     /// l'afficher dans l'explorateur).
     Download { file: FileInfo, open: bool },
@@ -158,6 +161,8 @@ pub enum Event {
     ChannelFiles { channel_id: String, files: Vec<FileInfo> },
     TeamInfo { team_id: String, total: i64, active: i64, admin: bool },
     TeamUpdated(Team),
+    /// Canal modifié (ici ou ailleurs) : nom, description, en-tête.
+    ChannelUpdated(Channel),
     /// Règles du plugin Autolink lues sur le serveur.
     AutolinkRules(Vec<crate::autolink::RuleDef>),
     UserCandidates { channel_id: String, term: String, users: Vec<User> },
@@ -547,7 +552,7 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
                 SideKind::Pinned => client.pinned_posts(&channel_id).await?,
                 SideKind::Saved => client.saved_posts(&ctx.me_id).await?,
                 SideKind::Search => client.search_posts(&team_id, &terms).await?,
-                SideKind::Threads | SideKind::Files => Vec::new(),
+                SideKind::Threads | SideKind::Files | SideKind::Channel => Vec::new(),
                 SideKind::Mentions => {
                     // Toutes les équipes : une recherche « @nom » par équipe, fusionnées.
                     let terms = format!("@{}", ctx.me_username);
@@ -560,7 +565,7 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
                         }
                     }
                     ctx.emit(Event::ChannelTeams(teams)).await;
-                    all.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+                    all.sort_by_key(|x| std::cmp::Reverse(x.create_at));
                     all.dedup_by(|a, b| a.id == b.id);
                     all.truncate(60);
                     all
@@ -608,6 +613,10 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             let team = client.patch_team_description(&team_id, &description).await?;
             ctx.emit(Event::TeamUpdated(team)).await;
         }
+        Command::PatchChannel { channel_id, purpose, header } => {
+            let channel = client.patch_channel(&channel_id, &purpose, &header).await?;
+            ctx.emit(Event::ChannelUpdated(channel)).await;
+        }
         Command::SearchUsersForChannel { team_id, channel_id, term } => {
             let users = client.users_not_in_channel(&team_id, &channel_id, &term).await?;
             ctx.ensure_users(users.iter().map(|u| u.id.clone())).await;
@@ -645,7 +654,7 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::LeaveChannel { channel_id } => client.leave_channel(&channel_id, &ctx.me_id).await?,
         Command::MarkChannelsRead { channel_ids } => client.mark_channels_read(&channel_ids).await?,
         Command::SetStatus { status } => client.set_status(&ctx.me_id, &status).await?,
-        Command::ExecuteCommand { channel_id, team_id, root_id, command } => {
+        Command::Slash { channel_id, team_id, root_id, command } => {
             client.execute_command(&channel_id, &team_id, &root_id, &command).await?;
         }
         Command::Download { file, open } => {
@@ -827,8 +836,8 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
             let followers: Vec<String> = nested(&data, "followers").unwrap_or_default();
             Event::Posted {
                 post,
-                mentions_me: mentions.iter().any(|m| *m == ctx.me_id),
-                followed: followers.iter().any(|m| *m == ctx.me_id),
+                mentions_me: mentions.contains(&ctx.me_id),
+                followed: followers.contains(&ctx.me_id),
                 channel_type: str_field(&data, "/channel_type"),
                 team_id: str_field(&data, "/team_id"),
             }
@@ -853,6 +862,12 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
             parent_id: str_field(&data, "/parent_id"),
             user_id: str_field(&data, "/user_id"),
         }),
+        // Le canal est transmis en JSON dans une chaîne.
+        "channel_updated" => data
+            .get("channel")
+            .and_then(Value::as_str)
+            .and_then(|s| serde_json::from_str::<Channel>(s).ok())
+            .map(Event::ChannelUpdated),
         "user_added" | "user_removed" => {
             let channel_id = match str_field(&value, "/broadcast/channel_id") {
                 c if c.is_empty() => str_field(&data, "/channel_id"),

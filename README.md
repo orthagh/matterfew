@@ -9,8 +9,9 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 | Fonction | Détail |
 |---|---|
 | Connexion | Via la page de connexion du serveur (GitLab, mot de passe, double authentification), par e-mail et mot de passe, ou par jeton ; mémorisée dans le gestionnaire d'identifiants Windows, bouton « Déconnexion » pour l'oublier. Dernière équipe et dernier canal de chaque équipe rouverts au lancement |
+| Panneau du canal | Clic sur le nom du canal dans l'en-tête : panneau « À propos » à droite (suit le canal affiché) avec pastille, type, nombre de membres, date de création, description et en-tête (modifiables), favori, sourdine, copier le lien, ajouter des membres. En message direct, la carte de la personne. Un second clic referme le panneau |
 | Barre latérale | Titres de catégories avec nombre de canaux, filet et point si un canal replié est non lu. Dans une catégorie triée à la main, les canaux se réordonnent par glisser-déposer (synchronisé avec le serveur). Chaque canal précédé d'une pastille colorée à ses initiales (« Dev backend » → DB), couleur stable tirée de son nom, petit cadenas pour les canaux privés. Catégories de l'utilisateur récupérées depuis l'API (Favoris, Canaux, Messages directs, catégories personnelles) dans son ordre, tri propre à chaque catégorie (alphabétique, récents, manuel), section « Non lus » si activée dans les préférences, limite de messages directs visibles, catégories repliables (synchronisé avec le serveur), canaux en sourdine atténués, mises à jour en temps réel |
-| Messages | Historique infini (remonter charge la page précédente) avec bouton flottant « Revenir au présent », ligne « Nouveaux messages » à l'ouverture d'un canal non lu, regroupement par auteur, vos propres messages repérés par un liseré et un fond léger, @mentions en pastilles (les vôtres surlignées), `#étiquettes` cliquables (lancent la recherche), liens automatiques (plugin Autolink, voir plus bas), messages de bots (GitHub…) réduits à quelques lignes avec « Afficher tout », avatars et présence (en ligne, absent, ne pas déranger), messages qui vous mentionnent surlignés, « (modifié) », messages système |
+| Messages | Historique infini (remonter charge la page précédente) avec bouton flottant « Revenir au présent », ligne « Nouveaux messages » à l'ouverture d'un canal non lu, regroupement par auteur, vos propres messages repérés par un liseré et un fond léger, @mentions en pastilles (les vôtres surlignées), `#étiquettes` cliquables (lancent la recherche), liens automatiques (plugin Autolink, voir plus bas), messages de bots, de plugins (GitHub, GitLab, Jira…) et d'intégrations regroupés en un seul bloc, une ligne par notification (couleur, résumé tronqué, sans nom ni heure) ; un clic déplie la notification, avatars et présence (en ligne, absent, ne pas déranger), messages qui vous mentionnent surlignés, « (modifié) », messages système |
 | Intégrations et liens | Messages des intégrations (GitLab, webhooks…) en cartes : barre de couleur, auteur, titre cliquable, texte, champs, image, pied, boutons interactifs ; étiquette « BOT ». Aperçus de liens (site, titre, description, image), images liées, citations de messages. Les images externes sont chargées sans jamais envoyer le jeton |
 | Envoi | Entrée pour envoyer, Maj+Entrée pour aller à la ligne, « X est en train d'écrire… » dans les deux sens. Autocomplétion : `@` personnes, `~` canaux, `:` emojis (standard et personnalisés), `/` commandes ; ↑ ↓ pour choisir, Entrée ou Tab pour insérer, Échap pour fermer. Les commandes « / » sont exécutées par le serveur |
 | Actions sur un message | Au survol : réactions rapides, Répondre et « ⋯ » : Marquer comme non lu, Enregistrer, Épingler au canal, Copier le lien, Copier le texte, et pour ses propres messages Modifier / Supprimer (avec confirmation). Étiquettes « Épinglé » et « Enregistré ». Cliquer une réaction existante l'ajoute ou la retire |
@@ -25,7 +26,7 @@ sa réécriture) via [GPUI Kit](https://gpui-kit.com) pour les composants.
 | Mentions récentes | Icône @ dans l'en-tête : messages qui vous mentionnent, toutes équipes confondues ; un clic ouvre l'équipe, le canal et le fil |
 | Carte de profil | Un clic sur une personne (avatar ou nom d'un message, @mention, liste des membres, participants d'un fil) ouvre une mini-carte : photo en médaillon avec son statut, nom, poste, adresse e-mail, heure locale et écart avec la vôtre, rôle d'administrateur, bouton « Envoyer un message ». Échap ou un clic à côté la ferme |
 | Emojis | Dessins Twemoji intégrés à l'application (messages, réactions, sélecteur), en grand dans un message fait seulement d'emojis. Noms Mattermost reconnus (« rolling_on_the_floor_laughing », tons de peau…). Sélecteur d'emojis (catégories, recherche, emojis du serveur) pour réagir à un message ou insérer dans la saisie |
-| Fichiers | Aperçu des images jointes (miniature ou fichier complet si le serveur n'a pas d'aperçu, carte de fichier en dernier recours, sans message d'erreur) (clic : visionneuse intégrée, Échap pour fermer), cartes pour les autres fichiers avec boutons icônes Ouvrir et Télécharger (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
+| Fichiers | Aperçu des images jointes ; la visionneuse les montre à leur taille réelle, réduites seulement si elles dépassent la fenêtre, jamais agrandies (miniature ou fichier complet si le serveur n'a pas d'aperçu, carte de fichier en dernier recours, sans message d'erreur) (clic : visionneuse intégrée, Échap pour fermer), cartes pour les autres fichiers avec boutons icônes Ouvrir et Télécharger (dossier Téléchargements) ; envoi par le bouton « Joindre » ou en glissant des fichiers dans la fenêtre |
 | Équipes | Clic sur le nom de l'équipe : carte avec logo, type, nombre de membres, date de création et description (modifiable par les administrateurs de l'équipe). Barre des équipes dans la teinte de la barre latérale, avec leur logo ; pilule au bord gauche pour l'équipe affichée (courte pour une équipe avec des non-lus), pastille de non-lus et compteur de mentions |
 | Mise en page | Barre latérale redimensionnable en glissant son bord droit (largeur mémorisée dans `%APPDATA%\mm-gpui\ui.json`) ; barres de défilement visibles seulement pendant le défilement |
 | Cache local | Derniers messages de chaque canal (60) et leurs auteurs gardés dans `%LOCALAPPDATA%\mm-gpui\cache\<serveur>` : un canal déjà ouvert s'affiche instantanément, puis la réponse du serveur remplace l'affichage. 40 Mo au plus (les canaux les plus anciens sont retirés), effacé à la déconnexion |
@@ -70,6 +71,18 @@ La connexion est mémorisée : jeton dans le Gestionnaire d'identifiants Windows
 adresse du serveur dans `%APPDATA%\mm-gpui\config.json`. « Déconnexion » oublie
 le jeton ; pour une session (cas 1 et 2), elle est aussi fermée côté serveur.
 
+### Tests
+
+```bash
+cargo test
+```
+
+Tests unitaires (Markdown, emojis, liens automatiques, recherche, sécurité des
+liens…) et tests de bout en bout (`cargo test e2e`) : la vraie interface dans
+une fenêtre GPUI sans écran, branchée sur le serveur de démonstration (jamais
+sur un vrai compte), pilotée au clavier — connexion, envoi d'un message,
+Ctrl+K, cartes, recherche, brouillons, messages de bots.
+
 ### Compilation
 
 Seul le code modifié est recompilé ; les bibliothèques (GPUI…) ne le sont
@@ -106,13 +119,39 @@ cartes) sont calculés à partir de ces mêmes couleurs : ils suivent donc le th
 
 Les règles du plugin Autolink du serveur sont lues dans sa configuration,
 mais Mattermost ne la montre qu'aux administrateurs. Sinon, recopiez les
-règles dans `%APPDATA%\mm-gpui\ui.json`, au même format que le plugin :
+règles dans `%APPDATA%\mm-gpui\autolinks.json`, au même format que le plugin
+(un fichier à part : un client plus ancien encore ouvert réécrirait `ui.json`
+sans elles) :
 
 ```json
-"autolinks": [
-  { "Name": "Tickets", "Pattern": "(?P<id>TK-\\d+)", "Template": "[${id}](https://support.exemple.org/${id})" }
+[
+  { "Name": "github_glpi", "Pattern": "(#)(?P<github_id>\\d+)",
+    "Template": "[#${github_id}](https://github.com/glpi-project/glpi/issues/${github_id})",
+    "Scope": ["teclib/GLPI", "teclib/ProServices"] },
+  { "Name": "support", "Pattern": "(!)(?P<ticket_id>\\d+)",
+    "Template": "[!${ticket_id}](https://support.teclib.com/front/ticket.form.php?id=${ticket_id})" }
 ]
 ```
+
+`Scope` limite une règle à des canaux (`équipe/canal`, noms courts des liens)
+ou à toute une équipe (`équipe`) ; sans `Scope`, elle s'applique partout. Le
+fichier est relu au lancement.
+
+### Sécurité
+
+- Le jeton ne part que vers le serveur Mattermost : images et aperçus d'autres
+  sites sont chargés sans lui (et limités à 15 Mo).
+- Liens des messages : seuls `http(s)` et `mailto` s'ouvrent ; jamais `file:`,
+  un chemin local ou un protocole qui lancerait un programme.
+- Le HTML écrit dans un message s'affiche comme du texte (pas d'image
+  distante cachée, pas de balise interprétée).
+- « Ouvrir » sur une pièce jointe exécutable (`.exe`, `.ps1`, `.bat`, `.msi`…)
+  la montre dans l'Explorateur au lieu de la lancer.
+- Noms de fichiers téléchargés nettoyés (aucun chemin venu du serveur).
+- Identifiants dans le gestionnaire d'identifiants Windows ; le cache local
+  des messages est en clair dans le profil de l'utilisateur, effacé à la
+  déconnexion.
+- Correction orthographique locale (correcteur de Windows) : rien n'est envoyé.
 
 Les emojis sont les dessins [Twemoji](https://github.com/jdecked/twemoji)
 (licence CC-BY 4.0).

@@ -104,7 +104,7 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
             .values()
             .filter(|c| c.shows_unread() || input.sticky_unread == Some(c.channel.id.as_str()))
             .collect();
-        ids.sort_by(|a, b| b.channel.recency().cmp(&a.channel.recency()));
+        ids.sort_by_key(|x| std::cmp::Reverse(x.channel.recency()));
         in_unreads = ids.iter().map(|c| c.channel.id.clone()).collect();
         if !ids.is_empty() {
             sections.push(Section {
@@ -195,7 +195,7 @@ fn category_title(category: &SidebarCategory) -> String {
 fn sort_members<F: Fn(&Channel) -> String>(members: &mut Vec<&ChannelState>, sorting: &str, title: &F) {
     match sorting {
         "manual" => {}
-        "recent" => members.sort_by(|a, b| b.channel.recency().cmp(&a.channel.recency())),
+        "recent" => members.sort_by_key(|x| std::cmp::Reverse(x.channel.recency())),
         // "alpha" et "" : alphabétique, canaux en sourdine à la fin.
         _ => {
             let keys: HashMap<String, String> = members

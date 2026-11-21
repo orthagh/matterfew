@@ -2,6 +2,8 @@
 //! Le rendu (ce qui est dessiné à l'écran) est dans `view.rs`.
 
 mod view;
+#[cfg(test)]
+mod e2e;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -32,7 +34,7 @@ struct PostView {
 impl PostView {
     fn new(post: Post) -> Self {
         let custom: Vec<String> = post.metadata.emojis.iter().map(|e| e.name.clone()).collect();
-        let md = markdown::prepare_with(&post.message, &custom).into();
+        let md = markdown::prepare_for(&post.message, &custom, Some(&post.channel_id)).into();
         Self { post, md }
     }
 }
@@ -142,6 +144,13 @@ pub(crate) struct AddMembers {
     /// `None` pendant la recherche.
     pub results: Option<Vec<User>>,
     pub added: HashSet<String>,
+}
+
+/// Démarrage : selon la ligne de commande (connexion mémorisée), ou démo.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Launch {
+    FromArgs,
+    Demo,
 }
 
 /// Onglets du panneau des fichiers d'un canal.
@@ -258,6 +267,15 @@ pub struct ChatApp {
     profile: Option<ProfileCard>,
     /// Carte de l'équipe ouverte (clic sur son nom), en modification ou non.
     team_card: Option<bool>,
+    /// Panneau « canal » en modification (description, en-tête).
+    channel_editing: bool,
+    channel_purpose_input: Entity<InputState>,
+    channel_header_input: Entity<InputState>,
+    /// Dernière fermeture d'une carte par un clic à côté : un clic sur ce qui
+    /// l'avait ouverte, juste après, ne la rouvre pas (bascule).
+    card_closed_at: Option<Instant>,
+    /// Facteur d'échelle de l'écran (taille réelle des images).
+    scale: f32,
     team_info: HashMap<String, TeamInfo>,
     team_desc_input: Entity<InputState>,
     add_members: Option<AddMembers>,
@@ -300,6 +318,9 @@ pub struct ChatApp {
     info: Option<String>,
     viewer: Option<Viewer>,
     viewer_focus: FocusHandle,
+    /// Focus de la fenêtre quand aucune zone n'a le focus : Échap, Ctrl+K et
+    /// Ctrl+F marchent toujours (après un clic dans la liste des messages…).
+    root_focus: FocusHandle,
     settings: UiSettings,
     /// Redimensionnement de la barre latérale en cours.
     resizing: bool,
@@ -347,10 +368,18 @@ pub struct ChatApp {
 
 impl ChatApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self::with_launch(Launch::FromArgs, window, cx)
+    }
+
+    /// `Launch::Demo` : démonstration, sans jamais lire les identifiants
+    /// mémorisés (utilisé par les tests de bout en bout).
+    pub(crate) fn with_launch(launch: Launch, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Ordre de priorité : variables d'environnement, puis connexion mémorisée.
         let env_url = std::env::var("MM_URL").unwrap_or_default();
         let env_token = std::env::var("MM_TOKEN").unwrap_or_default();
-        let auto = if !env_url.is_empty() && !env_token.is_empty() {
+        let auto = if launch == Launch::Demo {
+            None
+        } else if !env_url.is_empty() && !env_token.is_empty() {
             Some((env_url.clone(), env_token, AuthKind::Token))
         } else {
             credentials::load().map(|s| (s.server_url, s.token, s.kind))
@@ -376,6 +405,8 @@ impl ChatApp {
         let mfa_input = cx.new(|cx| InputState::new(window, cx).placeholder("Code à 6 chiffres"));
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher"));
         let team_desc_input = cx.new(|cx| InputState::new(window, cx).placeholder("Décrivez l'équipe en une phrase"));
+        let channel_purpose_input = cx.new(|cx| InputState::new(window, cx).placeholder("À quoi sert ce canal ?"));
+        let channel_header_input = cx.new(|cx| InputState::new(window, cx).placeholder("Liens utiles, consignes… (Markdown)"));
         let member_search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Nom ou identifiant"));
         let switcher_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Aller à un canal ou une conversation"));
@@ -410,7 +441,7 @@ impl ChatApp {
         };
 
         let settings = UiSettings::load();
-        crate::autolink::set_rules(&settings.autolinks);
+        crate::autolink::set_rules(&crate::autolink::load_local());
         let subscriptions = vec![
             cx.subscribe_in(&member_search_input, window, |this, _, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
@@ -441,10 +472,11 @@ impl ChatApp {
                     window.blur(cx);
                     cx.notify();
                 }
+                // Pas d'ouverture ici : un menu qui se ferme rend le focus au
+                // champ, ce qui ne doit pas rouvrir les propositions. On ouvre au
+                // clic sur le champ, à Ctrl+F et pendant la frappe.
                 InputEvent::Focus => {
                     this.search_focus_gen += 1;
-                    this.search_open = true;
-                    cx.notify();
                 }
                 // Fermeture différée : laisse le temps au clic sur une proposition.
                 InputEvent::Blur => {
@@ -460,15 +492,20 @@ impl ChatApp {
                     })
                     .detach();
                 }
-                InputEvent::Change => cx.notify(),
+                InputEvent::Change => {
+                    let focused = this.search_input.read(cx).focus_handle(cx).is_focused(window);
+                    if focused && !this.search_open {
+                        this.search_open = true;
+                    }
+                    cx.notify();
+                }
             }),
             cx.subscribe_in(&switcher_input, window, |this, _, ev: &InputEvent, _, cx| {
-                if let InputEvent::Change = ev {
-                    if this.switcher.is_some() {
+                if let InputEvent::Change = ev
+                    && this.switcher.is_some() {
                         this.switcher = Some(0);
                         cx.notify();
                     }
-                }
             }),
             cx.subscribe_in(&emoji_search, window, |_, _, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
@@ -537,6 +574,11 @@ impl ChatApp {
             channel_admins: HashMap::new(),
             profile: None,
             team_card: None,
+            channel_editing: false,
+            channel_purpose_input,
+            channel_header_input,
+            card_closed_at: None,
+            scale: 1.,
             team_info: HashMap::new(),
             team_desc_input,
             add_members: None,
@@ -565,6 +607,7 @@ impl ChatApp {
             info: None,
             viewer: None,
             viewer_focus: cx.focus_handle(),
+            root_focus: cx.focus_handle(),
             settings,
             resizing: false,
             hwnd: desktop::hwnd(window),
@@ -596,7 +639,7 @@ impl ChatApp {
         };
         this.palette.apply(cx);
         this.listen_desktop(window, cx);
-        if std::env::args().any(|a| a == "--demo") {
+        if launch == Launch::Demo || std::env::args().any(|a| a == "--demo") {
             this.start_demo(window, cx);
         } else if let Some((url, token, kind)) = auto.filter(|_| !std::env::args().any(|a| a == "--login")) {
             this.connect_with(url, token, kind, window, cx);
@@ -631,14 +674,13 @@ impl ChatApp {
         .detach();
         // Avec une icône dans la zone de notification, fermer la fenêtre la
         // masque (comme le client officiel) ; « Quitter » est dans son menu.
-        if self.tray.is_some() {
-            if let Some(hwnd) = self.hwnd {
+        if self.tray.is_some()
+            && let Some(hwnd) = self.hwnd {
                 window.on_window_should_close(cx, move |_, _| {
                     desktop::hide_window(hwnd);
                     false
                 });
             }
-        }
     }
 
     fn bring_to_front(&mut self, window: &mut Window) {
@@ -964,6 +1006,7 @@ impl ChatApp {
         self.pending_text.push((Pane::Channel, draft));
         self.pending_text.push((Pane::Thread, String::new()));
         self.manually_unread = None;
+        self.channel_editing = false;
         self.preview.clear();
         if self.side.as_ref().is_some_and(|p| p.kind == SideKind::Pinned) {
             self.side = None;
@@ -1043,14 +1086,13 @@ impl ChatApp {
         }
         let state = scroller.read(cx);
         // Seulement quand l'utilisateur a lui-même remonté jusqu'en haut.
-        if state.is_scrolled_up() && state.logical_scroll_top().item_ix <= 2 {
-            if let Some(channel_id) = self.channel_id.clone() {
+        if state.is_scrolled_up() && state.logical_scroll_top().item_ix <= 2
+            && let Some(channel_id) = self.channel_id.clone() {
                 self.loading_older = true;
                 let before = self.posts[0].post.id.clone();
                 self.send(Command::LoadOlder { channel_id, before });
                 cx.notify();
             }
-        }
     }
 
     fn open_thread(&mut self, root_id: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -1145,7 +1187,7 @@ impl ChatApp {
         // « /commande » : exécutée par le serveur (« //texte » s'envoie tel quel).
         if message.starts_with('/') && !message.starts_with("//") && file_ids.is_empty() {
             let team_id = self.team_id.clone().unwrap_or_default();
-            self.send(Command::ExecuteCommand { channel_id, team_id, root_id, command: message });
+            self.send(Command::Slash { channel_id, team_id, root_id, command: message });
             state.update(cx, |s, cx| s.set_value("", window, cx));
             cx.notify();
             return;
@@ -1582,7 +1624,7 @@ impl ChatApp {
         let home = if is_dm { "direct_messages" } else { "channels" };
         let mut changed = Vec::new();
         for category in self.categories.iter_mut() {
-            let had = category.channel_ids.iter().any(|id| *id == channel_id);
+            let had = category.channel_ids.contains(&channel_id);
             let wants = if favorite { category.kind == "favorites" } else { category.kind == home };
             if had && !wants {
                 category.channel_ids.retain(|id| *id != channel_id);
@@ -1763,8 +1805,14 @@ impl ChatApp {
 
     fn close_profile(&mut self, cx: &mut Context<Self>) {
         if self.profile.take().is_some() {
+            self.card_closed_at = Some(Instant::now());
             cx.notify();
         }
+    }
+
+    /// Une carte vient d'être fermée par le clic qui voulait l'ouvrir de nouveau.
+    fn card_just_closed(&self) -> bool {
+        self.card_closed_at.is_some_and(|t| t.elapsed() < Duration::from_millis(350))
     }
 
     /// Personne affichée par la carte de profil (une fois son profil connu).
@@ -1852,6 +1900,13 @@ impl ChatApp {
     /// Carte de l'équipe affichée (clic sur son nom dans la barre latérale).
     fn open_team_card(&mut self, cx: &mut Context<Self>) {
         let Some(team_id) = self.team_id.clone() else { return };
+        if self.team_card.is_some() {
+            self.close_team_card(cx);
+            return;
+        }
+        if self.card_just_closed() {
+            return;
+        }
         self.team_card = Some(false);
         self.send(Command::LoadTeamInfo { team_id });
         cx.notify();
@@ -1859,8 +1914,94 @@ impl ChatApp {
 
     fn close_team_card(&mut self, cx: &mut Context<Self>) {
         if self.team_card.take().is_some() {
+            self.card_closed_at = Some(Instant::now());
             cx.notify();
         }
+    }
+
+    /// Démo seulement : `MM_DEMO_SCENE` ouvre directement un écran à montrer
+    /// (captures pour la documentation, sans piloter la souris).
+    fn play_demo_scene(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let scene = std::env::var("MM_DEMO_SCENE").unwrap_or_default();
+        let after = |this: &mut Self, ms: u64, window: &mut Window, cx: &mut Context<Self>, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
+            let _ = this;
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor().timer(Duration::from_millis(ms)).await;
+                let _ = this.update_in(cx, f);
+            })
+            .detach();
+        };
+        match scene.as_str() {
+            "bots" => self.select_channel("backend".into(), cx),
+            "autolink" => self.select_channel("support".into(), cx),
+            "panneau-canal" => after(self, 400, window, cx, |this, window, cx| {
+                this.open_channel_card(point(px(600.), px(40.)), window, cx)
+            }),
+            "visionneuse" => {
+                self.select_channel("design".into(), cx);
+                after(self, 600, window, cx, |this, window, cx| {
+                    let file = this.posts.iter().flat_map(|v| v.post.metadata.files.iter()).find(|f| f.id == "f-d7").cloned();
+                    if let Some(file) = file {
+                        this.open_image(file, window, cx);
+                    }
+                });
+            }
+            "carte-equipe" => after(self, 400, window, cx, |this, _, cx| this.open_team_card(cx)),
+            _ => {}
+        }
+    }
+
+    /// Panneau du canal (clic sur son nom dans l'en-tête) : un second clic le
+    /// referme. En message direct, la carte de la personne.
+    fn open_channel_card(&mut self, at: Point<Pixels>, window: &Window, cx: &mut Context<Self>) {
+        let Some(id) = self.channel_id.clone() else { return };
+        if self.side.as_ref().is_some_and(|s| s.kind == SideKind::Channel) {
+            self.close_channel_card(cx);
+            return;
+        }
+        if let Some(partner) = self.channels.get(&id).and_then(|c| c.channel.direct_partner(self.me_id())) {
+            if self.profile.is_some() {
+                self.close_profile(cx);
+            } else if !self.card_just_closed() {
+                self.open_profile(partner, at, window, cx);
+            }
+            return;
+        }
+        if !self.members.contains_key(&id) {
+            self.send(Command::LoadMembers { channel_id: id });
+        }
+        if self.thread.is_some() {
+            self.close_thread(cx);
+        }
+        self.channel_editing = false;
+        self.side = Some(SidePanel { kind: SideKind::Channel, subject: String::new(), posts: Some(Vec::new()) });
+        cx.notify();
+    }
+
+    fn close_channel_card(&mut self, cx: &mut Context<Self>) {
+        if self.side.as_ref().is_some_and(|s| s.kind == SideKind::Channel) {
+            self.side = None;
+            self.channel_editing = false;
+            cx.notify();
+        }
+    }
+
+    fn edit_channel_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(c) = self.channel_id.as_ref().and_then(|id| self.channels.get(id)).map(|c| c.channel.clone()) else { return };
+        self.channel_purpose_input.update(cx, |s, cx| {
+            s.set_value(c.purpose.clone(), window, cx);
+            s.focus(window, cx);
+        });
+        self.channel_header_input.update(cx, |s, cx| s.set_value(c.header.clone(), window, cx));
+        self.channel_editing = true;
+        cx.notify();
+    }
+
+    fn save_channel_card(&mut self, cx: &mut Context<Self>) {
+        let Some(channel_id) = self.channel_id.clone() else { return };
+        let purpose = self.channel_purpose_input.read(cx).value().trim().to_string();
+        let header = self.channel_header_input.read(cx).value().trim().to_string();
+        self.send(Command::PatchChannel { channel_id, purpose, header });
     }
 
     fn edit_team_description(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1932,11 +2073,16 @@ impl ChatApp {
         cx.notify();
     }
 
-    /// Active les règles Autolink (serveur + ui.json) et réaffiche les messages.
+    /// Active les règles Autolink (serveur + autolinks.json) et réaffiche les messages.
     fn apply_autolinks(&mut self, cx: &mut Context<Self>) {
         let mut rules = self.server_autolinks.clone();
-        rules.extend(self.settings.autolinks.iter().cloned());
+        rules.extend(crate::autolink::load_local());
         crate::autolink::set_rules(&rules);
+        self.refresh_markdown(cx);
+    }
+
+    /// Prépare de nouveau le Markdown des messages affichés.
+    fn refresh_markdown(&mut self, cx: &mut Context<Self>) {
         for view in self.posts.iter_mut() {
             *view = PostView::new(view.post.clone());
         }
@@ -2297,11 +2443,10 @@ impl ChatApp {
                 self.raw_prefs = prefs;
                 self.crt = collapsed_threads_enabled(&self.server_config, &self.raw_prefs);
                 self.send(Command::SetCollapsedThreads(self.crt));
-                if let Some((url, token, kind)) = self.pending_credentials.take() {
-                    if let Err(err) = credentials::save(&url, &token, kind) {
+                if let Some((url, token, kind)) = self.pending_credentials.take()
+                    && let Err(err) = credentials::save(&url, &token, kind) {
                         eprintln!("connexion non mémorisée : {err:#}");
                     }
-                }
                 self.users.insert(me.id.clone(), me.clone());
                 self.me = Some(me);
                 self.teams = teams;
@@ -2371,6 +2516,14 @@ impl ChatApp {
             Event::TeamInfo { team_id, total, active, admin } => {
                 self.team_info.insert(team_id, TeamInfo { total, active, admin });
             }
+            Event::ChannelUpdated(channel) => {
+                if let Some(state) = self.channels.get_mut(&channel.id) {
+                    state.channel.display_name = channel.display_name;
+                    state.channel.purpose = channel.purpose;
+                    state.channel.header = channel.header;
+                }
+                self.channel_editing = false;
+            }
             Event::TeamUpdated(team) => {
                 if let Some(t) = self.teams.iter_mut().find(|t| t.id == team.id) {
                     t.description = team.description;
@@ -2407,11 +2560,10 @@ impl ChatApp {
                     muted: false,
                     notify_desktop: String::new(),
                 });
-                if let Some(dm) = self.categories.iter_mut().find(|c| c.kind == "direct_messages") {
-                    if !dm.channel_ids.contains(&id) {
+                if let Some(dm) = self.categories.iter_mut().find(|c| c.kind == "direct_messages")
+                    && !dm.channel_ids.contains(&id) {
                         dm.channel_ids.insert(0, id.clone());
                     }
-                }
                 self.select_channel(id, cx);
                 self.focus_composer(window, cx);
             }
@@ -2466,7 +2618,10 @@ impl ChatApp {
                 }
             }
             Event::Downloaded { path, open } => {
-                if open {
+                if open && is_executable(&path) {
+                    cx.reveal_path(&path);
+                    self.flash("Fichier exécutable : montré dans l'Explorateur plutôt que lancé.".into(), cx);
+                } else if open {
                     cx.open_with_system(&path);
                     self.info = None;
                 } else {
@@ -2496,6 +2651,11 @@ impl ChatApp {
                 if self.team_id.as_deref() != Some(&team_id) {
                     return;
                 }
+                let team_name = self.teams.iter().find(|t| t.id == team_id).map(|t| t.name.clone()).unwrap_or_default();
+                for c in &channels {
+                    crate::autolink::set_place(&c.id, &team_name, &c.name);
+                }
+                self.refresh_markdown(cx);
                 for m in &members {
                     self.last_viewed.insert(m.channel_id.clone(), m.last_viewed_at);
                 }
@@ -2558,6 +2718,9 @@ impl ChatApp {
                             }
                         }
                     }
+                    if self.demo {
+                        self.play_demo_scene(window, cx);
+                    }
                 }
             }
             Event::Categories { team_id, categories } => {
@@ -2566,11 +2729,10 @@ impl ChatApp {
                 }
             }
             Event::CategoriesChanged { team_id } => {
-                if let Some(current) = self.team_id.clone() {
-                    if team_id.is_empty() || team_id == current {
+                if let Some(current) = self.team_id.clone()
+                    && (team_id.is_empty() || team_id == current) {
                         self.send(Command::LoadCategories { team_id: current });
                     }
-                }
             }
             Event::Prefs(prefs) => {
                 self.raw_prefs = prefs;
@@ -2601,11 +2763,23 @@ impl ChatApp {
                     self.scroller.update(cx, |s, cx| s.reset(n, cx));
                     // Beaucoup de nouveaux messages : on ouvre sur la ligne
                     // « Nouveaux messages » plutôt qu'en bas.
-                    if let Some(ix) = self.first_new_index() {
-                        if n - ix > 8 {
+                    match self.first_new_index().filter(|ix| n - ix > 8) {
+                        Some(ix) => {
                             self.scroller.update(cx, |s, cx| {
                                 s.scroll_to_item(ix.saturating_sub(1), cx);
                             });
+                        }
+                        // Sinon tout en bas, même si des messages changent de hauteur
+                        // après le premier affichage (bots réduits, emojis, aperçus).
+                        None => {
+                            let scroller = self.scroller.clone();
+                            cx.spawn(async move |_, cx| {
+                                for delay in [30, 150] {
+                                    cx.background_executor().timer(Duration::from_millis(delay)).await;
+                                    scroller.update(cx, |s, cx| s.scroll_to_end(cx));
+                                }
+                            })
+                            .detach();
                         }
                     }
                     // Le canal est lu : la prochaine ouverture partira d'ici.
@@ -2754,12 +2928,11 @@ impl ChatApp {
                 self.posts[ix].post.reply_count += 1;
                 self.scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
             }
-            if let Some(thread) = self.thread.as_mut().filter(|t| t.root_id == post.root_id) {
-                if !thread.posts.iter().any(|p| p.post.id == post.id) {
+            if let Some(thread) = self.thread.as_mut().filter(|t| t.root_id == post.root_id)
+                && !thread.posts.iter().any(|p| p.post.id == post.id) {
                     thread.posts.push(PostView::new(post.clone()));
                     self.thread_scroller.update(cx, |s, cx| s.append(1, cx));
                 }
-            }
         }
         if in_channel_list && is_current && !self.posts.iter().any(|p| p.post.id == post.id) {
             self.posts.push(PostView::new(post.clone()));
@@ -2791,7 +2964,7 @@ impl ChatApp {
         let me = self.me.as_ref();
         let notify = crate::notify_rules::should_notify(&crate::notify_rules::Input {
             from_me,
-            from_webhook: post.from_webhook(),
+            from_webhook: post.is_webhook_post(),
             is_system: post.is_system(),
             channel_type,
             channel_muted: state.is_some_and(|s| s.muted),
@@ -2820,11 +2993,10 @@ impl ChatApp {
                 channel_id: post.channel_id.clone(),
             };
             self.send(Command::Notify { title, body, target: Some(target) });
-            if !active {
-                if let Some(hwnd) = self.hwnd {
+            if !active
+                && let Some(hwnd) = self.hwnd {
                     desktop::flash(hwnd);
                 }
-            }
         }
     }
 
@@ -2835,12 +3007,11 @@ impl ChatApp {
             self.posts[ix] = PostView::new(Post { reply_count, ..post.clone() });
             self.scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
         }
-        if let Some(thread) = self.thread.as_mut() {
-            if let Some(ix) = thread.posts.iter().position(|p| p.post.id == post.id) {
+        if let Some(thread) = self.thread.as_mut()
+            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post.id) {
                 thread.posts[ix] = PostView::new(post);
                 self.thread_scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
             }
-        }
     }
 
     fn remove_post(&mut self, post_id: &str, cx: &mut Context<Self>) {
@@ -2850,12 +3021,11 @@ impl ChatApp {
         }
         if self.thread.as_ref().is_some_and(|t| t.root_id == post_id) {
             self.thread = None;
-        } else if let Some(thread) = self.thread.as_mut() {
-            if let Some(ix) = thread.posts.iter().position(|p| p.post.id == post_id) {
+        } else if let Some(thread) = self.thread.as_mut()
+            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post_id) {
                 thread.posts.remove(ix);
                 self.thread_scroller.update(cx, |s, cx| s.splice(ix..ix + 1, 0, cx));
             }
-        }
         if self.editing.as_ref().is_some_and(|(_, id)| id == post_id) {
             self.editing = None;
         }
@@ -2866,12 +3036,11 @@ impl ChatApp {
             f(&mut self.posts[ix].post.metadata.reactions);
             self.scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
         }
-        if let Some(thread) = self.thread.as_mut() {
-            if let Some(ix) = thread.posts.iter().position(|p| p.post.id == post_id) {
+        if let Some(thread) = self.thread.as_mut()
+            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post_id) {
                 f(&mut thread.posts[ix].post.metadata.reactions);
                 self.thread_scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
             }
-        }
     }
 
     // ------------------------------------------------------------------
@@ -3052,5 +3221,30 @@ mod search_tests {
             vec!["from:lea", "in:general", "\"mise en prod\"", "#release"]
         );
         assert!(search_tokens("   ").is_empty());
+    }
+}
+
+/// Extensions que Windows exécute au lieu de les ouvrir dans une application.
+fn is_executable(path: &std::path::Path) -> bool {
+    const RISKY: [&str; 24] = [
+        "exe", "msi", "msp", "bat", "cmd", "com", "scr", "pif", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh",
+        "hta", "jar", "lnk", "reg", "cpl", "dll", "appx", "msix",
+    ];
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| RISKY.iter().any(|r| r.eq_ignore_ascii_case(e)))
+}
+
+#[cfg(test)]
+mod exec_tests {
+    use super::is_executable;
+    use std::path::Path;
+
+    #[test]
+    fn executables_reperes() {
+        assert!(is_executable(Path::new("C:/t/setup.EXE")));
+        assert!(is_executable(Path::new("x.ps1")));
+        assert!(!is_executable(Path::new("rapport.pdf")));
+        assert!(!is_executable(Path::new("sans-extension")));
     }
 }

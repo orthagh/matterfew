@@ -90,3 +90,7 @@ winresource = "0.1"
 # Notifications de bureau hors Windows (Windows : voir desktop.rs).
 [target.'cfg(not(windows))'.dependencies]
 notify-rust = "4"
+
+# Tests de bout en bout : fenêtres GPUI sans écran (TestApp).
+[dev-dependencies]
+gpui-pre = { version = "=0.3.12", features = ["test-support"] }
