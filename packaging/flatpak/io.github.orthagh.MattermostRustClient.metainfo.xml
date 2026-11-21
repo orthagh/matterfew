@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.orthagh.MattermostRustClient</id>
+  <name>Mattermost (mm-gpui)</name>
+  <summary>Client de bureau Mattermost natif, en Rust avec GPUI</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>Client de bureau pour Mattermost : rapide et léger, avec la recherche,
+    les fils, les notifications, l'éditeur Markdown et le thème de votre serveur.</p>
+  </description>
+  <launchable type="desktop-id">io.github.orthagh.MattermostRustClient.desktop</launchable>
+  <url type="homepage">https://github.com/orthagh/mattermost_rust_client</url>
+  <content_rating type="oars-1.1"/>
+</component>

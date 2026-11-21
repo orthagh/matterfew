@@ -7,9 +7,9 @@
 //! commandes se ferme, `run` se termine et le runtime est détruit avec
 //! toutes ses tâches, WebSocket compris.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -72,97 +72,278 @@ pub struct Suggestion {
 
 #[derive(Debug)]
 pub enum Command {
-    LoadTeam { team_id: String },
-    LoadCategories { team_id: String },
+    LoadTeam {
+        team_id: String,
+    },
+    LoadCategories {
+        team_id: String,
+    },
     LoadPreferences,
-    SetCategoryCollapsed { team_id: String, category: SidebarCategory },
-    LoadChannel { channel_id: String },
-    LoadOlder { channel_id: String, before: String },
+    SetCategoryCollapsed {
+        team_id: String,
+        category: SidebarCategory,
+    },
+    LoadChannel {
+        channel_id: String,
+    },
+    LoadOlder {
+        channel_id: String,
+        before: String,
+    },
     /// Rattrape les messages créés, modifiés ou supprimés depuis `since`.
-    SyncChannel { channel_id: String, since: i64 },
+    SyncChannel {
+        channel_id: String,
+        since: i64,
+    },
     /// Fils réduits actifs ou non (décidé par l'interface d'après la
     /// configuration du serveur et les préférences).
     SetCollapsedThreads(bool),
-    LoadThread { root_id: String },
-    Send { channel_id: String, root_id: String, message: String, file_ids: Vec<String> },
+    LoadThread {
+        root_id: String,
+    },
+    Send {
+        channel_id: String,
+        root_id: String,
+        message: String,
+        file_ids: Vec<String>,
+    },
     LoadTeamUnreads,
     /// Aperçu d'une image jointe.
-    LoadPreview { file_id: String },
+    LoadPreview {
+        file_id: String,
+    },
     /// Image complète, pour la visionneuse.
-    LoadFullImage { file_id: String },
+    LoadFullImage {
+        file_id: String,
+    },
     /// Image d'un aperçu de lien ou d'une intégration (URL complète).
-    LoadExternalImage { url: String },
+    LoadExternalImage {
+        url: String,
+    },
     /// Bouton d'un message interactif.
-    PostAction { post_id: String, action_id: String },
+    PostAction {
+        post_id: String,
+        action_id: String,
+    },
     /// Propositions pour le mot en cours de saisie (`seq` : numéro de la demande).
-    Autocomplete { seq: u64, kind: AcKind, term: String, team_id: String, channel_id: String, root_id: String },
+    Autocomplete {
+        seq: u64,
+        kind: AcKind,
+        term: String,
+        team_id: String,
+        channel_id: String,
+        root_id: String,
+    },
     /// Image d'un emoji personnalisé.
-    LoadEmoji { id: String, name: String },
+    LoadEmoji {
+        id: String,
+        name: String,
+    },
     /// Messages épinglés (`channel_id`), enregistrés, ou résultats de `terms`.
-    LoadSide { kind: SideKind, team_id: String, channel_id: String, terms: String },
-    LoadMembers { channel_id: String },
+    LoadSide {
+        kind: SideKind,
+        team_id: String,
+        channel_id: String,
+        terms: String,
+    },
+    LoadMembers {
+        channel_id: String,
+    },
     /// Fichiers d'un canal (`terms` : la recherche `in:` correspondante).
-    LoadChannelFiles { team_id: String, channel_id: String, terms: String },
+    LoadChannelFiles {
+        team_id: String,
+        channel_id: String,
+        terms: String,
+    },
     /// Carte de l'équipe : nombre de membres, droit de modifier.
-    LoadTeamInfo { team_id: String },
-    SaveTeamDescription { team_id: String, description: String },
-    PatchChannel { channel_id: String, purpose: String, header: String },
-    CreateChannel { team_id: String, name: String, display_name: String, purpose: String, private: bool },
-    CreateCategory { team_id: String, name: String },
-    InviteByEmail { team_id: String, emails: Vec<String> },
+    LoadTeamInfo {
+        team_id: String,
+    },
+    SaveTeamDescription {
+        team_id: String,
+        description: String,
+    },
+    PatchChannel {
+        channel_id: String,
+        purpose: String,
+        header: String,
+    },
+    CreateChannel {
+        team_id: String,
+        name: String,
+        display_name: String,
+        purpose: String,
+        private: bool,
+    },
+    CreateCategory {
+        team_id: String,
+        name: String,
+    },
+    InviteByEmail {
+        team_id: String,
+        emails: Vec<String>,
+    },
     /// Personnes à ajouter au canal (recherche dans l'équipe).
-    SearchUsersForChannel { team_id: String, channel_id: String, term: String },
-    AddChannelMember { channel_id: String, user_id: String },
+    SearchUsersForChannel {
+        team_id: String,
+        channel_id: String,
+        term: String,
+    },
+    AddChannelMember {
+        channel_id: String,
+        user_id: String,
+    },
     /// Profil d'après le nom d'utilisateur (clic sur une @mention).
-    LoadUserByName { username: String },
-    LoadThreads { team_id: String },
-    MarkThreadRead { team_id: String, root_id: String },
+    LoadUserByName {
+        username: String,
+    },
+    LoadThreads {
+        team_id: String,
+    },
+    MarkThreadRead {
+        team_id: String,
+        root_id: String,
+    },
     /// Ouvre (ou crée) le message direct avec quelqu'un.
-    OpenDirect { user_id: String },
-    MarkUnread { post_id: String },
-    SavePost { post_id: String, save: bool },
-    PinPost { post_id: String, pin: bool },
-    UpdateCategories { team_id: String, categories: Vec<SidebarCategory> },
-    SetMuted { channel_id: String, muted: bool },
-    LeaveChannel { channel_id: String },
-    MarkChannelsRead { channel_ids: Vec<String> },
-    SetStatus { status: String },
+    OpenDirect {
+        user_id: String,
+    },
+    MarkUnread {
+        post_id: String,
+    },
+    SavePost {
+        post_id: String,
+        save: bool,
+    },
+    PinPost {
+        post_id: String,
+        pin: bool,
+    },
+    UpdateCategories {
+        team_id: String,
+        categories: Vec<SidebarCategory>,
+    },
+    SetMuted {
+        channel_id: String,
+        muted: bool,
+    },
+    LeaveChannel {
+        channel_id: String,
+    },
+    MarkChannelsRead {
+        channel_ids: Vec<String>,
+    },
+    SetStatus {
+        status: String,
+    },
     /// Commande « / » envoyée depuis la zone de saisie.
-    Slash { channel_id: String, team_id: String, root_id: String, command: String },
+    Slash {
+        channel_id: String,
+        team_id: String,
+        root_id: String,
+        command: String,
+    },
     /// Télécharge un fichier joint ; `open` : l'ouvrir ensuite (sinon,
     /// l'afficher dans l'explorateur).
-    Download { file: FileInfo, open: bool },
+    Download {
+        file: FileInfo,
+        open: bool,
+    },
     /// Envoie un fichier local ; `local_id` identifie la pièce jointe en attente.
-    Upload { local_id: u64, channel_id: String, path: PathBuf },
-    Edit { post_id: String, message: String },
-    Delete { post_id: String },
-    React { post_id: String, emoji: String, add: bool },
-    Typing { channel_id: String, parent_id: String },
-    MarkRead { channel_id: String },
+    Upload {
+        local_id: u64,
+        channel_id: String,
+        path: PathBuf,
+    },
+    Edit {
+        post_id: String,
+        message: String,
+    },
+    Delete {
+        post_id: String,
+    },
+    React {
+        post_id: String,
+        emoji: String,
+        add: bool,
+    },
+    Typing {
+        channel_id: String,
+        parent_id: String,
+    },
+    MarkRead {
+        channel_id: String,
+    },
     /// Charge un canal inconnu (ex. nouveau message direct reçu en temps réel).
-    FetchChannel { channel_id: String },
-    Notify { title: String, body: String, target: Option<crate::desktop::ClickTarget> },
+    FetchChannel {
+        channel_id: String,
+    },
+    Notify {
+        title: String,
+        body: String,
+        target: Option<crate::desktop::ClickTarget>,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum Event {
     /// Connexion établie. `config` : configuration publique du serveur ;
     /// `prefs` : préférences de l'utilisateur (thème, barre latérale, fils…).
-    Ready { me: User, teams: Vec<Team>, config: HashMap<String, String>, prefs: Vec<Preference> },
-    ChannelSince { channel_id: String, posts: Vec<Post> },
+    Ready {
+        me: User,
+        teams: Vec<Team>,
+        config: HashMap<String, String>,
+        prefs: Vec<Preference>,
+    },
+    ChannelSince {
+        channel_id: String,
+        posts: Vec<Post>,
+    },
     /// Des événements temps réel ont été perdus : tout resynchroniser.
     Resync,
-    TeamIcon { team_id: String, bytes: Arc<Vec<u8>> },
+    TeamIcon {
+        team_id: String,
+        bytes: Arc<Vec<u8>>,
+    },
     TeamUnreads(Vec<TeamUnread>),
-    FilePreview { file_id: String, bytes: Arc<Vec<u8>> },
-    FullImage { file_id: String, result: Result<Arc<Vec<u8>>, String> },
-    ExternalImage { url: String, bytes: Arc<Vec<u8>> },
-    Suggestions { seq: u64, kind: AcKind, items: Vec<Suggestion> },
-    SidePosts { kind: SideKind, posts: Vec<Post> },
-    Members { channel_id: String, user_ids: Vec<String>, admins: Vec<String>, total: i64 },
+    FilePreview {
+        file_id: String,
+        bytes: Arc<Vec<u8>>,
+    },
+    FullImage {
+        file_id: String,
+        result: Result<Arc<Vec<u8>>, String>,
+    },
+    ExternalImage {
+        url: String,
+        bytes: Arc<Vec<u8>>,
+    },
+    Suggestions {
+        seq: u64,
+        kind: AcKind,
+        items: Vec<Suggestion>,
+    },
+    SidePosts {
+        kind: SideKind,
+        posts: Vec<Post>,
+    },
+    Members {
+        channel_id: String,
+        user_ids: Vec<String>,
+        admins: Vec<String>,
+        total: i64,
+    },
     Threads(Vec<UserThread>),
-    ChannelFiles { channel_id: String, files: Vec<FileInfo> },
-    TeamInfo { team_id: String, total: i64, active: i64, admin: bool },
+    ChannelFiles {
+        channel_id: String,
+        files: Vec<FileInfo>,
+    },
+    TeamInfo {
+        team_id: String,
+        total: i64,
+        active: i64,
+        admin: bool,
+    },
     TeamUpdated(Team),
     /// Canal modifié (ici ou ailleurs) : nom, description, en-tête.
     ChannelUpdated(Channel),
@@ -172,38 +353,89 @@ pub enum Event {
     Notice(String),
     /// Règles du plugin Autolink lues sur le serveur.
     AutolinkRules(Vec<crate::autolink::RuleDef>),
-    UserCandidates { channel_id: String, term: String, users: Vec<User> },
+    UserCandidates {
+        channel_id: String,
+        term: String,
+        users: Vec<User>,
+    },
     /// Aucun aperçu possible pour cette image : afficher une carte de fichier.
-    PreviewFailed { file_id: String },
+    PreviewFailed {
+        file_id: String,
+    },
     /// Équipe de canaux hors de l'équipe affichée (mentions récentes).
     ChannelTeams(Vec<(String, String)>),
     DirectOpened(Channel),
     /// Quelqu'un a rejoint ou quitté un canal : membres à recharger.
-    MembersChanged { channel_id: String },
-    CustomEmoji { name: String, bytes: Arc<Vec<u8>> },
-    Downloaded { path: PathBuf, open: bool },
-    Uploaded { local_id: u64, file: FileInfo },
-    UploadFailed { local_id: u64, error: String },
+    MembersChanged {
+        channel_id: String,
+    },
+    CustomEmoji {
+        name: String,
+        bytes: Arc<Vec<u8>>,
+    },
+    Downloaded {
+        path: PathBuf,
+        open: bool,
+    },
+    Uploaded {
+        local_id: u64,
+        file: FileInfo,
+    },
+    UploadFailed {
+        local_id: u64,
+        error: String,
+    },
     Users(Vec<User>),
-    Avatar { user_id: String, bytes: Arc<Vec<u8>> },
+    Avatar {
+        user_id: String,
+        bytes: Arc<Vec<u8>>,
+    },
     Statuses(Vec<(String, String)>),
-    Channels { team_id: String, channels: Vec<Channel>, members: Vec<ChannelMember> },
-    Categories { team_id: String, categories: Vec<SidebarCategory> },
+    Channels {
+        team_id: String,
+        channels: Vec<Channel>,
+        members: Vec<ChannelMember>,
+    },
+    Categories {
+        team_id: String,
+        categories: Vec<SidebarCategory>,
+    },
     /// Préférences brutes : barre latérale, thème…
     Prefs(Vec<Preference>),
     ChannelAdded(Channel),
-    ChannelPosts { channel_id: String, posts: Vec<Post> },
-    OlderPosts { channel_id: String, posts: Vec<Post> },
-    Thread { root_id: String, posts: Vec<Post> },
+    ChannelPosts {
+        channel_id: String,
+        posts: Vec<Post>,
+    },
+    OlderPosts {
+        channel_id: String,
+        posts: Vec<Post>,
+    },
+    Thread {
+        root_id: String,
+        posts: Vec<Post>,
+    },
     /// `followed` : l'utilisateur suit le fil de cette réponse.
-    Posted { post: Post, mentions_me: bool, followed: bool, channel_type: String, team_id: String },
+    Posted {
+        post: Post,
+        mentions_me: bool,
+        followed: bool,
+        channel_type: String,
+        team_id: String,
+    },
     PostEdited(Post),
     PostDeleted(Post),
     ReactionAdded(Reaction, String),
     ReactionRemoved(Reaction, String),
-    Typing { channel_id: String, parent_id: String, user_id: String },
+    Typing {
+        channel_id: String,
+        parent_id: String,
+        user_id: String,
+    },
     /// Les catégories de l'équipe ont changé côté serveur : à recharger.
-    CategoriesChanged { team_id: String },
+    CategoriesChanged {
+        team_id: String,
+    },
     PrefsChanged,
     Connection(bool),
     Error(String),
@@ -235,10 +467,7 @@ pub fn start(server_url: String, token: String) -> Backend {
         })
         .expect("thread backend");
 
-    Backend {
-        commands: cmd_tx,
-        events: ev_rx,
-    }
+    Backend { commands: cmd_tx, events: ev_rx }
 }
 
 /// Contexte partagé par toutes les tâches du backend.
@@ -306,8 +535,7 @@ impl Ctx {
         let ids = missing.clone();
         tokio::spawn(async move {
             if let Ok(statuses) = ctx.client.statuses(&ids).await {
-                ctx.emit(Event::Statuses(statuses.into_iter().map(|s| (s.user_id, s.status)).collect()))
-                    .await;
+                ctx.emit(Event::Statuses(statuses.into_iter().map(|s| (s.user_id, s.status)).collect())).await;
             }
         });
         for user in &users {
@@ -330,12 +558,8 @@ async fn run(
     ev: async_channel::Sender<Event>,
 ) -> Result<()> {
     let client = Client::new(&server_url, &token)?;
-    let (me, teams, config, prefs) = tokio::try_join!(
-        client.me(),
-        client.my_teams(),
-        client.client_config(),
-        client.preferences(),
-    )?;
+    let (me, teams, config, prefs) =
+        tokio::try_join!(client.me(), client.my_teams(), client.client_config(), client.preferences(),)?;
     let (ws_out, ws_out_rx) = mpsc::unbounded_channel();
     let ctx = Ctx {
         client,
@@ -544,7 +768,11 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
                         // on le remet. Le premier niveau s'affiche avec le « / ».
                         let complete = c.complete.trim_start_matches('/');
                         let top = !term.trim_start_matches('/').contains(' ');
-                        let name = if top { format!("/{}", c.suggestion.trim_start_matches('/')) } else { c.suggestion.clone() };
+                        let name = if top {
+                            format!("/{}", c.suggestion.trim_start_matches('/'))
+                        } else {
+                            c.suggestion.clone()
+                        };
                         Suggestion {
                             label: format!("{name} {}", c.hint).trim().to_string(),
                             detail: c.description,
@@ -620,7 +848,8 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             client.mark_thread_read(&ctx.me_id, &team_id, &root_id, now).await?;
         }
         Command::LoadTeamInfo { team_id } => {
-            let ((total, active), admin) = tokio::try_join!(client.team_stats(&team_id), client.is_team_admin(&team_id))?;
+            let ((total, active), admin) =
+                tokio::try_join!(client.team_stats(&team_id), client.is_team_admin(&team_id))?;
             ctx.emit(Event::TeamInfo { team_id, total, active, admin: admin || ctx.me_admin }).await;
         }
         Command::SaveTeamDescription { team_id, description } => {
@@ -641,8 +870,12 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::InviteByEmail { team_id, emails } => {
             let n = emails.len();
             client.invite_by_email(&team_id, &emails).await?;
-            ctx.emit(Event::Notice(if n == 1 { "Invitation envoyée.".into() } else { format!("{n} invitations envoyées.") }))
-                .await;
+            ctx.emit(Event::Notice(if n == 1 {
+                "Invitation envoyée.".into()
+            } else {
+                format!("{n} invitations envoyées.")
+            }))
+            .await;
         }
         Command::PatchChannel { channel_id, purpose, header } => {
             let channel = client.patch_channel(&channel_id, &purpose, &header).await?;
@@ -701,12 +934,10 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             tokio::fs::write(&path, bytes).await?;
             ctx.emit(Event::Downloaded { path, open }).await;
         }
-        Command::Upload { local_id, channel_id, path } => {
-            match client.upload_file(&channel_id, &path).await {
-                Ok(file) => ctx.emit(Event::Uploaded { local_id, file }).await,
-                Err(err) => ctx.emit(Event::UploadFailed { local_id, error: format!("{err:#}") }).await,
-            }
-        }
+        Command::Upload { local_id, channel_id, path } => match client.upload_file(&channel_id, &path).await {
+            Ok(file) => ctx.emit(Event::Uploaded { local_id, file }).await,
+            Err(err) => ctx.emit(Event::UploadFailed { local_id, error: format!("{err:#}") }).await,
+        },
         Command::Edit { post_id, message } => client.patch_post(&post_id, &message).await?,
         Command::Delete { post_id } => client.delete_post(&post_id).await?,
         Command::React { post_id, emoji, add } => {
@@ -770,7 +1001,11 @@ async fn websocket_loop(ctx: Ctx, mut outgoing: mpsc::UnboundedReceiver<Value>) 
 /// on se reconnecte alors en redonnant `connection_id` + numéro attendu et le
 /// serveur rejoue ce qui manque. S'il ne peut pas (nouvel identifiant dans
 /// `hello`), on signale une resynchronisation complète.
-async fn websocket_session(ctx: &Ctx, outgoing: &mut mpsc::UnboundedReceiver<Value>, state: &mut WsState) -> Result<()> {
+async fn websocket_session(
+    ctx: &Ctx,
+    outgoing: &mut mpsc::UnboundedReceiver<Value>,
+    state: &mut WsState,
+) -> Result<()> {
     let url = ctx.client.websocket_resume_url(&state.connection_id, state.next_seq);
     let (mut socket, _) = tokio_tungstenite::connect_async(url).await?;
     let mut last_activity = std::time::Instant::now();
@@ -845,9 +1080,7 @@ async fn websocket_session(ctx: &Ctx, outgoing: &mut mpsc::UnboundedReceiver<Val
 /// Certains champs (`data.post`, `data.mentions`, `data.reaction`) sont du
 /// JSON encodé dans une chaîne : on les décode une seconde fois.
 fn nested<T: for<'de> serde::Deserialize<'de>>(data: &Value, key: &str) -> Option<T> {
-    data.get(key)
-        .and_then(Value::as_str)
-        .and_then(|s| serde_json::from_str(s).ok())
+    data.get(key).and_then(Value::as_str).and_then(|s| serde_json::from_str(s).ok())
 }
 
 fn str_field(value: &Value, pointer: &str) -> String {
@@ -882,12 +1115,12 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
         }),
         "post_edited" => nested::<Post>(&data, "post").map(Event::PostEdited),
         "post_deleted" => nested::<Post>(&data, "post").map(Event::PostDeleted),
-        "reaction_added" => nested::<Reaction>(&data, "reaction").map(|r| {
-            Event::ReactionAdded(r, reaction_post_id(&data))
-        }),
-        "reaction_removed" => nested::<Reaction>(&data, "reaction").map(|r| {
-            Event::ReactionRemoved(r, reaction_post_id(&data))
-        }),
+        "reaction_added" => {
+            nested::<Reaction>(&data, "reaction").map(|r| Event::ReactionAdded(r, reaction_post_id(&data)))
+        }
+        "reaction_removed" => {
+            nested::<Reaction>(&data, "reaction").map(|r| Event::ReactionRemoved(r, reaction_post_id(&data)))
+        }
         "typing" => Some(Event::Typing {
             channel_id: str_field(&value, "/broadcast/channel_id"),
             parent_id: str_field(&data, "/parent_id"),
@@ -999,10 +1232,7 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
         Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), format!(".{ext}")),
         _ => (name.clone(), String::new()),
     };
-    (1..)
-        .map(|n| dir.join(format!("{stem} ({n}){ext}")))
-        .find(|p| !p.exists())
-        .unwrap_or(candidate)
+    (1..).map(|n| dir.join(format!("{stem} ({n}){ext}"))).find(|p| !p.exists()).unwrap_or(candidate)
 }
 
 #[cfg(test)]

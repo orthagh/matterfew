@@ -475,11 +475,7 @@ impl PostList {
 
     /// Messages du plus ancien au plus récent.
     fn into_chronological(mut self) -> Vec<Post> {
-        let mut out: Vec<Post> = self
-            .order
-            .iter()
-            .filter_map(|id| self.posts.remove(id))
-            .collect();
+        let mut out: Vec<Post> = self.order.iter().filter_map(|id| self.posts.remove(id)).collect();
         out.sort_by_key(|p| p.create_at);
         out
     }
@@ -498,8 +494,8 @@ pub struct Client {
 impl Client {
     pub fn new(server_url: &str, token: &str) -> Result<Self> {
         let mut headers = HeaderMap::new();
-        let mut auth = HeaderValue::from_str(&format!("Bearer {token}"))
-            .context("jeton invalide (caractères non autorisés)")?;
+        let mut auth =
+            HeaderValue::from_str(&format!("Bearer {token}")).context("jeton invalide (caractères non autorisés)")?;
         auth.set_sensitive(true);
         headers.insert(AUTHORIZATION, auth);
         headers.insert("X-Requested-With", HeaderValue::from_static("XMLHttpRequest"));
@@ -517,12 +513,7 @@ impl Client {
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
 
-        Ok(Self {
-            http,
-            plain,
-            base: server_url.trim_end_matches('/').to_string(),
-            token: token.to_string(),
-        })
+        Ok(Self { http, plain, base: server_url.trim_end_matches('/').to_string(), token: token.to_string() })
     }
 
     pub fn token(&self) -> &str {
@@ -556,12 +547,7 @@ impl Client {
     }
 
     async fn get<T: for<'de> Deserialize<'de>>(&self, path: &str) -> Result<T> {
-        let resp = self
-            .http
-            .get(self.url(path))
-            .send()
-            .await
-            .map_err(|e| network_error(&self.base, e))?;
+        let resp = self.http.get(self.url(path)).send().await.map_err(|e| network_error(&self.base, e))?;
         Self::decode(resp, path).await
     }
 
@@ -570,18 +556,8 @@ impl Client {
         Self::decode(resp, path).await
     }
 
-    async fn post<B: Serialize + ?Sized, T: for<'de> Deserialize<'de>>(
-        &self,
-        path: &str,
-        body: &B,
-    ) -> Result<T> {
-        let resp = self
-            .http
-            .post(self.url(path))
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| network_error(&self.base, e))?;
+    async fn post<B: Serialize + ?Sized, T: for<'de> Deserialize<'de>>(&self, path: &str, body: &B) -> Result<T> {
+        let resp = self.http.post(self.url(path)).json(body).send().await.map_err(|e| network_error(&self.base, e))?;
         Self::decode(resp, path).await
     }
 
@@ -599,9 +575,7 @@ impl Client {
                 .unwrap_or(body);
             anyhow::bail!("{path} : HTTP {status} — {msg}");
         }
-        resp.json::<T>()
-            .await
-            .with_context(|| format!("{path} : réponse illisible"))
+        resp.json::<T>().await.with_context(|| format!("{path} : réponse illisible"))
     }
 
     pub async fn me(&self) -> Result<User> {
@@ -617,8 +591,7 @@ impl Client {
     }
 
     pub async fn my_channel_members(&self, team_id: &str) -> Result<Vec<ChannelMember>> {
-        self.get(&format!("/users/me/teams/{team_id}/channels/members"))
-            .await
+        self.get(&format!("/users/me/teams/{team_id}/channels/members")).await
     }
 
     pub async fn channel(&self, channel_id: &str) -> Result<Channel> {
@@ -644,9 +617,7 @@ impl Client {
     /// messages racine (les réponses sont dans les fils).
     pub async fn channel_posts(&self, channel_id: &str, per_page: u32, crt: bool) -> Result<Vec<Post>> {
         let list: PostList = self
-            .get(&format!(
-                "/channels/{channel_id}/posts?page=0&per_page={per_page}&collapsedThreads={crt}"
-            ))
+            .get(&format!("/channels/{channel_id}/posts?page=0&per_page={per_page}&collapsedThreads={crt}"))
             .await?;
         Ok(list.into_chronological())
     }
@@ -654,9 +625,8 @@ impl Client {
     /// Messages créés, modifiés ou supprimés depuis `since` (ms) : sert à
     /// rattraper ce qui a été manqué pendant une coupure.
     pub async fn channel_posts_since(&self, channel_id: &str, since: i64, crt: bool) -> Result<Vec<Post>> {
-        let list: PostList = self
-            .get(&format!("/channels/{channel_id}/posts?since={since}&collapsedThreads={crt}"))
-            .await?;
+        let list: PostList =
+            self.get(&format!("/channels/{channel_id}/posts?since={since}&collapsedThreads={crt}")).await?;
         // `order` peut omettre les messages supprimés : on prend tout.
         let mut posts: Vec<Post> = list.posts.into_values().collect();
         posts.sort_by_key(|p| p.create_at);
@@ -669,7 +639,13 @@ impl Client {
         Ok(list.into_chronological())
     }
 
-    pub async fn create_post(&self, channel_id: &str, root_id: &str, message: &str, file_ids: &[String]) -> Result<Post> {
+    pub async fn create_post(
+        &self,
+        channel_id: &str,
+        root_id: &str,
+        message: &str,
+        file_ids: &[String],
+    ) -> Result<Post> {
         #[derive(Serialize)]
         struct NewPost<'a> {
             channel_id: &'a str,
@@ -677,16 +653,7 @@ impl Client {
             message: &'a str,
             file_ids: &'a [String],
         }
-        self.post(
-            "/posts",
-            &NewPost {
-                channel_id,
-                root_id,
-                message,
-                file_ids,
-            },
-        )
-        .await
+        self.post("/posts", &NewPost { channel_id, root_id, message, file_ids }).await
     }
 
     pub async fn team_unreads(&self) -> Result<Vec<TeamUnread>> {
@@ -742,17 +709,10 @@ impl Client {
     /// Envoie un fichier dans un canal ; renvoie sa description (dont l'id
     /// à joindre au message).
     pub async fn upload_file(&self, channel_id: &str, path: &std::path::Path) -> Result<FileInfo> {
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "fichier".into());
-        let bytes = tokio::fs::read(path)
-            .await
-            .with_context(|| format!("lecture de {}", path.display()))?;
+        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "fichier".into());
+        let bytes = tokio::fs::read(path).await.with_context(|| format!("lecture de {}", path.display()))?;
         let part = reqwest::multipart::Part::bytes(bytes).file_name(name);
-        let form = reqwest::multipart::Form::new()
-            .text("channel_id", channel_id.to_string())
-            .part("files", part);
+        let form = reqwest::multipart::Form::new().text("channel_id", channel_id.to_string()).part("files", part);
         let resp = self
             .http
             .post(self.url("/files"))
@@ -799,13 +759,7 @@ impl Client {
     }
 
     async fn get_query<T: for<'de> Deserialize<'de>>(&self, path: &str, query: &[(&str, &str)]) -> Result<T> {
-        let resp = self
-            .http
-            .get(self.url(path))
-            .query(query)
-            .send()
-            .await
-            .map_err(|e| network_error(&self.base, e))?;
+        let resp = self.http.get(self.url(path)).query(query).send().await.map_err(|e| network_error(&self.base, e))?;
         Self::decode(resp, path).await
     }
 
@@ -942,11 +896,8 @@ impl Client {
 
     /// Modifie la description (« purpose ») et l'en-tête d'un canal.
     pub async fn patch_channel(&self, channel_id: &str, purpose: &str, header: &str) -> Result<Channel> {
-        self.put(
-            &format!("/channels/{channel_id}/patch"),
-            &serde_json::json!({ "purpose": purpose, "header": header }),
-        )
-        .await
+        self.put(&format!("/channels/{channel_id}/patch"), &serde_json::json!({ "purpose": purpose, "header": header }))
+            .await
     }
 
     pub async fn patch_team_description(&self, team_id: &str, description: &str) -> Result<Team> {
@@ -981,7 +932,14 @@ impl Client {
     }
 
     /// Crée un canal (public « O » ou privé « P »).
-    pub async fn create_channel(&self, team_id: &str, name: &str, display_name: &str, purpose: &str, private: bool) -> Result<Channel> {
+    pub async fn create_channel(
+        &self,
+        team_id: &str,
+        name: &str,
+        display_name: &str,
+        purpose: &str,
+        private: bool,
+    ) -> Result<Channel> {
         let body = serde_json::json!({
             "team_id": team_id,
             "name": name,
@@ -997,7 +955,8 @@ impl Client {
         let body = serde_json::json!({
             "user_id": user_id, "team_id": team_id, "display_name": name, "type": "custom", "channel_ids": []
         });
-        let _: serde_json::Value = self.post(&format!("/users/{user_id}/teams/{team_id}/channels/categories"), &body).await?;
+        let _: serde_json::Value =
+            self.post(&format!("/users/{user_id}/teams/{team_id}/channels/categories"), &body).await?;
         Ok(())
     }
 
@@ -1018,9 +977,8 @@ impl Client {
             #[serde(default)]
             threads: Vec<UserThread>,
         }
-        let list: List = self
-            .get(&format!("/users/{user_id}/teams/{team_id}/threads?extended=true&per_page=100"))
-            .await?;
+        let list: List =
+            self.get(&format!("/users/{user_id}/teams/{team_id}/threads?extended=true&per_page=100")).await?;
         Ok(list.threads)
     }
 
@@ -1046,8 +1004,7 @@ impl Client {
     }
 
     pub async fn delete_preferences(&self, user_id: &str, prefs: &[Preference]) -> Result<()> {
-        self.send_json(reqwest::Method::POST, &format!("/users/{user_id}/preferences/delete"), Some(prefs))
-            .await
+        self.send_json(reqwest::Method::POST, &format!("/users/{user_id}/preferences/delete"), Some(prefs)).await
     }
 
     pub async fn set_pinned(&self, post_id: &str, pinned: bool) -> Result<()> {
@@ -1069,8 +1026,7 @@ impl Client {
     }
 
     pub async fn leave_channel(&self, channel_id: &str, user_id: &str) -> Result<()> {
-        self.send_json::<()>(reqwest::Method::DELETE, &format!("/channels/{channel_id}/members/{user_id}"), None)
-            .await
+        self.send_json::<()>(reqwest::Method::DELETE, &format!("/channels/{channel_id}/members/{user_id}"), None).await
     }
 
     pub async fn mark_channels_read(&self, channel_ids: &[String]) -> Result<()> {
@@ -1119,20 +1075,23 @@ impl Client {
     }
 
     /// Messages racine antérieurs à `before` (pour remonter l'historique).
-    pub async fn channel_posts_before(&self, channel_id: &str, before: &str, per_page: u32, crt: bool) -> Result<Vec<Post>> {
+    pub async fn channel_posts_before(
+        &self,
+        channel_id: &str,
+        before: &str,
+        per_page: u32,
+        crt: bool,
+    ) -> Result<Vec<Post>> {
         let list: PostList = self
-            .get(&format!(
-                "/channels/{channel_id}/posts?before={before}&per_page={per_page}&collapsedThreads={crt}"
-            ))
+            .get(&format!("/channels/{channel_id}/posts?before={before}&per_page={per_page}&collapsedThreads={crt}"))
             .await?;
         Ok(list.into_chronological())
     }
 
     /// Catégories de la barre latérale, dans l'ordre choisi par l'utilisateur.
     pub async fn categories(&self, team_id: &str) -> Result<Vec<SidebarCategory>> {
-        let mut ordered: OrderedCategories = self
-            .get(&format!("/users/me/teams/{team_id}/channels/categories"))
-            .await?;
+        let mut ordered: OrderedCategories =
+            self.get(&format!("/users/me/teams/{team_id}/channels/categories")).await?;
         let order = std::mem::take(&mut ordered.order);
         let mut categories = ordered.categories;
         if !order.is_empty() {
@@ -1167,13 +1126,11 @@ impl Client {
 
     pub async fn patch_post(&self, post_id: &str, message: &str) -> Result<()> {
         let path = format!("/posts/{post_id}/patch");
-        self.send_json(reqwest::Method::PUT, &path, Some(&serde_json::json!({ "message": message })))
-            .await
+        self.send_json(reqwest::Method::PUT, &path, Some(&serde_json::json!({ "message": message }))).await
     }
 
     pub async fn delete_post(&self, post_id: &str) -> Result<()> {
-        self.send_json::<()>(reqwest::Method::DELETE, &format!("/posts/{post_id}"), None)
-            .await
+        self.send_json::<()>(reqwest::Method::DELETE, &format!("/posts/{post_id}"), None).await
     }
 
     pub async fn add_reaction(&self, user_id: &str, post_id: &str, emoji_name: &str) -> Result<()> {
@@ -1216,7 +1173,12 @@ pub enum LoginError {
 
 /// Connexion par e-mail et mot de passe (+ code de double authentification).
 /// Renvoie le jeton de session.
-pub async fn login_with_password(server: &str, login_id: &str, password: &str, mfa: &str) -> Result<String, LoginError> {
+pub async fn login_with_password(
+    server: &str,
+    login_id: &str,
+    password: &str,
+    mfa: &str,
+) -> Result<String, LoginError> {
     let base = server.trim_end_matches('/');
     let http = reqwest::Client::builder()
         .user_agent(concat!("mm-gpui/", env!("CARGO_PKG_VERSION")))

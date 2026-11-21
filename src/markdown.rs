@@ -85,7 +85,8 @@ pub fn prepare_for(source: &str, custom_emojis: &[String], channel_id: Option<&s
     for name in custom_emojis {
         let code = format!(":{name}:");
         if prepared.contains(&code) {
-            let tag = format!(r#"<img src="{CUSTOM_EMOJI_SCHEME}{name}" alt="{code}" width="{size}" height="{size}" />"#);
+            let tag =
+                format!(r#"<img src="{CUSTOM_EMOJI_SCHEME}{name}" alt="{code}" width="{size}" height="{size}" />"#);
             prepared = prepared.replace(&code, &tag);
         }
     }
@@ -253,9 +254,8 @@ fn split_tokens(text: &str) -> Vec<(&str, Token)> {
             let starts_word = prev.is_none_or(|p| !(p.is_alphanumeric() || matches!(p, '#' | '&' | '/' | '_' | '-')));
             if c == '#' && starts_word {
                 let after = &chunk[i + 1..];
-                let len = after
-                    .find(|c: char| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '-')))
-                    .unwrap_or(after.len());
+                let len =
+                    after.find(|c: char| !(c.is_alphanumeric() || matches!(c, '.' | '_' | '-'))).unwrap_or(after.len());
                 let name = after[..len].trim_end_matches(['.', '-', '_']);
                 if name.chars().next().is_some_and(char::is_alphabetic) && name.chars().count() >= 3 {
                     let end = i + 1 + name.len();
@@ -338,7 +338,10 @@ mod tests {
 
     #[test]
     fn emojis_outside_code_only() {
-        assert_eq!(prepare("bravo :tada: !"), r#"bravo <img src="mm-twemoji:1f389" alt="🎉" width="20" height="20" /> !"#);
+        assert_eq!(
+            prepare("bravo :tada: !"),
+            r#"bravo <img src="mm-twemoji:1f389" alt="🎉" width="20" height="20" /> !"#
+        );
         assert_eq!(prepare("`:tada:`"), "`:tada:`");
         assert_eq!(prepare("```\n:tada:\n```"), "```\n:tada:\n```");
         assert!(prepare("ok :white_check_mark:").contains("mm-twemoji:2705"));
@@ -348,10 +351,7 @@ mod tests {
 
     #[test]
     fn mentions_become_links() {
-        assert_eq!(
-            prepare("merci @jean.dupont."),
-            "merci [@jean.dupont](mm-mention:jean.dupont)."
-        );
+        assert_eq!(prepare("merci @jean.dupont."), "merci [@jean.dupont](mm-mention:jean.dupont).");
         assert_eq!(prepare("**@alice** !"), "**[@alice](mm-mention:alice)** !");
     }
 

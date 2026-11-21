@@ -4,6 +4,10 @@
 //!
 //! Hors Windows, aucun mot n'est signalé.
 
+// Hors Windows, une partie de ce module ne sert pas (correcteur de Windows,
+// icônes de la barre des tâches).
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use std::ops::Range;
 
 /// Mot mal orthographié dans un texte.
@@ -43,7 +47,9 @@ pub fn skip(text: &str, range: &Range<usize>) -> bool {
 mod imp {
     use super::{Misspelling, skip};
     use windows::Win32::Globalization::{ISpellChecker, ISpellCheckerFactory, ISpellingError, SpellCheckerFactory};
-    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree};
+    use windows::Win32::System::Com::{
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree,
+    };
     use windows::core::{HSTRING, PWSTR};
 
     /// Correcteur de Windows (objet COM : à garder sur le fil de l'interface).
@@ -55,7 +61,8 @@ mod imp {
         pub fn new() -> Option<Self> {
             unsafe {
                 let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-                let factory: ISpellCheckerFactory = CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER).ok()?;
+                let factory: ISpellCheckerFactory =
+                    CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER).ok()?;
                 for language in ["fr-FR", "fr", "en-US"] {
                     let tag = HSTRING::from(language);
                     if factory.IsSupported(&tag).is_ok_and(|b| b.as_bool()) {
@@ -118,9 +125,10 @@ mod imp {
                         break;
                     }
                     if let Ok(s) = item[0].to_string()
-                        && s != word {
-                            out.push(s);
-                        }
+                        && s != word
+                    {
+                        out.push(s);
+                    }
                     CoTaskMemFree(Some(item[0].0 as *const _));
                     if out.len() >= limit {
                         break;

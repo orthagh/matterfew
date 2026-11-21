@@ -34,9 +34,10 @@ pub fn find(name: &str) -> Option<String> {
     ];
     for (suffix, tone) in TONES {
         if let Some(base) = name.strip_suffix(suffix)
-            && let Some(e) = by_name(base) {
-                return Some(e.with_skin_tone(tone).unwrap_or(e).as_str().to_string());
-            }
+            && let Some(e) = by_name(base)
+        {
+            return Some(e.with_skin_tone(tone).unwrap_or(e).as_str().to_string());
+        }
     }
     None
 }
@@ -50,8 +51,8 @@ pub fn lookup(name: &str) -> String {
 /// Image Twemoji (SVG) d'un emoji, avec ou sans sélecteur de variante.
 pub fn twemoji_svg(emoji: &str) -> Option<&'static str> {
     use twemoji_assets::svg::SvgTwemojiAsset;
-    let asset = SvgTwemojiAsset::from_emoji(emoji)
-        .or_else(|| SvgTwemojiAsset::from_emoji(&emoji.replace('\u{fe0f}', "")))?;
+    let asset =
+        SvgTwemojiAsset::from_emoji(emoji).or_else(|| SvgTwemojiAsset::from_emoji(&emoji.replace('\u{fe0f}', "")))?;
     Some(**asset)
 }
 

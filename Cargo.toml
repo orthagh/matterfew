@@ -2,8 +2,12 @@
 name = "mm-gpui"
 version = "0.1.0"
 edition = "2024"
-description = "Client de bureau expérimental pour Mattermost, en Rust avec GPUI"
-license = "MIT OR Apache-2.0"
+description = "Client de bureau Mattermost natif, en Rust avec GPUI"
+license = "MIT"
+authors = ["Alexandre Delaunay"]
+repository = "https://github.com/orthagh/mattermost_rust_client"
+homepage = "https://github.com/orthagh/mattermost_rust_client"
+readme = "README.md"
 
 [dependencies]
 # GPUI Kit : GPUI (version épinglée) + composants stylés (saisie, listes, Markdown…)
@@ -94,3 +98,30 @@ notify-rust = "4"
 # Tests de bout en bout : fenêtres GPUI sans écran (TestApp).
 [dev-dependencies]
 gpui-pre = { version = "=0.3.12", features = ["test-support"] }
+
+# Installateurs (cargo-packager, utilisé par .github/workflows/release.yml) :
+# NSIS sous Windows, .dmg sous macOS, .deb et AppImage sous Linux.
+[package.metadata.packager]
+product-name = "Mattermost (mm-gpui)"
+identifier = "io.github.orthagh.MattermostRustClient"
+publisher = "Alexandre Delaunay"
+category = "SocialNetworking"
+copyright = "Copyright (c) 2026 Alexandre Delaunay"
+out-dir = "target/packages"
+binaries-dir = "target/dist"
+binaries = [{ path = "mm-gpui", main = true }]
+icons = [
+  "assets/icons/32x32.png",
+  "assets/icons/128x128.png",
+  "assets/icons/256x256.png",
+  "assets/icons/512x512.png",
+]
+
+[package.metadata.packager.deb]
+depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0", "libxkbcommon-x11-0", "libvulkan1"]
+
+[package.metadata.packager.nsis]
+installer-mode = "currentUser"
+
+[package.metadata.packager.macos]
+minimum-system-version = "11.0"

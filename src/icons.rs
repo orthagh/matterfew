@@ -3,6 +3,10 @@
 //! pastille de la barre des tâches avec le nombre de mentions.
 //! Toutes renvoient des pixels RGBA, ligne par ligne.
 
+// Hors Windows, une partie de ce module ne sert pas (correcteur de Windows,
+// icônes de la barre des tâches).
+#![cfg_attr(not(windows), allow(dead_code))]
+
 /// Bleu de l'icône (bouton Mattermost « Denim »).
 const BLUE: [u8; 3] = [0x1c, 0x58, 0xd9];
 /// Rouge des pastilles de mentions.
@@ -208,5 +212,22 @@ mod tests {
         let alpha = |x: usize, y: usize| px[(y * 64 + x) * 4 + 3];
         assert_eq!(alpha(32, 10), 255);
         assert_eq!(alpha(0, 0), 0);
+    }
+}
+
+/// `cargo test export_icones -- --ignored` : régénère les PNG de `assets/icons`
+/// utilisés par les installateurs (même dessin que l'icône de l'application).
+#[cfg(test)]
+mod export {
+    #[test]
+    #[ignore]
+    fn export_icones() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets").join("icons");
+        std::fs::create_dir_all(&dir).unwrap();
+        for size in [32u32, 64, 128, 256, 512] {
+            let rgba = super::app_icon(size);
+            let img = image::RgbaImage::from_raw(size, size, rgba).unwrap();
+            img.save(dir.join(format!("{size}x{size}.png"))).unwrap();
+        }
     }
 }

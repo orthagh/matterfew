@@ -162,9 +162,8 @@ pub fn apply(text: &str, channel_id: Option<&str>) -> Vec<(String, bool)> {
 /// Règles du plugin dans la configuration du serveur (`PluginSettings`).
 pub fn from_server_config(config: &serde_json::Value) -> Vec<RuleDef> {
     let plugins = config.pointer("/PluginSettings/Plugins");
-    let links = plugins
-        .and_then(|p| p.get("mattermost-autolink").or_else(|| p.get("autolink")))
-        .and_then(|a| a.get("links"));
+    let links =
+        plugins.and_then(|p| p.get("mattermost-autolink").or_else(|| p.get("autolink"))).and_then(|a| a.get("links"));
     links.and_then(|l| serde_json::from_value(l.clone()).ok()).unwrap_or_default()
 }
 
@@ -176,38 +175,43 @@ mod tests {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
-    fn regles_teclib() {
+    fn regles_par_canal() {
         let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let defs: Vec<RuleDef> = serde_json::from_str(r##"[
             {"Name": "github_agent", "Pattern": "(#)(?P<github_id>\\d+)",
              "Template": "[#${github_id}](https://github.com/glpi-project/glpi-agent/issues/${github_id})",
-             "Scope": ["teclib/glpi-agent-and-inventory"]},
+             "Scope": ["acme/agent"]},
             {"Name": "github_glpi", "Pattern": "(#)(?P<github_id>\\d+)",
              "Template": "[#${github_id}](https://github.com/glpi-project/glpi/issues/${github_id})",
-             "Scope": ["teclib/GLPI", "teclib/ProServices"]},
+             "Scope": ["acme/Produit", "acme/Services"]},
             {"Name": "github_glpi_advisory", "Pattern": "(GHSA-(?P<b1>\\w{4})-?(?P<b2>\\w{4})-?(?P<b3>\\w{4}))",
              "Template": "[GHSA-${b1}-${b2}-${b3}](https://github.com/glpi-project/glpi/security/advisories/GHSA-${b1}-${b2}-${b3})",
-             "Scope": ["teclib/GLPI"]},
+             "Scope": ["acme/Produit"]},
             {"Name": "github_services", "Pattern": "(#)(?P<github_id>\\d+)",
              "Template": "[#${github_id}](https://github.com/glpi-network/services/issues/${github_id})",
-             "Scope": ["teclib/services-dev"]},
+             "Scope": ["acme/dev"]},
             {"Name": "support", "Pattern": "(!)(?P<ticket_id>\\d+)",
-             "Template": "[!${ticket_id}](https://support.teclib.com/front/ticket.form.php?id=${ticket_id})"}
+             "Template": "[!${ticket_id}](https://support.example.org/ticket?id=${ticket_id})"}
         ]"##).unwrap();
         assert_eq!(set_rules(&defs), 5);
-        set_place("ch-glpi", "teclib", "glpi");
-        set_place("ch-services", "teclib", "services-dev");
-        set_place("ch-autre", "teclib", "town-square");
-        let link = |text: &str, ch: &str| apply(text, Some(ch)).into_iter().filter(|(_, l)| *l).map(|(t, _)| t).collect::<Vec<_>>();
+        set_place("ch-glpi", "acme", "produit");
+        set_place("ch-services", "acme", "dev");
+        set_place("ch-autre", "acme", "town-square");
+        let link = |text: &str, ch: &str| {
+            apply(text, Some(ch)).into_iter().filter(|(_, l)| *l).map(|(t, _)| t).collect::<Vec<_>>()
+        };
         assert_eq!(link("voir #1234", "ch-glpi"), vec!["[#1234](https://github.com/glpi-project/glpi/issues/1234)"]);
-        assert_eq!(link("voir #1234", "ch-services"), vec!["[#1234](https://github.com/glpi-network/services/issues/1234)"]);
+        assert_eq!(
+            link("voir #1234", "ch-services"),
+            vec!["[#1234](https://github.com/glpi-network/services/issues/1234)"]
+        );
         assert!(link("voir #1234", "ch-autre").is_empty());
         assert_eq!(
             link("GHSA-abcd-1234-wxyz", "ch-glpi"),
             vec!["[GHSA-abcd-1234-wxyz](https://github.com/glpi-project/glpi/security/advisories/GHSA-abcd-1234-wxyz)"]
         );
         // Le ticket de support : partout.
-        assert_eq!(link("ticket !4821", "ch-autre"), vec!["[!4821](https://support.teclib.com/front/ticket.form.php?id=4821)"]);
+        assert_eq!(link("ticket !4821", "ch-autre"), vec!["[!4821](https://support.example.org/ticket?id=4821)"]);
         set_rules(&[]);
     }
 
@@ -231,14 +235,14 @@ mod tests {
     #[test]
     fn portee_par_canal() {
         // Les règles du serveur de l'utilisateur : même motif, dépôts différents.
-        set_place("c-agent", "teclib", "glpi-agent-and-inventory");
-        set_place("c-glpi", "teclib", "glpi");
+        set_place("c-agent", "acme", "agent");
+        set_place("c-glpi", "acme", "produit");
         let scope = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
-        assert!(in_scope(&scope(&["teclib/GLPI", "teclib/ProServices"]), Some("c-glpi")));
-        assert!(!in_scope(&scope(&["teclib/GLPI"]), Some("c-agent")));
-        assert!(in_scope(&scope(&["teclib"]), Some("c-agent")));
+        assert!(in_scope(&scope(&["acme/Produit", "acme/Services"]), Some("c-glpi")));
+        assert!(!in_scope(&scope(&["acme/Produit"]), Some("c-agent")));
+        assert!(in_scope(&scope(&["acme"]), Some("c-agent")));
         assert!(in_scope(&[], None));
-        assert!(!in_scope(&scope(&["teclib/GLPI"]), None));
+        assert!(!in_scope(&scope(&["acme/Produit"]), None));
     }
 
     #[test]

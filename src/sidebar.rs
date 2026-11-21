@@ -119,24 +119,15 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
 
     // Canaux qui n'apparaissent dans aucune catégorie (ex. message direct
     // tout juste créé) : rangés dans la catégorie par défaut de leur type.
-    let categorized: HashSet<&str> = input
-        .categories
-        .iter()
-        .flat_map(|c| c.channel_ids.iter().map(String::as_str))
-        .collect();
-    let orphans: Vec<&ChannelState> = input
-        .channels
-        .values()
-        .filter(|c| !categorized.contains(c.channel.id.as_str()))
-        .collect();
+    let categorized: HashSet<&str> =
+        input.categories.iter().flat_map(|c| c.channel_ids.iter().map(String::as_str)).collect();
+    let orphans: Vec<&ChannelState> =
+        input.channels.values().filter(|c| !categorized.contains(c.channel.id.as_str())).collect();
 
     for category in input.categories {
         let is_dm_category = category.kind == "direct_messages";
-        let mut members: Vec<&ChannelState> = category
-            .channel_ids
-            .iter()
-            .filter_map(|id| input.channels.get(id))
-            .collect();
+        let mut members: Vec<&ChannelState> =
+            category.channel_ids.iter().filter_map(|id| input.channels.get(id)).collect();
         for orphan in &orphans {
             let is_dm = orphan.channel.is_direct() || orphan.channel.is_group();
             if (is_dm_category && is_dm) || (category.kind == "channels" && !is_dm) {
@@ -198,14 +189,10 @@ fn sort_members<F: Fn(&Channel) -> String>(members: &mut Vec<&ChannelState>, sor
         "recent" => members.sort_by_key(|x| std::cmp::Reverse(x.channel.recency())),
         // "alpha" et "" : alphabétique, canaux en sourdine à la fin.
         _ => {
-            let keys: HashMap<String, String> = members
-                .iter()
-                .map(|c| (c.channel.id.clone(), title(&c.channel).to_lowercase()))
-                .collect();
+            let keys: HashMap<String, String> =
+                members.iter().map(|c| (c.channel.id.clone(), title(&c.channel).to_lowercase())).collect();
             members.sort_by(|a, b| {
-                a.muted
-                    .cmp(&b.muted)
-                    .then_with(|| natural_cmp(&keys[&a.channel.id], &keys[&b.channel.id]))
+                a.muted.cmp(&b.muted).then_with(|| natural_cmp(&keys[&a.channel.id], &keys[&b.channel.id]))
             });
         }
     }
@@ -267,7 +254,10 @@ mod tests {
     }
 
     fn state(c: Channel, unread: bool, mentions: i64, muted: bool) -> (String, ChannelState) {
-        (c.id.clone(), ChannelState { channel: c, unread_messages: unread, mentions, muted, notify_desktop: String::new() })
+        (
+            c.id.clone(),
+            ChannelState { channel: c, unread_messages: unread, mentions, muted, notify_desktop: String::new() },
+        )
     }
 
     fn category(id: &str, kind: &str, sorting: &str, ids: &[&str]) -> SidebarCategory {
@@ -322,11 +312,9 @@ mod tests {
 
     #[test]
     fn muted_channels_go_last_alphabetically() {
-        let channels: HashMap<_, _> = [
-            state(channel("a", "O", "aaa", 1), false, 0, true),
-            state(channel("b", "O", "bbb", 1), false, 0, false),
-        ]
-        .into();
+        let channels: HashMap<_, _> =
+            [state(channel("a", "O", "aaa", 1), false, 0, true), state(channel("b", "O", "bbb", 1), false, 0, false)]
+                .into();
         let s = run(&channels, &[category("x", "channels", "", &["a", "b"])], &SidebarPrefs::default(), None);
         assert_eq!(s[0].channel_ids, ["b", "a"]);
     }
@@ -396,8 +384,18 @@ mod tests {
     #[test]
     fn reads_preferences() {
         let prefs = SidebarPrefs::from_preferences(&[
-            Preference { user_id: String::new(), category: "sidebar_settings".into(), name: "show_unread_section".into(), value: "true".into() },
-            Preference { user_id: String::new(), category: "sidebar_settings".into(), name: "limit_visible_dms_gms".into(), value: "15".into() },
+            Preference {
+                user_id: String::new(),
+                category: "sidebar_settings".into(),
+                name: "show_unread_section".into(),
+                value: "true".into(),
+            },
+            Preference {
+                user_id: String::new(),
+                category: "sidebar_settings".into(),
+                name: "limit_visible_dms_gms".into(),
+                value: "15".into(),
+            },
         ]);
         assert_eq!(prefs, SidebarPrefs { show_unread_section: true, dm_limit: 15 });
     }

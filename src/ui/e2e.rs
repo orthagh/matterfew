@@ -168,5 +168,3 @@ fn e2e_brouillon_garde_par_canal() {
     w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value().as_ref(), "brouillon de général"));
     let _ = Pane::Channel;
 }
-
-

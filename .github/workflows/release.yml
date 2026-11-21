@@ -1,0 +1,188 @@
+# Installateurs, sur un tag de version (v1.2.3) :
+#   Windows  : installateur NSIS (.exe)
+#   macOS    : image disque (.dmg), Apple Silicon et Intel
+#   Linux    : snap, flatpak (+ .deb et AppImage, et l'exécutable seul)
+# La release GitHub reprend la section du CHANGELOG de cette version.
+#
+# « Run workflow » (workflow_dispatch) construit tout sans rien publier :
+# les installateurs restent dans les artefacts de l'exécution.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  version:
+    name: Version et notes
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Version du tag = version de Cargo.toml
+        shell: bash
+        run: |
+          crate=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/v}"
+            if [[ "$tag" != "$crate" ]]; then
+              echo "::error::Le tag v$tag ne correspond pas à la version de Cargo.toml ($crate)"
+              exit 1
+            fi
+          fi
+          echo "version=$crate" >> "$GITHUB_OUTPUT"
+      - name: Notes de version (CHANGELOG)
+        shell: bash
+        run: |
+          v="${{ steps.v.outputs.version }}"
+          awk -v v="$v" '
+            $0 ~ "^## \\[" v "\\]" { keep = 1; next }
+            /^## \[/ { keep = 0 }
+            keep { print }
+          ' CHANGELOG.md > notes.md
+          if [[ "$GITHUB_REF" == refs/tags/v* && ! -s notes.md ]]; then
+            echo "::error::Pas de section « ## [$v] » dans CHANGELOG.md"
+            exit 1
+          fi
+          cat notes.md
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notes
+          path: notes.md
+
+  build:
+    name: Paquets ${{ matrix.name }}
+    needs: version
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            formats: nsis
+          - name: macos-arm64
+            os: macos-14
+            formats: dmg
+          - name: macos-x64
+            os: macos-13
+            formats: dmg
+          - name: linux-x64
+            os: ubuntu-22.04
+            formats: deb,appimage
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bibliothèques système (Linux)
+        if: runner.os == 'Linux'
+        run: ./packaging/linux-deps.sh
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-key: release-${{ matrix.name }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager
+      - name: Compilation optimisée
+        run: cargo build --profile dist --locked
+      - name: Installateurs
+        run: cargo packager --profile dist --formats ${{ matrix.formats }} --verbose
+      - name: Exécutable seul (Linux : pour snap et flatpak)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p target/packages
+          tar -czf target/packages/mm-gpui-linux-x64.tar.gz -C target/dist mm-gpui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.name }}
+          path: |
+            target/packages/*.exe
+            target/packages/*.dmg
+            target/packages/*.deb
+            target/packages/*.AppImage
+            target/packages/*.tar.gz
+          if-no-files-found: error
+
+  snap:
+    name: Paquet snap
+    needs: [version, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-linux-x64
+          path: linux
+      - name: Contenu du snap
+        run: |
+          mkdir -p packaging/snap/payload/bin packaging/snap/payload/share/icons/hicolor/512x512/apps packaging/snap/payload/share/applications
+          tar -xzf linux/mm-gpui-linux-x64.tar.gz -C packaging/snap/payload/bin
+          cp assets/icons/512x512.png packaging/snap/payload/share/icons/hicolor/512x512/apps/mm-gpui.png
+          sed -i "s/^version: .*/version: '${{ needs.version.outputs.version }}'/" packaging/snap/snapcraft.yaml
+      - uses: snapcore/action-build@v1
+        id: snap
+        with:
+          path: packaging/snap
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-snap
+          path: ${{ steps.snap.outputs.snap }}
+          if-no-files-found: error
+
+  flatpak:
+    name: Paquet flatpak
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:gnome-47
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-linux-x64
+          path: linux
+      - name: Exécutable et icône à côté du manifeste
+        run: |
+          tar -xzf linux/mm-gpui-linux-x64.tar.gz -C packaging/flatpak
+          cp assets/icons/512x512.png packaging/flatpak/icon.png
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: mm-gpui-${{ needs.version.outputs.version }}.flatpak
+          manifest-path: packaging/flatpak/io.github.orthagh.MattermostRustClient.yml
+          cache-key: flatpak-${{ github.sha }}
+          upload-artifact: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-flatpak
+          path: mm-gpui-*.flatpak
+          if-no-files-found: error
+
+  publish:
+    name: Release GitHub
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, build, snap, flatpak]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ needs.version.outputs.version }}
+          body_path: artifacts/notes/notes.md
+          files: |
+            artifacts/packages-*/*

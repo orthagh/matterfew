@@ -61,7 +61,9 @@ mod windows_impl {
     use anyhow::{Context as _, Result};
     use windows::Win32::Foundation::{HWND, TRUE};
     use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
-    use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx};
+    use windows::Win32::System::Com::{
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx,
+    };
     use windows::Win32::UI::Shell::{ITaskbarList3, SetCurrentProcessExplicitAppUserModelID, TaskbarList};
     use windows::Win32::UI::WindowsAndMessaging::{
         CreateIconIndirect, DestroyIcon, FLASHW_TIMERNOFG, FLASHW_TRAY, FLASHWINFO, FlashWindowEx, HICON, ICONINFO,
@@ -101,9 +103,8 @@ mod windows_impl {
         use windows::core::Interface;
 
         let exe = std::env::current_exe()?;
-        let programs = dirs::data_dir()
-            .context("dossier AppData introuvable")?
-            .join(r"Microsoft\Windows\Start Menu\Programs");
+        let programs =
+            dirs::data_dir().context("dossier AppData introuvable")?.join(r"Microsoft\Windows\Start Menu\Programs");
         let lnk = programs.join(format!("{DISPLAY_NAME}.lnk"));
         unsafe {
             let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
