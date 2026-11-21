@@ -110,7 +110,11 @@ impl Demo {
             },
         ];
         let channels = vec![
-            channel("general", "O", "town-square", "Général", "Annonces et discussions pour toute l'équipe", now - h),
+            {
+                let mut c = channel("general", "O", "town-square", "Général", "Annonces et discussions pour toute l'équipe", now - h);
+                c.header = "**Réunion** lundi 10 h · [Wiki de l'équipe](https://example.org/wiki) · [Planning](https://example.org/planning)".into();
+                c
+            },
             channel("backend", "O", "dev-backend", "dev-backend", "API, base de données et déploiements", now - 2 * h),
             channel("design", "O", "design", "design", "Maquettes et retours d'interface", now - 26 * h),
             channel("support", "P", "support-n2", "support-n2", "Escalades du support", now - 5 * h),
@@ -146,6 +150,10 @@ impl Demo {
         demo.add("general", "u3", now - day - 2 * h + 2 * m, "Le modèle est dans le drive partagé > *Présentations*.", &[], 0);
         demo.add("general", ME, now - 5 * h, "Merci @chloe.durand ! J'ajoute la partie sur les performances.", &[("heart", &["u3"])], 0);
         demo.add("general", "u4", now - 2 * h, "Rappel : la mise en production de la **v2.4** est prévue ce soir.\n\n- gel des fusions à 17h\n- déploiement à 19h\n- vérifications à 19h30", &[("eyes", &["u1", "u2"])], 1);
+        demo.add("general", "u1", now - h - 5 * m, "Ordre du jour de lundi :
+1. point sur la version 12
+2. recette du client GPUI
+Merci de compléter avant vendredi.", &[], 0);
         demo.add("general", "u2", now - h, "Pour info, la doc est à jour : [notes de version](https://example.org/notes) :white_check_mark: #release-12 #documentation", &[], 0);
 
         demo.add("backend", "u2", now - day - 4 * h, "Quelqu'un a vu la lenteur sur `/api/tickets` ce matin ?", &[], 2);

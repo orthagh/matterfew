@@ -55,7 +55,8 @@ impl ChatApp {
             "online" => p.online,
             "away" => p.away,
             "dnd" => p.dnd,
-            _ => p.center_color.opacity(0.32),
+            // Opaque : un gris transparent laissait voir la photo dessous.
+            _ => p.center_bg.blend(p.center_color.opacity(0.38)),
         }
     }
 
@@ -966,7 +967,30 @@ impl ChatApp {
                 .on_click(move |_, _, cx| {
                     entity.update(cx, |this, _| this.toggle_reaction(post_id.clone(), emoji_name.clone()));
                 })
-        }));
+        }))
+        // Une autre réaction : le sélecteur d'emojis.
+        .child({
+            let (entity, post_id) = (entity.clone(), post.id.clone());
+            div()
+                .id(key("react-add"))
+                .h(px(26.))
+                .px_1p5()
+                .flex()
+                .items_center()
+                .rounded(px(13.))
+                .border_1()
+                .border_color(transparent_black())
+                .bg(p.center_color.opacity(0.06))
+                .text_color(p.muted())
+                .cursor_pointer()
+                .hover(|s| s.border_color(p.center_color.opacity(0.24)).text_color(p.center_color))
+                .child(Icon::new(IconName::FaceSlightlySmilingPlus).size(px(15.)))
+                .tooltip(|window, cx| gpui_kit::component::tooltip::Tooltip::new("Ajouter une réaction").build(window, cx))
+                .on_click(move |_, window, cx| {
+                    let target = PickerTarget::Reaction(post_id.clone());
+                    entity.update(cx, |this, cx| this.open_emoji_picker(target, window, cx));
+                })
+        });
 
         let replies = (pane == Pane::Channel && post.reply_count > 0).then(|| {
             let entity = entity.clone();
@@ -1095,8 +1119,10 @@ impl ChatApp {
                                 })
                         }
                         });
-                        if bot_block && !self.expanded_bots.contains(&post.id) {
-                            // Une ligne par notification : couleur, résumé tronqué ; clic pour déplier.
+                        if bot_block {
+                            // Une ligne par notification (couleur, résumé, heure) ; un clic
+                            // (hors liens) déplie ou replie, le chevron restant à droite.
+                            let expanded = self.expanded_bots.contains(&post.id);
                             let (summary, color) = bot_summary(post);
                             let bar = color
                                 .as_deref()
@@ -1104,59 +1130,38 @@ impl ChatApp {
                                 .and_then(crate::theme::parse_color)
                                 .or_else(|| notification_color(&post.message));
                             let (entity, id) = (entity.clone(), post.id.clone());
-                            h_flex()
-                                .id(key("bot-line"))
+                            let meta = h_flex()
+                                .flex_none()
                                 .gap_2()
-                                .px_3()
+                                .text_xs()
+                                .text_color(p.muted())
+                                .child(format_hour(post.create_at))
+                                .child(
+                                    Icon::new(if expanded { IconName::ChevronUp } else { IconName::ChevronDown })
+                                        .size(px(13.)),
+                                );
+                            let line = h_flex()
+                                .gap_2()
                                 .h(px(30.))
-                                .bg(p.center_color.opacity(0.025))
-                                .border_l_1()
-                                .border_r_1()
-                                .border_t_1()
-                                .border_color(p.border())
-                                .when(!run_prev, |d| d.rounded_t(px(10.)))
-                                .when(!run_next, |d| d.border_b_1().rounded_b(px(10.)))
-                                .cursor_pointer()
-                                .hover(|d| d.bg(p.center_color.opacity(0.05)))
                                 .child(div().flex_none().w(px(3.)).h(px(14.)).rounded(px(2.)).bg(bar.unwrap_or(p.muted())))
                                 .child(div().flex_1().min_w_0().truncate().text_sm().child(summary))
-                                .child(Icon::new(IconName::ChevronRight).size(px(13.)).text_color(p.muted()).flex_none())
+                                .child(meta);
+                            v_flex()
+                                .id(key("bot-line"))
+                                .px_3()
+                                .bg(p.center_color.opacity(0.03))
+                                // Pas de bordure : un fond léger, un fin séparateur entre notifications.
+                                .when(run_prev, |d| d.border_t_1().border_color(p.center_color.opacity(0.05)))
+                                .when(!run_prev, |d| d.rounded_t(px(8.)))
+                                .when(!run_next, |d| d.rounded_b(px(8.)))
+                                .cursor_pointer()
+                                .hover(|d| d.bg(p.center_color.opacity(0.055)))
+                                .child(line)
+                                .when(expanded, |d| d.child(div().pb_2().child(content_full)))
                                 .on_click(move |_, _, cx| {
                                     let id = id.clone();
                                     entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
                                 })
-                                .into_any_element()
-                        } else if bot_block {
-                            // Notification dépliée : contenu complet, « Réduire ».
-                            let (entity, id) = (entity.clone(), post.id.clone());
-                            v_flex()
-                                .px_3()
-                                .py_1p5()
-                                .bg(p.center_color.opacity(0.025))
-                                .border_l_1()
-                                .border_r_1()
-                                .border_t_1()
-                                .border_color(p.border())
-                                .when(!run_prev, |d| d.rounded_t(px(10.)))
-                                .when(!run_next, |d| d.border_b_1().rounded_b(px(10.)))
-                                .child(content_full)
-                                .child(
-                                    h_flex()
-                                        .id(key("bot-less"))
-                                        .gap_1()
-                                        .mt_0p5()
-                                        .text_xs()
-                                        .font_semibold()
-                                        .text_color(p.link)
-                                        .cursor_pointer()
-                                        .hover(|d| d.underline())
-                                        .child(Icon::new(IconName::ChevronDown).size(px(12.)))
-                                        .child("Réduire")
-                                        .on_click(move |_, _, cx| {
-                                            let id = id.clone();
-                                            entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
-                                        }),
-                                )
                                 .into_any_element()
                         } else {
                             v_flex().child(inner).children(more).into_any_element()
@@ -1235,7 +1240,7 @@ impl ChatApp {
             let (entity, pid) = (entity.clone(), post_id.clone());
             bar = bar.child(
                 Button::new(id(&format!("qr-{name}")))
-                    .child(emoji_face(&emoji::lookup(name), 18.))
+                    .child(emoji_face(&emoji::lookup(name), 16.))
                     .xsmall()
                     .ghost()
                     .tooltip(format!(":{name}:"))
@@ -1248,7 +1253,7 @@ impl ChatApp {
             let (entity, pid) = (entity.clone(), post_id.clone());
             bar = bar.child(
                 Button::new(id("react"))
-                    .icon(Icon::new(IconName::FaceSlightlySmilingPlus))
+                    .icon(Icon::new(IconName::FaceSlightlySmilingPlus).size(px(16.)))
                     .xsmall()
                     .ghost()
                     .tooltip("Ajouter une réaction")
@@ -1264,7 +1269,7 @@ impl ChatApp {
             let (entity, pid) = (entity.clone(), post_id.clone());
             bar = bar.child(
                 Button::new(id("reply"))
-                    .icon(Icon::new(IconName::Reply))
+                    .icon(Icon::new(IconName::Reply).size(px(16.)))
                     .xsmall()
                     .ghost()
                     .tooltip("Répondre dans le fil")
@@ -1278,7 +1283,7 @@ impl ChatApp {
         let (entity, pid) = (entity.clone(), post_id.clone());
         bar.child(
             Button::new(id("more"))
-                .icon(Icon::new(IconName::Ellipsis))
+                .icon(Icon::new(IconName::Ellipsis).size(px(16.)))
                 .xsmall()
                 .ghost()
                 .tooltip("Plus d'actions")
@@ -1934,10 +1939,16 @@ impl ChatApp {
         let state = self.channel_id.as_ref().and_then(|id| self.channels.get(id));
         let title = state.map(|c| self.channel_title(&c.channel)).unwrap_or_default();
         let partner = state.and_then(|c| c.channel.direct_partner(self.me_id()));
-        let subtitle = match (&partner, state) {
-            (Some(partner), _) => Some(self.status_label(partner).to_string()),
-            (None, Some(c)) if !c.channel.purpose.is_empty() => Some(c.channel.purpose.clone()),
-            (None, Some(c)) if !c.channel.header.is_empty() => Some(markdown::plain_text(&c.channel.header)),
+        // En-tête du canal (Markdown, liens cliquables), sinon sa description.
+        let subtitle: Option<AnyElement> = match (&partner, state) {
+            (Some(partner), _) => Some(self.status_label(partner).into_any_element()),
+            (None, Some(c)) if !c.channel.header.is_empty() => Some(
+                TextView::markdown("channel-header-text", markdown::prepare(&c.channel.header))
+                    .max_lines(1)
+                    .on_link_click(|url, _, _, cx| open_link(url, cx))
+                    .into_any_element(),
+            ),
+            (None, Some(c)) if !c.channel.purpose.is_empty() => Some(c.channel.purpose.clone().into_any_element()),
             _ => None,
         };
         let badge = state
@@ -2053,7 +2064,7 @@ impl ChatApp {
                             .children(flags),
                     )
                     .when_some(subtitle, |el, sub| {
-                        el.child(div().truncate().text_size(px(12.)).text_color(p.muted()).child(sub))
+                        el.child(div().truncate().max_h(px(18.)).overflow_hidden().text_size(px(12.)).text_color(p.muted()).child(sub))
                     }),
             )
             .when(self.loading_older, |el| {
@@ -4020,12 +4031,20 @@ impl ChatApp {
         let since = (channel.create_at > 0).then(|| format!("Créé {}", day_label(channel.create_at).to_lowercase()));
         let favorite = self.is_favorite(&id);
         let section = |title: &'static str| div().text_xs().font_semibold().text_color(p.muted()).child(title);
+        // Markdown rendu (liens cliquables), ou une invite si vide.
         let text_or = |text: &str, empty: &'static str| {
+            let id = SharedString::from(format!("ch-info-{}", empty.len()));
             div()
                 .min_w_0()
                 .text_sm()
                 .when(text.is_empty(), |d| d.italic().text_color(p.muted()))
-                .child(if text.is_empty() { empty.to_string() } else { markdown::plain_text(text) })
+                .child(if text.is_empty() {
+                    empty.to_string().into_any_element()
+                } else {
+                    TextView::markdown(id, markdown::prepare(text))
+                        .on_link_click(|url, _, _, cx| open_link(url, cx))
+                        .into_any_element()
+                })
         };
         let details: AnyElement = if editing {
             v_flex()
@@ -5111,6 +5130,7 @@ fn bot_post_lines(post: &Post) -> usize {
 /// Ouvre un lien d'un message : seulement le web et le courriel. Jamais
 /// `file:`, un chemin local ou un protocole qui lancerait un programme.
 fn open_link(url: &str, cx: &mut App) {
+    cx.stop_propagation();
     if is_safe_link(url) {
         cx.open_url(url);
     }

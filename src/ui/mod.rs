@@ -1979,6 +1979,17 @@ impl ChatApp {
         };
         match scene.as_str() {
             "bots" => self.select_channel("backend".into(), cx),
+            "bots-deplie" => {
+                self.select_channel("backend".into(), cx);
+                after(self, 700, window, cx, |this, _, cx| {
+                    let id = this.posts.iter().rev().find(|v| v.post.is_bot_post() && v.post.user_id == "u6").map(|v| v.post.id.clone());
+                    if let Some(id) = id {
+                        this.toggle_bot_post(id, cx);
+                    }
+                    let scroller = this.scroller.clone();
+                    scroller.update(cx, |s, cx| s.scroll_to_end(cx));
+                });
+            }
             "etroit-canaux" => after(self, 400, window, cx, |this, _, cx| this.toggle_drawer(Drawer::Channels, cx)),
             "etroit-membres" => after(self, 400, window, cx, |this, _, cx| this.toggle_drawer(Drawer::Members, cx)),
             "autolink" => self.select_channel("support".into(), cx),
@@ -2149,7 +2160,8 @@ impl ChatApp {
         let Some(checker) = &self.spell else { return };
         let state = self.composer_for(pane);
         let text = state.read(cx).value().to_string();
-        let found = checker.check(&text, 12);
+        // Une commande « / » n'est pas du texte à corriger.
+        let found = if text.trim_start().starts_with('/') { Vec::new() } else { checker.check(&text, 12) };
         let color = self.palette.error;
         let decorations = found
             .iter()
