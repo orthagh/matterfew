@@ -205,6 +205,8 @@ pub(crate) enum FilesTab {
 enum PickerTarget {
     Reaction(String),
     Composer(Pane),
+    /// Emoji du statut personnalisé en cours de saisie.
+    Status,
 }
 
 struct ThreadView {
@@ -342,6 +344,14 @@ pub struct ChatApp {
     pending_jump: Option<Post>,
     /// Fils suivis (panneau « Fils »), `None` pendant le chargement.
     threads: Option<Vec<UserThread>>,
+    /// Panneau « Fils » : tous ceux de l'équipe (sinon ceux du canal affiché),
+    /// et seulement les non lus.
+    threads_all: bool,
+    threads_unread: bool,
+    /// Fenêtre ouverte : parcourir les canaux, message direct, statut,
+    /// notifications d'un canal ; et son champ de saisie.
+    dialog: Option<view::dialogs::Dialog>,
+    dialog_input: Entity<InputState>,
     search_input: Entity<InputState>,
     /// Sélecteur de canaux (Ctrl+K) ouvert, avec la ligne choisie.
     switcher: Option<usize>,
@@ -460,6 +470,7 @@ impl ChatApp {
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("channel_card.header_placeholder").to_string()));
         let member_search_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("members.search_placeholder").to_string()));
+        let dialog_input = cx.new(|cx| InputState::new(window, cx));
         let switcher_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("switcher.placeholder").to_string()));
         let emoji_search =
@@ -500,6 +511,11 @@ impl ChatApp {
         let settings = UiSettings::load();
         crate::autolink::set_rules(&crate::autolink::load_local());
         let subscriptions = vec![
+            cx.subscribe_in(&dialog_input, window, |this, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::Change = ev {
+                    this.dialog_input_changed(cx);
+                }
+            }),
             cx.subscribe_in(&member_search_input, window, |this, _, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
                     this.search_member_candidates(cx);
@@ -641,6 +657,10 @@ impl ChatApp {
             team_desc_input,
             add_members: None,
             member_search_input,
+            threads_all: false,
+            threads_unread: false,
+            dialog: None,
+            dialog_input,
             expanded_bots: HashSet::new(),
             spell: crate::spell::Checker::new(),
             misspellings: HashMap::new(),
@@ -828,6 +848,9 @@ impl ChatApp {
             if self.screen == Screen::Chat {
                 self.thread = None;
                 if let Some(team_id) = self.team_id.clone() {
+                    if crt {
+                        self.send(Command::LoadThreads { team_id: team_id.clone() });
+                    }
                     self.send(Command::LoadTeam { team_id });
                 }
                 if let Some(channel_id) = self.channel_id.clone() {
@@ -1050,10 +1073,12 @@ impl ChatApp {
         }
         self.attachments.clear();
         self.profile = None;
-        if self.side.as_ref().is_some_and(|s| s.kind == SideKind::Threads) {
-            self.threads = None;
+        // Fils suivis : pour leur pastille dans la barre latérale.
+        self.threads = None;
+        if self.crt {
             self.send(Command::LoadThreads { team_id: team_id.clone() });
         }
+        self.dialog = None;
         self.send(Command::LoadTeamUnreads);
         // Le thème peut être propre à l'équipe.
         self.refresh_preferences(cx);
@@ -1130,12 +1155,17 @@ impl ChatApp {
         if self.settings.show_members && !self.members.contains_key(&channel_id) {
             self.send(Command::LoadMembers { channel_id: channel_id.clone() });
         }
-        self.send(Command::MarkRead { channel_id });
+        // Canal archivé : lecture seule, pas de lecture à enregistrer.
+        if !self.is_archived(&channel_id) {
+            self.send(Command::MarkRead { channel_id });
+        }
         cx.notify();
     }
 
     fn mark_current_read(&mut self) {
-        if let Some(id) = self.channel_id.clone().filter(|id| self.manually_unread.as_ref() != Some(id)) {
+        if let Some(id) =
+            self.channel_id.clone().filter(|id| self.manually_unread.as_ref() != Some(id) && !self.is_archived(id))
+        {
             if let Some(state) = self.channels.get_mut(&id) {
                 state.unread_messages = false;
                 state.mentions = 0;
@@ -1279,6 +1309,9 @@ impl ChatApp {
     /// messages du canal affiché modifiés depuis le plus récent connu, fil ouvert.
     fn resync(&mut self) {
         if let Some(team_id) = self.team_id.clone() {
+            if self.crt {
+                self.send(Command::LoadThreads { team_id: team_id.clone() });
+            }
             self.send(Command::LoadTeam { team_id });
         }
         self.send(Command::LoadTeamUnreads);
@@ -1970,12 +2003,22 @@ impl ChatApp {
 
     /// Panneau des fils suivis.
     fn show_threads(&mut self, cx: &mut Context<Self>) {
+        self.open_threads_panel(false, cx);
+    }
+
+    /// Panneau « Fils » : ceux du canal affiché, ou tous ceux de l'équipe.
+    fn open_threads_panel(&mut self, all: bool, cx: &mut Context<Self>) {
         let Some(team_id) = self.team_id.clone() else { return };
+        if self.side.as_ref().is_some_and(|s| s.kind == SideKind::Threads) && self.threads_all == all {
+            self.close_side(cx);
+            return;
+        }
         if self.thread.is_some() {
             self.close_thread(cx);
         }
         self.side = Some(SidePanel { kind: SideKind::Threads, subject: String::new(), posts: Some(Vec::new()) });
-        self.threads = None;
+        self.threads_all = all;
+        self.threads_unread = false;
         self.send(Command::LoadThreads { team_id });
         cx.notify();
     }
@@ -2311,6 +2354,17 @@ impl ChatApp {
                 });
             }
             "carte-equipe" => after(self, 400, window, cx, |this, _, cx| this.open_team_card(cx)),
+            "parcourir" => after(self, 400, window, cx, |this, window, cx| this.open_browse_dialog(window, cx)),
+            "message-groupe" => after(self, 400, window, cx, |this, window, cx| {
+                this.open_direct_dialog(window, cx);
+                this.toggle_direct_pick("u3".into(), window, cx);
+                this.toggle_direct_pick("u6".into(), window, cx);
+            }),
+            "statut" => after(self, 400, window, cx, |this, window, cx| this.open_status_dialog(window, cx)),
+            "notifications" => {
+                after(self, 400, window, cx, |this, _, cx| this.open_notify_dialog("general".into(), cx))
+            }
+            "fils" => after(self, 600, window, cx, |this, _, cx| this.open_threads_panel(true, cx)),
             _ => {}
         }
     }
@@ -2702,6 +2756,9 @@ impl ChatApp {
             Some(PickerTarget::Composer(pane)) => Some(*pane),
             _ => None,
         };
+        if self.emoji_picker == Some(PickerTarget::Status) {
+            self.dialog_input.update(cx, |s, cx| s.focus(window, cx));
+        }
         self.emoji_picker = None;
         if let Some(pane) = pane {
             self.composer_for(pane).update(cx, |s, cx| s.focus(window, cx));
@@ -2718,6 +2775,7 @@ impl ChatApp {
                 let text = if glyph.is_empty() { format!(":{name}: ") } else { glyph };
                 self.composer_for(pane).update(cx, |s, cx| s.insert(text, window, cx));
             }
+            Some(PickerTarget::Status) => self.set_status_emoji(name.clone(), cx),
             None => {}
         }
         self.close_emoji_picker(window, cx);
@@ -2893,12 +2951,16 @@ impl ChatApp {
             }
             Event::ChannelCreated(channel) => {
                 let id = channel.id.clone();
+                // Canal rejoint depuis « Parcourir les canaux ».
+                if matches!(self.dialog, Some(view::dialogs::Dialog::Browse(_))) {
+                    self.dialog = None;
+                }
                 self.channels.entry(id.clone()).or_insert(ChannelState {
                     channel,
                     unread_messages: false,
                     mentions: 0,
                     muted: false,
-                    notify_desktop: String::new(),
+                    notify: Default::default(),
                 });
                 if let Some(c) = self.categories.iter_mut().find(|c| c.kind == "channels")
                     && !c.channel_ids.contains(&id)
@@ -2951,6 +3013,16 @@ impl ChatApp {
                     self.send(Command::LoadMembers { channel_id });
                 }
             }
+            Event::ThreadUpdated { team_id, thread } => self.on_thread_updated(team_id, thread),
+            Event::ThreadRead { thread_id, unread_replies, unread_mentions } => {
+                self.on_thread_read(&thread_id, unread_replies, unread_mentions)
+            }
+            Event::ThreadFollow { thread_id, following } => self.on_thread_follow(thread_id, following),
+            Event::MemberUpdated(member) => self.on_member_updated(member),
+            Event::BrowseChannels { team_id, archived, channels } => {
+                self.on_browse_channels(team_id, archived, channels)
+            }
+            Event::UserSearch { term, users } => self.on_user_search(term, users, cx),
             Event::Threads(list) => {
                 let roots: Vec<Post> = list.iter().map(|t| t.post.clone()).collect();
                 self.request_previews(&roots);
@@ -2963,7 +3035,7 @@ impl ChatApp {
                     unread_messages: false,
                     mentions: 0,
                     muted: false,
-                    notify_desktop: String::new(),
+                    notify: Default::default(),
                 });
                 if let Some(dm) = self.categories.iter_mut().find(|c| c.kind == "direct_messages")
                     && !dm.channel_ids.contains(&id)
@@ -3079,7 +3151,7 @@ impl ChatApp {
                                 },
                                 mentions: if self.crt { m.mention_count_root } else { m.mention_count },
                                 muted: m.is_muted(),
-                                notify_desktop: m.notify_props.desktop.clone(),
+                                notify: m.notify_props.clone(),
                                 channel,
                             },
                             None => ChannelState {
@@ -3087,7 +3159,7 @@ impl ChatApp {
                                 unread_messages: false,
                                 mentions: 0,
                                 muted: false,
-                                notify_desktop: String::new(),
+                                notify: Default::default(),
                             },
                         };
                         (state.channel.id.clone(), state)
@@ -3147,7 +3219,7 @@ impl ChatApp {
                     unread_messages: true,
                     mentions: 1,
                     muted: false,
-                    notify_desktop: String::new(),
+                    notify: Default::default(),
                 });
                 // La catégorie « Messages directs » côté serveur l'inclut désormais.
                 if let Some(team_id) = self.team_id.clone() {
@@ -3372,7 +3444,7 @@ impl ChatApp {
             is_system: post.is_system(),
             channel_type,
             channel_muted: state.is_some_and(|s| s.muted),
-            channel_level: state.map(|s| s.notify_desktop.as_str()).unwrap_or(""),
+            channel_level: state.map(|s| s.notify.desktop.as_str()).unwrap_or(""),
             user_level: me.and_then(|m| m.notify_props.get("desktop")).map(String::as_str).unwrap_or(""),
             my_status: self.statuses.get(&me_id).map(String::as_str).unwrap_or(""),
             mentions_me,

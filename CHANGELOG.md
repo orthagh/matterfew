@@ -25,6 +25,17 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 - Alt+↑/↓ : canal précédent ou suivant ; Alt+Maj+↑/↓ : canal non lu.
 - Suivre ou ne plus suivre un fil, depuis le menu d'un message.
 - « Me le rappeler » : dans 30 min, 1 h, 2 h ou demain.
+- Préférences de notification par canal : bureau (par défaut, tout,
+  mentions, jamais), sourdine, ignorer @channel/@here/@all, suivre
+  automatiquement les nouveaux fils. Synchronisées avec les autres appareils.
+- « Parcourir les canaux » : canaux publics à rejoindre et canaux archivés,
+  ouverts en lecture seule.
+- Nouveau message direct ou de groupe (jusqu'à 7 personnes), depuis le
+  bouton « + », la catégorie Messages directs ou Ctrl+Maj+K.
+- Statut personnalisé : emoji et texte à côté des noms (messages, membres,
+  messages directs, carte de profil) ; réglage avec suggestions et échéance.
+- Vue « Fils » de toute l'équipe en haut de la barre latérale, avec sa
+  pastille, l'onglet « Non lus » et « Tout marquer comme lu ».
 
 ## [0.1.0] - 2026-11-21
 

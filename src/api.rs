@@ -41,6 +41,38 @@ pub struct User {
     /// Compte de bot (GitHub, GitLab, Jira…).
     #[serde(default)]
     pub is_bot: bool,
+    /// Propriétés libres ; `customStatus` : statut personnalisé (JSON dans une chaîne).
+    #[serde(default)]
+    pub props: serde_json::Value,
+    /// Compte désactivé (0 sinon).
+    #[serde(default)]
+    pub delete_at: i64,
+}
+
+/// Statut personnalisé : emoji, texte et échéance.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+pub struct CustomStatus {
+    #[serde(default)]
+    pub emoji: String,
+    #[serde(default)]
+    pub text: String,
+    /// "dont_clear", "thirty_minutes", "one_hour", "four_hours", "today",
+    /// "this_week" ou "date_and_time".
+    #[serde(default)]
+    pub duration: String,
+    /// Échéance (RFC 3339), vide pour « ne pas effacer ».
+    #[serde(default)]
+    pub expires_at: String,
+}
+
+impl CustomStatus {
+    /// Échéance dépassée (le serveur ne l'efface pas toujours aussitôt).
+    pub fn expired(&self, now: chrono::DateTime<chrono::Utc>) -> bool {
+        if self.duration.is_empty() || self.duration == "dont_clear" {
+            return false;
+        }
+        chrono::DateTime::parse_from_rfc3339(&self.expires_at).is_ok_and(|at| at < now)
+    }
 }
 
 /// Désérialise un objet JSON en ne gardant que les valeurs textuelles
@@ -72,6 +104,18 @@ impl User {
         let get = |k: &str| tz.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
         let name = if get("useAutomaticTimezone") == "true" { get("automaticTimezone") } else { get("manualTimezone") };
         (!name.is_empty()).then_some(name)
+    }
+
+    /// Statut personnalisé en cours (rien s'il est vide ou échu).
+    pub fn custom_status(&self) -> Option<CustomStatus> {
+        let raw = self.props.get("customStatus")?;
+        let status: CustomStatus = match raw {
+            serde_json::Value::String(s) if !s.is_empty() => serde_json::from_str(s).ok()?,
+            serde_json::Value::Object(_) => serde_json::from_value(raw.clone()).ok()?,
+            _ => return None,
+        };
+        let empty = status.emoji.is_empty() && status.text.is_empty();
+        (!empty && !status.expired(chrono::Utc::now())).then_some(status)
     }
 
     /// Nom affiché : « Prénom Nom » si disponible, sinon le nom d'utilisateur.
@@ -275,6 +319,12 @@ pub struct NotifyProps {
     /// "default" (celui de l'utilisateur), "all", "mention" ou "none".
     #[serde(default)]
     pub desktop: String,
+    /// Ignorer @channel, @here et @all : "default", "on" ou "off".
+    #[serde(default)]
+    pub ignore_channel_mentions: String,
+    /// Suivre automatiquement les nouveaux fils du canal : "on" ou "off".
+    #[serde(default)]
+    pub channel_auto_follow_threads: String,
 }
 
 /// Catégorie de la barre latérale (Favoris, Canaux, Messages directs,
@@ -1018,6 +1068,65 @@ impl Client {
 
     pub async fn user_by_username(&self, username: &str) -> Result<User> {
         self.get(&format!("/users/username/{username}")).await
+    }
+
+    /// Préférences de notification d'un canal (seuls les champs donnés changent).
+    pub async fn set_channel_notify_props(
+        &self,
+        channel_id: &str,
+        user_id: &str,
+        props: &HashMap<&str, String>,
+    ) -> Result<()> {
+        let mut body = serde_json::json!({ "channel_id": channel_id, "user_id": user_id });
+        for (k, v) in props {
+            body[*k] = serde_json::Value::String(v.clone());
+        }
+        let path = format!("/channels/{channel_id}/members/{user_id}/notify_props");
+        self.send_json(reqwest::Method::PUT, &path, Some(&body)).await
+    }
+
+    /// Canaux publics de l'équipe (`archived` : les canaux archivés), par pages.
+    pub async fn team_channels(&self, team_id: &str, archived: bool) -> Result<Vec<Channel>> {
+        let mut all = Vec::new();
+        for page in 0..10 {
+            let path = if archived {
+                format!("/teams/{team_id}/channels/deleted?page={page}&per_page=200")
+            } else {
+                format!("/teams/{team_id}/channels?page={page}&per_page=200")
+            };
+            let list: Vec<Channel> = self.get(&path).await?;
+            let last = list.len() < 200;
+            all.extend(list);
+            if last {
+                break;
+            }
+        }
+        Ok(all)
+    }
+
+    /// Recherche de personnes dans tout le serveur (comptes actifs).
+    pub async fn search_users(&self, term: &str) -> Result<Vec<User>> {
+        let body = serde_json::json!({ "term": term, "allow_inactive": false, "limit": 40 });
+        self.post("/users/search", &body).await
+    }
+
+    /// Message de groupe (3 à 8 personnes, soi compris), créé s'il n'existe pas.
+    pub async fn group_channel(&self, user_ids: &[String]) -> Result<Channel> {
+        self.post("/channels/group", user_ids).await
+    }
+
+    pub async fn set_custom_status(&self, status: &CustomStatus) -> Result<()> {
+        self.send_json(reqwest::Method::PUT, "/users/me/status/custom", Some(status)).await
+    }
+
+    pub async fn clear_custom_status(&self) -> Result<()> {
+        self.send_json::<()>(reqwest::Method::DELETE, "/users/me/status/custom", None).await
+    }
+
+    /// Tous les fils suivis d'une équipe marqués comme lus.
+    pub async fn mark_all_threads_read(&self, user_id: &str, team_id: &str) -> Result<()> {
+        let path = format!("/users/{user_id}/teams/{team_id}/threads/read");
+        self.send_json::<()>(reqwest::Method::PUT, &path, None).await
     }
 
     /// Fils suivis dans une équipe, les plus récemment actifs d'abord.

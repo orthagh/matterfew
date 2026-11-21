@@ -14,7 +14,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
-use crate::api::{Channel, Preference, SidebarCategory};
+use crate::api::{Channel, NotifyProps, Preference, SidebarCategory};
 
 /// État d'un canal utile à la barre latérale.
 #[derive(Debug, Clone)]
@@ -24,8 +24,8 @@ pub struct ChannelState {
     pub unread_messages: bool,
     pub mentions: i64,
     pub muted: bool,
-    /// Niveau de notification de bureau propre au canal ("default", "all"…).
-    pub notify_desktop: String,
+    /// Préférences de notification propres au canal (bureau, @channel…).
+    pub notify: NotifyProps,
 }
 
 impl ChannelState {
@@ -256,7 +256,7 @@ mod tests {
     fn state(c: Channel, unread: bool, mentions: i64, muted: bool) -> (String, ChannelState) {
         (
             c.id.clone(),
-            ChannelState { channel: c, unread_messages: unread, mentions, muted, notify_desktop: String::new() },
+            ChannelState { channel: c, unread_messages: unread, mentions, muted, notify: Default::default() },
         )
     }
 

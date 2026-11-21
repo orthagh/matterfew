@@ -42,6 +42,8 @@ fn user(id: &str, first: &str, last: &str) -> User {
             "automaticTimezone": if first == "Hugo" { "America/Montreal" } else { "Europe/Paris" },
             "manualTimezone": ""
         }),
+        props: serde_json::Value::Null,
+        delete_at: 0,
     }
 }
 
@@ -84,6 +86,9 @@ struct Demo {
     uploads: HashMap<String, FileInfo>,
     /// Messages enregistrés pendant la démo.
     saved: Vec<String>,
+    /// Canaux publics que l'on n'a pas rejoints, et canaux archivés.
+    browse: Vec<Channel>,
+    archived: Vec<Channel>,
     next_id: u64,
 }
 
@@ -109,6 +114,23 @@ impl Demo {
                 bot
             },
         ];
+        let mut users = users;
+        for (id, emoji, key, duration) in [
+            ("u1", "house", "wfh", "today"),
+            ("u2", "palm_tree", "vacation", "this_week"),
+            ("u5", "calendar", "meeting", "one_hour"),
+        ] {
+            let expires = (chrono::Utc::now() + chrono::Duration::hours(3)).to_rfc3339();
+            let status = crate::api::CustomStatus {
+                emoji: emoji.into(),
+                text: t!(format!("custom_status.preset.{key}")).into(),
+                duration: duration.into(),
+                expires_at: expires,
+            };
+            if let Some(u) = users.iter_mut().find(|u| u.id == id) {
+                u.props = serde_json::json!({ "customStatus": serde_json::to_string(&status).unwrap_or_default() });
+            }
+        }
         let channels = vec![
             {
                 let mut c = channel(
@@ -193,6 +215,27 @@ impl Demo {
             replies: HashMap::new(),
             uploads: HashMap::new(),
             saved: Vec::new(),
+            browse: [
+                ("b1", "ux-research", "ux_purpose"),
+                ("b2", "hackathon", "hackathon_purpose"),
+                ("b3", "open-source", "open_source_purpose"),
+                ("b4", "release-notes", "release_purpose"),
+                ("b5", "afterwork", "afterwork_purpose"),
+            ]
+            .iter()
+            .enumerate()
+            .map(|(i, (id, name, purpose))| {
+                channel(id, "O", name, name, &t!(format!("demo.browse.{purpose}")), now - (10 + i as i64 * 30) * h)
+            })
+            .collect(),
+            archived: [("a1", "migration-v9"), ("a2", "salon-2025")]
+                .iter()
+                .map(|(id, name)| {
+                    let mut c = channel(id, "O", name, name, &t!("demo.browse.archived_purpose"), now - 400 * h);
+                    c.delete_at = now - 300 * h;
+                    c
+                })
+                .collect(),
             next_id: 1000,
         };
         let day = 24 * h;
@@ -637,7 +680,11 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                         msg_count_root: read,
                         mention_count: mentions,
                         mention_count_root: mentions,
-                        notify_props: NotifyProps { mark_unread: mark_unread.into(), desktop: "default".into() },
+                        notify_props: NotifyProps {
+                            mark_unread: mark_unread.into(),
+                            desktop: "default".into(),
+                            ..Default::default()
+                        },
                     }
                 })
                 .collect();
@@ -872,7 +919,68 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             threads.sort_by_key(|x| std::cmp::Reverse(x.last_reply_at));
             send(Event::Threads(threads));
         }
-        Command::MarkThreadRead { .. } => {}
+        Command::MarkThreadRead { .. } | Command::SetChannelNotify { .. } => {}
+        Command::MarkAllThreadsRead { .. } => {
+            send(Event::ThreadRead { thread_id: String::new(), unread_replies: 0, unread_mentions: 0 })
+        }
+        Command::LoadBrowseChannels { team_id, archived } => {
+            let channels = if archived {
+                demo.archived.clone()
+            } else {
+                let joined = demo.channels.iter().filter(|c| c.kind == "O").cloned();
+                joined.chain(demo.browse.iter().cloned()).collect()
+            };
+            send(Event::BrowseChannels { team_id, archived, channels });
+        }
+        Command::JoinChannel { channel_id } => {
+            if let Some(i) = demo.browse.iter().position(|c| c.id == channel_id) {
+                let c = demo.browse.remove(i);
+                demo.channels.push(c.clone());
+                send(Event::ChannelCreated(c));
+            }
+        }
+        Command::SearchUsers { term } => {
+            let needle = crate::fuzzy::fold(&term);
+            let users = demo
+                .users
+                .iter()
+                .filter(|u| u.id != ME)
+                .filter(|u| {
+                    crate::fuzzy::fold(&format!("{} {} {}", u.username, u.first_name, u.last_name)).contains(&needle)
+                })
+                .cloned()
+                .collect();
+            send(Event::UserSearch { term, users });
+        }
+        Command::OpenGroup { user_ids } if user_ids.len() == 1 => {
+            handle(Command::OpenDirect { user_id: user_ids[0].clone() }, demo, send)
+        }
+        Command::OpenGroup { user_ids } => {
+            let names: Vec<String> = user_ids
+                .iter()
+                .filter_map(|id| demo.users.iter().find(|u| &u.id == id))
+                .map(User::display_name)
+                .collect();
+            let id = format!("gm-{}", user_ids.join("-"));
+            let channel = match demo.channels.iter().find(|c| c.id == id) {
+                Some(c) => c.clone(),
+                None => {
+                    let c = channel(&id, "G", &id, &names.join(", "), "", now_ms());
+                    demo.channels.push(c.clone());
+                    c
+                }
+            };
+            send(Event::DirectOpened(channel));
+        }
+        Command::SetCustomStatus(status) => {
+            if let Some(me) = demo.users.iter_mut().find(|u| u.id == ME) {
+                me.props = match status {
+                    Some(s) => serde_json::json!({ "customStatus": serde_json::to_string(&s).unwrap_or_default() }),
+                    None => serde_json::Value::Null,
+                };
+                send(Event::Users(vec![me.clone()]));
+            }
+        }
         Command::LoadTeamInfo { team_id } => send(Event::TeamInfo { team_id, total: 7, active: 5, admin: true }),
         Command::SaveTeamDescription { team_id, description } => send(Event::TeamUpdated(Team {
             id: team_id,

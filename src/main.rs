@@ -102,7 +102,11 @@ gpui_kit::assets::icon_assets!(
         ChevronUp,
         SquareTerminal,
         Plus,
-        FolderPlus
+        FolderPlus,
+        Compass,
+        SquarePen,
+        BellRing,
+        Archive
     ]
 );
 

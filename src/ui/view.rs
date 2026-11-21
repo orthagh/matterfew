@@ -32,6 +32,8 @@ use crate::theme::Palette;
 use crate::{emoji, markdown};
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
 
+pub(super) mod dialogs;
+
 /// Réactions proposées dans la barre d'actions d'un message.
 const QUICK_REACTIONS: [&str; 3] = ["+1", "heart", "joy"];
 
@@ -400,6 +402,7 @@ impl ChatApp {
                         .when(unread, |el| el.font_semibold())
                         .child(self.channel_title(channel)),
                 )
+                .children(channel.direct_partner(self.me_id()).and_then(|partner| self.status_emoji(&partner, 15., cx)))
                 .when(draft, |el| {
                     el.child(Icon::new(IconName::Pencil).size(px(13.)).text_color(p.sidebar_text.opacity(0.64)))
                 })
@@ -494,6 +497,9 @@ impl ChatApp {
                     if muted { IconName::Bell } else { IconName::BellOff },
                     |this, id, cx| this.toggle_muted(id, cx),
                 ))
+                .item(act(&t!("channel_menu.notifications"), IconName::BellRing, |this, id, cx| {
+                    this.open_notify_dialog(id, cx)
+                }))
                 .item(act(&t!("channel_menu.copy_link"), IconName::Link, |this, id, cx| {
                     this.copy_channel_link(&id, cx)
                 }));
@@ -525,7 +531,13 @@ impl ChatApp {
             .map(|t| t.display_name.clone())
             .unwrap_or_default();
 
-        let mut list = v_flex().id("channel-list").flex_1().min_h_0().overflow_y_scroll().pb_3();
+        let mut list = v_flex()
+            .id("channel-list")
+            .flex_1()
+            .min_h_0()
+            .overflow_y_scroll()
+            .pb_3()
+            .children(self.render_threads_entry(cx));
         for section in self.sidebar_sections() {
             let category_id = section.id.clone();
             let group = SharedString::from(format!("catg-{}", section.id));
@@ -543,6 +555,7 @@ impl ChatApp {
                 .find(|c| c.id == section.id)
                 .map(|c| c.channel_ids.iter().filter(|id| self.channels.contains_key(*id)).count())
                 .unwrap_or(section.channel_ids.len());
+            let dm_section = self.categories.iter().any(|c| c.id == section.id && c.kind == "direct_messages");
             let header = h_flex()
                 .id(SharedString::from(format!("cat-{}", section.id)))
                 .group(group)
@@ -582,7 +595,20 @@ impl ChatApp {
                 )
                 .when(unread_inside, |el| el.child(div().flex_none().size(px(7.)).rounded_full().bg(p.sidebar_unread)))
                 .child(div().flex_1())
-                .children(options);
+                .children(options)
+                .when(dm_section, |el| {
+                    el.child(
+                        Button::new("dm-new")
+                            .icon(Icon::new(IconName::Plus).text_color(p.sidebar_text))
+                            .ghost()
+                            .xsmall()
+                            .tooltip(t!("direct.tooltip"))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                cx.stop_propagation();
+                                this.open_direct_dialog(window, cx)
+                            })),
+                    )
+                });
             list = list.child(header);
             for channel_id in &section.channel_ids {
                 if let Some(row) = self.render_channel_row(channel_id, manual.as_deref(), cx) {
@@ -623,8 +649,15 @@ impl ChatApp {
                             entity.update(cx, |this, cx| this.open_create(kind, window, cx))
                         })
                     };
+                    let (browse, direct) = (entity.clone(), entity.clone());
                     menu.min_w(px(240.))
                         .item(item(&t!("create.channel_title"), IconName::Hash, super::CreateKind::Channel))
+                        .item(PopupMenuItem::new(t!("browse.title")).icon(Icon::new(IconName::Compass)).on_click(
+                            move |_, window, cx| browse.update(cx, |this, cx| this.open_browse_dialog(window, cx)),
+                        ))
+                        .item(PopupMenuItem::new(t!("direct.title")).icon(Icon::new(IconName::SquarePen)).on_click(
+                            move |_, window, cx| direct.update(cx, |this, cx| this.open_direct_dialog(window, cx)),
+                        ))
                         .item(item(&t!("create.category_title"), IconName::FolderPlus, super::CreateKind::Category))
                         .separator()
                         .item(item(&t!("create.invite_title"), IconName::UserPlus, super::CreateKind::Invite))
@@ -729,16 +762,26 @@ impl ChatApp {
                     .border_color(p.sidebar_text.opacity(0.12))
                     .child(self.avatar(&me_id, 32., p.sidebar_bg))
                     .child(
+                        // Un clic : définir son statut personnalisé.
                         v_flex()
+                            .id("me-status")
                             .flex_1()
                             .min_w_0()
+                            .px_1p5()
+                            .py_0p5()
+                            .rounded(px(6.))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(p.sidebar_hover))
                             .child(div().truncate().text_sm().font_semibold().child(me_name))
-                            .child(
-                                div()
+                            .child(match self.status_line(&me_id, 13.).filter(|_| self.connected) {
+                                Some(line) => line.text_xs().text_color(p.sidebar_text.opacity(0.8)).into_any_element(),
+                                None => div()
                                     .text_xs()
                                     .text_color(if self.connected { p.sidebar_text.opacity(0.64) } else { p.away })
-                                    .child(status),
-                            ),
+                                    .child(status)
+                                    .into_any_element(),
+                            })
+                            .on_click(cx.listener(|this, _, window, cx| this.open_status_dialog(window, cx))),
                     )
                     .child(account_menu),
             )
@@ -829,6 +872,15 @@ impl ChatApp {
                     .item(status(&t!("status.away"), "away", IconName::Moon))
                     .item(status(&t!("status.dnd"), "dnd", IconName::CircleMinus))
                     .item(status(&t!("status.offline"), "offline", IconName::Circle))
+                    .separator()
+                    .item({
+                        let entity = entity.clone();
+                        PopupMenuItem::new(t!("custom_status.menu"))
+                            .icon(Icon::new(IconName::FaceSlightlySmiling))
+                            .on_click(move |_, window, cx| {
+                                entity.update(cx, |this, cx| this.open_status_dialog(window, cx))
+                            })
+                    })
                     .separator()
                     .item(
                         PopupMenuItem::new(t!("account.log_out"))
@@ -943,6 +995,7 @@ impl ChatApp {
                     })
                     .child(bot_name.clone().unwrap_or_else(|| self.user_name(&post.user_id)))
             })
+            .when(bot_name.is_none(), |el| el.children(self.status_emoji(&post.user_id, 16., cx)))
             .when(is_bot, |el| {
                 el.child(
                     div()
@@ -2405,7 +2458,25 @@ impl ChatApp {
             .children(error_banner)
             .children(info_banner)
             .child(messages)
-            .child(self.render_composer(Pane::Channel, cx));
+            .child(if self.channel_id.as_deref().is_some_and(|id| self.is_archived(id)) {
+                // Canal archivé : lecture seule.
+                h_flex()
+                    .flex_none()
+                    .mx_5()
+                    .mb_4()
+                    .px_4()
+                    .py_3()
+                    .gap_2()
+                    .rounded(px(8.))
+                    .bg(p.center_color.opacity(0.06))
+                    .text_sm()
+                    .text_color(p.muted())
+                    .child(Icon::new(IconName::Archive).size(px(16.)))
+                    .child(t!("browse.archived_banner"))
+                    .into_any_element()
+            } else {
+                self.render_composer(Pane::Channel, cx).into_any_element()
+            });
 
         let thread_panel = self.thread.is_some().then(|| {
             let entity = entity.clone();
@@ -2538,6 +2609,16 @@ impl ChatApp {
             // Ctrl+K : aller à un canal.
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
+                if k.key == "escape" && this.dialog.is_some() {
+                    this.close_dialog(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if k.modifiers.control && k.modifiers.shift && !k.modifiers.alt && k.key == "k" {
+                    this.open_direct_dialog(window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if k.key == "escape" && this.profile.is_some() {
                     this.close_profile(cx);
                     cx.stop_propagation();
@@ -2580,6 +2661,7 @@ impl ChatApp {
             .children(drawer_el)
             .children(self.render_viewer(cx))
             .children(self.render_switcher(cx))
+            .children(self.render_dialog(cx))
             .children(self.render_emoji_picker(cx))
             .children(self.render_profile_card(cx))
             .children(self.render_team_card(cx))
@@ -2643,6 +2725,10 @@ impl ChatApp {
                             .child(div().text_size(px(18.)).font_bold().child(name))
                             .child(div().text_sm().text_color(p.muted()).child(format!("@{}", u.username)))
                             .when(!u.position.is_empty(), |el| el.child(div().text_sm().child(u.position.clone()))),
+                    )
+                    .children(
+                        self.status_line(&uid, 18.)
+                            .map(|line| line.px_3().py_2().rounded(px(8.)).text_sm().bg(p.center_color.opacity(0.06))),
                     )
                     .child(
                         v_flex()
@@ -2753,6 +2839,9 @@ impl ChatApp {
             PanelKind::Pinned => (t!("panels.pinned").to_string(), side.subject.clone()),
             PanelKind::Saved => (t!("panels.saved").to_string(), String::new()),
             PanelKind::Search => (t!("search.placeholder").to_string(), String::new()),
+            PanelKind::Threads if self.threads_all => {
+                (t!("threads.sidebar").to_string(), t!("threads.all_channels").to_string())
+            }
             PanelKind::Threads => (
                 t!("panels.threads").to_string(),
                 self.channel_id
@@ -2930,17 +3019,30 @@ impl ChatApp {
             return div().p_5().text_color(p.muted()).child(t!("common.loading")).into_any_element();
         };
         let current = self.channel_id.clone().unwrap_or_default();
-        let threads: Vec<_> = all.iter().filter(|t| t.post.channel_id == current).collect();
+        let threads: Vec<_> = all
+            .iter()
+            .filter(|t| {
+                if self.threads_all {
+                    !self.threads_unread || t.unread_replies > 0
+                } else {
+                    t.post.channel_id == current
+                }
+            })
+            .collect();
+        let toolbar = self.threads_all.then(|| self.render_threads_toolbar(cx));
         if threads.is_empty() {
-            return div().p_5().text_color(p.muted()).child(t!("threads.empty")).into_any_element();
+            let empty = if self.threads_all && self.threads_unread {
+                t!("threads.no_unread")
+            } else if self.threads_all {
+                t!("threads.empty_all")
+            } else {
+                t!("threads.empty")
+            };
+            return v_flex().children(toolbar).child(div().p_5().text_color(p.muted()).child(empty)).into_any_element();
         }
         let entity = cx.entity();
-        v_flex()
-            .id("threads-list")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .children(threads.into_iter().map(|t| {
+        let list =
+            v_flex().id("threads-list").flex_1().min_h_0().overflow_y_scroll().children(threads.into_iter().map(|t| {
                 let channel =
                     self.channels.get(&t.post.channel_id).map(|c| self.channel_title(&c.channel)).unwrap_or_default();
                 let unread = t.unread_replies > 0;
@@ -3027,8 +3129,8 @@ impl ChatApp {
                         let post = jump.clone();
                         entity.update(cx, |this, cx| this.jump_to_post(post, window, cx));
                     })
-            }))
-            .into_any_element()
+            }));
+        v_flex().flex_1().min_h_0().children(toolbar).child(list).into_any_element()
     }
 
     /// Liste permanente des membres du canal, par statut (comme Discord).
@@ -3147,12 +3249,18 @@ impl ChatApp {
                             v_flex()
                                 .min_w_0()
                                 .child(
-                                    div()
-                                        .truncate()
-                                        .text_sm()
-                                        .font_semibold()
-                                        .when(role.is_some(), |d| d.text_color(group_color("admins", &p)))
-                                        .child(self.user_name(id)),
+                                    h_flex()
+                                        .gap_1()
+                                        .min_w_0()
+                                        .child(
+                                            div()
+                                                .truncate()
+                                                .text_sm()
+                                                .font_semibold()
+                                                .when(role.is_some(), |d| d.text_color(group_color("admins", &p)))
+                                                .child(self.user_name(id)),
+                                        )
+                                        .children(self.status_emoji(id, 14., cx)),
                                 )
                                 .when_some(self.users.get(id).map(|u| u.username.clone()), |el, name| {
                                     el.child(div().truncate().text_xs().text_color(p.muted()).child(format!("@{name}")))

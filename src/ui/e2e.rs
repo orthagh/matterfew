@@ -232,3 +232,138 @@ fn e2e_coller_une_image_la_joint() {
     let handled = w.1.update(|a, _, cx| a.paste_attachments(super::Pane::Channel, cx));
     assert!(!handled);
 }
+
+use super::view::dialogs::Dialog;
+
+#[test]
+fn e2e_parcourir_rejoindre_et_archives() {
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| a.open_browse_dialog(window, cx));
+    wait_for(
+        &w,
+        "canaux publics chargés",
+        |a| matches!(&a.dialog, Some(Dialog::Browse(b)) if b.public.is_some() && b.archived.is_some()),
+    );
+    w.1.simulate_input("hackathon");
+    w.1.draw();
+    let channel = w.1.read(|a, _| match &a.dialog {
+        Some(Dialog::Browse(b)) => b.public.as_ref().unwrap().iter().find(|c| c.id == "b2").cloned().unwrap(),
+        _ => panic!("fenêtre fermée"),
+    });
+    w.1.update(|a, window, cx| a.browse_open(channel, window, cx));
+    wait_for(&w, "canal rejoint et ouvert", |a| a.channel_id.as_deref() == Some("b2") && a.dialog.is_none());
+    w.1.read(|a, _| assert!(a.categories.iter().any(|c| c.channel_ids.iter().any(|id| id == "b2"))));
+    // Canal archivé : ouvert en lecture seule, sans zone de saisie.
+    w.1.update(|a, window, cx| a.open_browse_dialog(window, cx));
+    wait_for(&w, "archivés chargés", |a| matches!(&a.dialog, Some(Dialog::Browse(b)) if b.archived.is_some()));
+    let archived = w.1.read(|a, _| match &a.dialog {
+        Some(Dialog::Browse(b)) => b.archived.as_ref().unwrap()[0].clone(),
+        _ => unreachable!(),
+    });
+    let id = archived.id.clone();
+    w.1.update(|a, window, cx| a.browse_open(archived, window, cx));
+    wait_for(&w, "archivé ouvert", |a| a.channel_id.as_deref() == Some(id.as_str()));
+    w.1.read(|a, _| assert!(a.is_archived(&id)));
+    w.1.draw();
+}
+
+#[test]
+fn e2e_message_de_groupe_au_clavier() {
+    let mut w = demo_app();
+    w.1.simulate_keystroke("ctrl-shift-k");
+    wait_for(&w, "fenêtre ouverte", |a| matches!(a.dialog, Some(Dialog::Direct(_))));
+    w.1.simulate_input("chlo");
+    wait_for(
+        &w,
+        "recherche",
+        |a| matches!(&a.dialog, Some(Dialog::Direct(d)) if d.results.as_ref().is_some_and(|r| r.first().map(String::as_str) == Some("u3"))),
+    );
+    w.1.simulate_keystroke("enter");
+    w.1.simulate_input("nathan");
+    wait_for(
+        &w,
+        "seconde recherche",
+        |a| matches!(&a.dialog, Some(Dialog::Direct(d)) if d.results.as_ref().is_some_and(|r| r.first().map(String::as_str) == Some("u6"))),
+    );
+    w.1.simulate_keystroke("enter");
+    w.1.read(|a, _| match &a.dialog {
+        Some(Dialog::Direct(d)) => assert_eq!(d.selected, ["u3", "u6"]),
+        _ => panic!("fenêtre fermée"),
+    });
+    w.1.draw();
+    // Champ vide et deux personnes choisies : Entrée ouvre la conversation.
+    w.1.simulate_keystroke("enter");
+    wait_for(&w, "groupe ouvert", |a| {
+        a.dialog.is_none()
+            && a.channel_id.as_ref().and_then(|id| a.channels.get(id)).is_some_and(|c| c.channel.is_group())
+    });
+}
+
+#[test]
+fn e2e_statut_personnalise() {
+    let mut w = demo_app();
+    w.1.read(|a, _| {
+        // Statuts de la démo : affichés à côté des noms.
+        assert!(a.users.get("u2").and_then(crate::api::User::custom_status).is_some());
+        assert!(a.my_custom_status().is_none());
+    });
+    w.1.update(|a, window, cx| {
+        a.open_status_dialog(window, cx);
+        a.apply_preset(0, window, cx);
+    });
+    w.1.draw();
+    w.1.update(|a, _, cx| a.save_status(cx));
+    let status = w.1.read(|a, _| a.my_custom_status()).expect("statut enregistré");
+    assert_eq!(status.emoji, "calendar");
+    assert_eq!(status.duration, "one_hour");
+    assert!(!status.expires_at.is_empty());
+    w.1.draw();
+    w.1.update(|a, window, cx| {
+        a.open_status_dialog(window, cx);
+        a.clear_status(cx);
+    });
+    // Le serveur confirme ensuite (dans l'ordre) : le statut reste effacé.
+    wait_for(&w, "statut effacé", |a| a.my_custom_status().is_none());
+}
+
+#[test]
+fn e2e_preferences_de_notification_du_canal() {
+    let mut w = demo_app();
+    w.1.update(|a, _, cx| a.open_notify_dialog("design".into(), cx));
+    w.1.draw();
+    w.1.update(|a, _, cx| {
+        if let Some(Dialog::Notify(d)) = a.dialog.as_mut() {
+            d.desktop = "all".into();
+            d.ignore_mentions = true;
+            d.muted = true;
+        }
+        a.save_notify(cx);
+    });
+    w.1.read(|a, _| {
+        let state = &a.channels["design"];
+        assert_eq!(state.notify.desktop, "all");
+        assert_eq!(state.notify.ignore_channel_mentions, "on");
+        assert!(state.muted);
+        assert!(a.dialog.is_none());
+    });
+    // Échap ferme la fenêtre sans rien changer.
+    w.1.update(|a, _, cx| a.open_notify_dialog("design".into(), cx));
+    w.1.simulate_keystroke("escape");
+    wait_for(&w, "fenêtre fermée", |a| a.dialog.is_none());
+}
+
+#[test]
+fn e2e_vue_fils_de_l_equipe() {
+    let mut w = demo_app();
+    wait_for(&w, "fils chargés pour la pastille", |a| a.threads.is_some());
+    w.1.read(|a, _| assert!(a.unread_threads().0 > 0, "fils non lus dans la démo"));
+    w.1.update(|a, _, cx| a.open_threads_panel(true, cx));
+    w.1.update(|a, _, cx| {
+        a.threads_unread = true;
+        cx.notify();
+    });
+    w.1.draw();
+    w.1.update(|a, _, cx| a.mark_all_threads_read(cx));
+    wait_for(&w, "tout lu", |a| a.unread_threads() == (0, 0));
+    w.1.draw();
+}

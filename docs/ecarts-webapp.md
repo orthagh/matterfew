@@ -205,20 +205,21 @@ Marketplace ; Insights (retiré).
 ## Top 15 à implémenter ensuite
 
 Classement : valeur pour un utilisateur venant du client officiel, puis effort.
+✅ : fait (toutes les priorités ★★★ le sont).
 
 | # | Fonction | Valeur | Effort | Remarque |
 |---|---|---|---|---|
-| 1 | Liens internes ouverts dans l'application (permaliens, `~canal`) | ★★★ | S | Aujourd'hui tout part dans le navigateur ; réutilise « ouvrir le canal et le fil » de la recherche |
-| 2 | Coller une image (Ctrl+V) | ★★★ | S | Upload déjà en place |
-| 3 | ↑ pour modifier son dernier message | ★★★ | S | Édition dans la zone de saisie déjà en place |
-| 4 | Alt+↑/↓ et Alt+Maj+↑/↓ (canaux, canaux non lus) | ★★★ | S | Ordre déjà calculé par `sidebar.rs` |
-| 5 | Suivre / ne plus suivre un fil | ★★★ | S | Deux appels REST |
-| 6 | Rappel « Me le rappeler » | ★★★ | S | Un appel REST + sous-menu |
-| 7 | Préférences de notification par canal | ★★★ | M | `notify_rules.rs` lit déjà ces propriétés |
-| 8 | Parcourir et rejoindre les canaux (publics, archivés) | ★★★ | M | |
-| 9 | Nouveau message direct / de groupe (Ctrl+Maj+K) | ★★★ | M | |
-| 10 | Statut personnalisé (affichage puis réglage) + « Ne pas déranger » avec durée | ★★★ | M | Commencer par l'affichage à côté des noms |
-| 11 | Vue « Fils » globale (équipe, non lus, tout marquer lu) | ★★★ | M | Panneau par canal existant à généraliser |
+| ✅ 1 | Liens internes ouverts dans l'application (permaliens, `~canal`) | ★★★ | S | Aujourd'hui tout part dans le navigateur ; réutilise « ouvrir le canal et le fil » de la recherche |
+| ✅ 2 | Coller une image (Ctrl+V) | ★★★ | S | Upload déjà en place |
+| ✅ 3 | ↑ pour modifier son dernier message | ★★★ | S | Édition dans la zone de saisie déjà en place |
+| ✅ 4 | Alt+↑/↓ et Alt+Maj+↑/↓ (canaux, canaux non lus) | ★★★ | S | Ordre déjà calculé par `sidebar.rs` |
+| ✅ 5 | Suivre / ne plus suivre un fil | ★★★ | S | Deux appels REST |
+| ✅ 6 | Rappel « Me le rappeler » | ★★★ | S | Un appel REST + sous-menu |
+| ✅ 7 | Préférences de notification par canal | ★★★ | M | `notify_rules.rs` lit déjà ces propriétés |
+| ✅ 8 | Parcourir et rejoindre les canaux (publics, archivés) | ★★★ | M | |
+| ✅ 9 | Nouveau message direct / de groupe (Ctrl+Maj+K) | ★★★ | M | |
+| ✅ 10 | Statut personnalisé (affichage puis réglage) + « Ne pas déranger » avec durée | ★★★ | M | Statut fait ; « Ne pas déranger » avec durée reste à faire (★★) |
+| ✅ 11 | Vue « Fils » globale (équipe, non lus, tout marquer lu) | ★★★ | M | Panneau par canal existant à généraliser |
 | 12 | Envoi avec Ctrl+Entrée (préférence serveur) | ★★ | S | |
 | 13 | Qui a réagi + emojis récents (réactions rapides et sélecteur) | ★★ | S | |
 | 14 | Priorité, étiquettes Important/Urgent et accusés de lecture | ★★ | M | Afficher les étiquettes reçues d'abord (S) |

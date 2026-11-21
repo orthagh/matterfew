@@ -218,6 +218,32 @@ pub enum Command {
     LoadThreads {
         team_id: String,
     },
+    MarkAllThreadsRead {
+        team_id: String,
+    },
+    /// Préférences de notification d'un canal (seuls les champs donnés changent).
+    SetChannelNotify {
+        channel_id: String,
+        props: Vec<(&'static str, String)>,
+    },
+    /// Canaux publics (ou archivés) de l'équipe, pour « Parcourir les canaux ».
+    LoadBrowseChannels {
+        team_id: String,
+        archived: bool,
+    },
+    JoinChannel {
+        channel_id: String,
+    },
+    /// Personnes du serveur (nouveau message direct).
+    SearchUsers {
+        term: String,
+    },
+    /// Ouvre (ou crée) un message de groupe avec ces personnes.
+    OpenGroup {
+        user_ids: Vec<String>,
+    },
+    /// Statut personnalisé ; `None` l'efface.
+    SetCustomStatus(Option<crate::api::CustomStatus>),
     MarkThreadRead {
         team_id: String,
         root_id: String,
@@ -352,6 +378,31 @@ pub enum Event {
         total: i64,
     },
     Threads(Vec<UserThread>),
+    /// Un fil suivi a changé (nouvelle réponse, lecture…).
+    ThreadUpdated {
+        team_id: String,
+        thread: UserThread,
+    },
+    ThreadRead {
+        thread_id: String,
+        unread_replies: i64,
+        unread_mentions: i64,
+    },
+    ThreadFollow {
+        thread_id: String,
+        following: bool,
+    },
+    /// Préférences de notification d'un canal modifiées (ici ou ailleurs).
+    MemberUpdated(ChannelMember),
+    BrowseChannels {
+        team_id: String,
+        archived: bool,
+        channels: Vec<Channel>,
+    },
+    UserSearch {
+        term: String,
+        users: Vec<User>,
+    },
     ChannelFiles {
         channel_id: String,
         files: Vec<FileInfo>,
@@ -884,6 +935,48 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             ctx.ensure_users(ids).await;
             ctx.emit(Event::Threads(threads)).await;
         }
+        Command::MarkAllThreadsRead { team_id } => {
+            client.mark_all_threads_read(&ctx.me_id, &team_id).await?;
+            ctx.emit(Event::ThreadRead { thread_id: String::new(), unread_replies: 0, unread_mentions: 0 }).await;
+        }
+        Command::SetChannelNotify { channel_id, props } => {
+            let map: HashMap<&str, String> = props.into_iter().collect();
+            client.set_channel_notify_props(&channel_id, &ctx.me_id, &map).await?;
+        }
+        Command::LoadBrowseChannels { team_id, archived } => {
+            let channels = client.team_channels(&team_id, archived).await?;
+            ctx.emit(Event::BrowseChannels { team_id, archived, channels }).await;
+        }
+        Command::JoinChannel { channel_id } => {
+            client.add_channel_member(&channel_id, &ctx.me_id).await?;
+            let channel = client.channel(&channel_id).await?;
+            ctx.emit(Event::ChannelCreated(channel)).await;
+        }
+        Command::SearchUsers { term } => {
+            let users: Vec<User> = client
+                .search_users(&term)
+                .await?
+                .into_iter()
+                .filter(|u| u.id != ctx.me_id && u.delete_at == 0)
+                .collect();
+            ctx.ensure_users(users.iter().map(|u| u.id.clone())).await;
+            ctx.emit(Event::UserSearch { term, users }).await;
+        }
+        Command::OpenGroup { user_ids } => {
+            let channel = if user_ids.len() == 1 {
+                client.direct_channel(&ctx.me_id, &user_ids[0]).await?
+            } else {
+                let mut ids = vec![ctx.me_id.clone()];
+                ids.extend(user_ids.iter().cloned());
+                client.group_channel(&ids).await?
+            };
+            ctx.ensure_users(user_ids).await;
+            ctx.emit(Event::DirectOpened(channel)).await;
+        }
+        Command::SetCustomStatus(status) => match status {
+            Some(status) => client.set_custom_status(&status).await?,
+            None => client.clear_custom_status().await?,
+        },
         Command::MarkThreadRead { team_id, root_id } => {
             let now = chrono::Utc::now().timestamp_millis();
             client.mark_thread_read(&ctx.me_id, &team_id, &root_id, now).await?;
@@ -1224,6 +1317,27 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
             Some(Event::CategoriesChanged { team_id })
         }
         "preference_changed" | "preferences_changed" | "preferences_deleted" => Some(Event::PrefsChanged),
+        // Profil modifié (statut personnalisé, nom, avatar…) : objet JSON direct.
+        "user_updated" => {
+            data.get("user").and_then(|u| serde_json::from_value::<User>(u.clone()).ok()).map(|u| Event::Users(vec![u]))
+        }
+        "thread_updated" => nested::<UserThread>(&data, "thread")
+            .map(|thread| Event::ThreadUpdated { team_id: str_field(&value, "/broadcast/team_id"), thread }),
+        "thread_read_changed" => {
+            let thread_id = str_field(&data, "/thread_id");
+            let count = |k: &str| data.get(k).and_then(Value::as_i64).unwrap_or(0);
+            (!thread_id.is_empty()).then(|| Event::ThreadRead {
+                thread_id,
+                unread_replies: count("unread_replies"),
+                unread_mentions: count("unread_mentions"),
+            })
+        }
+        "thread_follow_changed" => {
+            let thread_id = str_field(&data, "/thread_id");
+            let following = data.get("state").and_then(Value::as_bool).unwrap_or(false);
+            (!thread_id.is_empty()).then_some(Event::ThreadFollow { thread_id, following })
+        }
+        "channel_member_updated" => nested::<ChannelMember>(&data, "channelMember").map(Event::MemberUpdated),
         _ => None,
     };
 
@@ -1231,6 +1345,11 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
         match &event {
             Event::Posted { post, .. } => ctx.ensure_users([post.user_id.clone()]).await,
             Event::Typing { user_id, .. } => ctx.ensure_users([user_id.clone()]).await,
+            Event::ThreadUpdated { thread, .. } => {
+                let mut ids = vec![thread.post.user_id.clone()];
+                ids.extend(thread.participants.iter().map(|u| u.id.clone()));
+                ctx.ensure_users(ids).await;
+            }
             _ => {}
         }
         ctx.emit(event).await;
