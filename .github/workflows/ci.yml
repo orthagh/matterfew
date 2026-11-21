@@ -54,7 +54,20 @@ jobs:
       - name: Clippy (avertissements = erreurs)
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Tests (unitaires et de bout en bout)
-        run: cargo test --locked
+        shell: bash
+        env:
+          RUST_BACKTRACE: "1"
+        # Les échecs remontent aussi en annotations (visibles sans se connecter).
+        run: |
+          set +e
+          cargo test --locked 2>&1 | tee test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "panicked at|^test .* FAILED|^---- |error(\[|:)" -A4 test.log | head -60 | while IFS= read -r line; do
+              echo "::error title=Tests::${line}"
+            done
+          fi
+          exit "$status"
 
   audit:
     name: Dépendances (failles, licences, sources)
