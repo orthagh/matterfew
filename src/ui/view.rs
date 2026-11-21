@@ -802,6 +802,9 @@ impl ChatApp {
         let post = &view.post;
         let me = self.me_id();
         let mine = post.user_id == me;
+        // Réponse d'une commande « / » (« visible uniquement par vous ») : du
+        // Markdown complet, avec ses sauts de ligne, pas un message système.
+        let ephemeral = post.kind == "system_ephemeral";
         let prev = ix.checked_sub(1).and_then(|i| list.get(i)).map(|v| &v.post);
 
         let new_day = prev.is_none_or(|prev| day_of(prev.create_at) != day_of(post.create_at));
@@ -829,7 +832,7 @@ impl ChatApp {
         let bot_name = rich::override_username(post);
         // Bots (GitHub…) : longs messages réduits, dépliables.
         let is_bot = post.is_bot_post() || bot_name.is_some() || self.users.get(&post.user_id).is_some_and(|u| u.is_bot);
-        let long_bot = is_bot && bot_post_lines(post) > 3;
+        let long_bot = is_bot && !ephemeral && bot_post_lines(post) > 3;
         let condensed = long_bot && !self.expanded_bots.contains(&post.id);
         // Messages successifs d'un même bot : un seul bloc, sans nom ni heure,
         // comme une suite de cartes (l'heure apparaît au survol).
@@ -838,13 +841,17 @@ impl ChatApp {
             let bot = p.is_bot_post() || name.is_some() || self.users.get(&p.user_id).is_some_and(|u| u.is_bot);
             bot.then(|| name.unwrap_or_else(|| p.user_id.clone()))
         };
-        let my_key = if is_bot { bot_key(post) } else { None };
+        let my_key = if is_bot && !ephemeral { bot_key(post) } else { None };
         let next = list.get(ix + 1).map(|v| &v.post);
-        let run_prev = my_key.is_some() && !new_day && !first_new && prev.and_then(&bot_key) == my_key;
+        let run_prev = my_key.is_some()
+            && !new_day
+            && !first_new
+            && prev.filter(|p| p.kind != "system_ephemeral").and_then(&bot_key) == my_key;
         let run_next = my_key.is_some()
             && next.is_some_and(|n| {
                 day_of(n.create_at) == day_of(post.create_at)
                     && !(pane == Pane::Channel && self.first_new_index() == Some(ix + 1))
+                    && n.kind != "system_ephemeral"
                     && bot_key(n) == my_key
             });
         let bot_block = my_key.is_some();
@@ -879,6 +886,9 @@ impl ChatApp {
                 )
             })
             .child(div().text_xs().text_color(p.muted()).child(format_time(post.create_at)))
+            .when(ephemeral, |el| {
+                el.child(div().text_xs().italic().text_color(p.muted()).child("(visible uniquement par vous)"))
+            })
             .when(post.is_pinned, |el| {
                 el.child(
                     h_flex()
@@ -900,7 +910,7 @@ impl ChatApp {
                 )
             });
 
-        let body: AnyElement = if post.is_system() {
+        let body: AnyElement = if post.is_system() && !ephemeral {
             div()
                 .italic()
                 .text_size(px(BODY_TEXT))
@@ -1014,8 +1024,9 @@ impl ChatApp {
                 })
         });
 
-        let toolbar = (!post.is_system())
-            .then(|| self.render_post_toolbar(entity, pane, post.id.clone(), mine, confirming, group.clone(), cx));
+        let toolbar = (!post.is_system()).then(|| {
+            self.render_post_toolbar(entity, pane, post.id.clone(), mine, confirming, group.clone(), bot_block, cx)
+        });
 
         // Colonne de gauche : avatar, ou heure au survol des messages groupés.
         let left = div().w(px(AVATAR)).flex_none().map(|el| {
@@ -1140,24 +1151,32 @@ impl ChatApp {
                                     Icon::new(if expanded { IconName::ChevronUp } else { IconName::ChevronDown })
                                         .size(px(13.)),
                                 );
+                            // Dépliée : le résumé laisse la place au contenu (sinon il se répète).
                             let line = h_flex()
                                 .gap_2()
                                 .h(px(30.))
                                 .child(div().flex_none().w(px(3.)).h(px(14.)).rounded(px(2.)).bg(bar.unwrap_or(p.muted())))
-                                .child(div().flex_1().min_w_0().truncate().text_sm().child(summary))
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .truncate()
+                                        .text_sm()
+                                        .when(!expanded, |d| d.child(summary)),
+                                )
                                 .child(meta);
+                            // Au repos : rien qu'une ligne ; au survol, un fond et une bordure.
                             v_flex()
                                 .id(key("bot-line"))
                                 .px_3()
-                                .bg(p.center_color.opacity(0.03))
-                                // Pas de bordure : un fond léger, un fin séparateur entre notifications.
-                                .when(run_prev, |d| d.border_t_1().border_color(p.center_color.opacity(0.05)))
-                                .when(!run_prev, |d| d.rounded_t(px(8.)))
-                                .when(!run_next, |d| d.rounded_b(px(8.)))
+                                .rounded(px(8.))
+                                .border_1()
+                                .border_color(transparent_black())
+                                .when(expanded, |d| d.bg(p.center_color.opacity(0.03)).border_color(p.border()))
                                 .cursor_pointer()
-                                .hover(|d| d.bg(p.center_color.opacity(0.055)))
+                                .hover(|d| d.bg(p.center_color.opacity(0.04)).border_color(p.border()))
                                 .child(line)
-                                .when(expanded, |d| d.child(div().pb_2().child(content_full)))
+                                .when(expanded, |d| d.child(div().mt(-px(26.)).pl(px(11.)).pr(px(70.)).pb_2().child(content_full)))
                                 .on_click(move |_, _, cx| {
                                     let id = id.clone();
                                     entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
@@ -1195,6 +1214,7 @@ impl ChatApp {
         mine: bool,
         confirming: bool,
         group: SharedString,
+        bot_line: bool,
         cx: &App,
     ) -> impl IntoElement + use<> {
         let theme = cx.theme();
@@ -1202,10 +1222,11 @@ impl ChatApp {
 
         // Dans la zone du message (et non au-dessus) : en allant vers la barre,
         // la souris reste sur le message et la barre ne saute pas ailleurs.
+        // Sur une notification de bot (une ligne), la barre laisse voir l'heure et le chevron.
         let mut bar = h_flex()
             .absolute()
-            .top(px(4.))
-            .right_5()
+            .top(px(if bot_line { 1. } else { 4. }))
+            .right(px(if bot_line { 120. } else { 20. }))
             .gap_0p5()
             .p_0p5()
             .rounded(px(4.))
@@ -1240,7 +1261,7 @@ impl ChatApp {
             let (entity, pid) = (entity.clone(), post_id.clone());
             bar = bar.child(
                 Button::new(id(&format!("qr-{name}")))
-                    .child(emoji_face(&emoji::lookup(name), 16.))
+                    .child(emoji_face(&emoji::lookup(name), 14.))
                     .xsmall()
                     .ghost()
                     .tooltip(format!(":{name}:"))
@@ -1939,16 +1960,34 @@ impl ChatApp {
         let state = self.channel_id.as_ref().and_then(|id| self.channels.get(id));
         let title = state.map(|c| self.channel_title(&c.channel)).unwrap_or_default();
         let partner = state.and_then(|c| c.channel.direct_partner(self.me_id()));
-        // En-tête du canal (Markdown, liens cliquables), sinon sa description.
+        // Description, puis en-tête (Markdown, liens cliquables) : les deux si la
+        // place le permet, chacun tronqué sinon.
         let subtitle: Option<AnyElement> = match (&partner, state) {
             (Some(partner), _) => Some(self.status_label(partner).into_any_element()),
-            (None, Some(c)) if !c.channel.header.is_empty() => Some(
-                TextView::markdown("channel-header-text", markdown::prepare(&c.channel.header))
-                    .max_lines(1)
-                    .on_link_click(|url, _, _, cx| open_link(url, cx))
-                    .into_any_element(),
-            ),
-            (None, Some(c)) if !c.channel.purpose.is_empty() => Some(c.channel.purpose.clone().into_any_element()),
+            (None, Some(c)) if !c.channel.purpose.is_empty() || !c.channel.header.is_empty() => {
+                let (purpose, header) = (c.channel.purpose.clone(), c.channel.header.clone());
+                Some(
+                    h_flex()
+                        .min_w_0()
+                        .gap_2()
+                        .when(!purpose.is_empty(), |el| {
+                            el.child(div().flex_shrink(1.).min_w(px(60.)).truncate().child(purpose.clone()))
+                        })
+                        .when(!purpose.is_empty() && !header.is_empty(), |el| {
+                            el.child(div().flex_none().w(px(1.)).h(px(11.)).bg(p.border()))
+                        })
+                        .when(!header.is_empty(), |el| {
+                            el.child(
+                                div().flex_1().min_w(px(60.)).max_h(px(18.)).overflow_hidden().child(
+                                    TextView::markdown("channel-header-text", markdown::prepare(&header))
+                                        .max_lines(1)
+                                        .on_link_click(|url, _, _, cx| open_link(url, cx)),
+                                ),
+                            )
+                        })
+                        .into_any_element(),
+                )
+            }
             _ => None,
         };
         let badge = state
