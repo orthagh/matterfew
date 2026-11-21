@@ -168,3 +168,67 @@ fn e2e_brouillon_garde_par_canal() {
     w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value().as_ref(), "brouillon de général"));
     let _ = Pane::Channel;
 }
+
+#[test]
+fn e2e_fleche_haut_modifie_son_dernier_message() {
+    let mut w = demo_app();
+    w.1.update(|a, _, cx| a.select_channel("backend".into(), cx));
+    wait_for(&w, "canal backend", |a| a.channel_id.as_deref() == Some("backend") && !a.posts.is_empty());
+    let mine = w.1.read(|a, _| {
+        let me = a.me_id().to_string();
+        a.posts.iter().rev().find(|v| v.post.user_id == me && !v.post.is_system()).map(|v| v.post.message.clone())
+    });
+    let Some(mine) = mine else { return };
+    w.1.update(|a, window, cx| a.composer.update(cx, |s, cx| s.focus(window, cx)));
+    w.1.simulate_keystroke("up");
+    w.0.run_until_parked();
+    w.1.read(|a, cx| {
+        assert!(a.editing.is_some(), "modification commencée");
+        assert_eq!(a.composer.read(cx).value().to_string(), mine);
+    });
+}
+
+#[test]
+fn e2e_alt_bas_change_de_canal() {
+    let mut w = demo_app();
+    let before = w.1.read(|a, _| a.channel_id.clone());
+    w.1.simulate_keystroke("alt-down");
+    w.0.run_until_parked();
+    let after = w.1.read(|a, _| a.channel_id.clone());
+    assert_ne!(before, after, "Alt+↓ ouvre le canal suivant");
+    w.1.simulate_keystroke("alt-up");
+    w.0.run_until_parked();
+    w.1.read(|a, _| assert_eq!(a.channel_id, before, "Alt+↑ revient au précédent"));
+}
+
+#[test]
+fn e2e_lien_de_canal_ouvert_dans_l_application() {
+    let mut w = demo_app();
+    let handled = w.1.update(|a, window, cx| a.open_internal_link("mm-channel:design", window, cx));
+    assert!(handled);
+    wait_for(&w, "canal design", |a| a.channel_id.as_deref() == Some("design"));
+    // Une adresse d'un autre site reste pour le navigateur.
+    let other = w.1.update(|a, window, cx| a.open_internal_link("https://example.org/x/pl/abc", window, cx));
+    assert!(!other);
+}
+
+#[test]
+fn e2e_coller_une_image_la_joint() {
+    let mut w = demo_app();
+    let png = {
+        let mut out = Vec::new();
+        image::RgbaImage::new(4, 4).write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png).unwrap();
+        out
+    };
+    w.0.write_to_clipboard(gpui_kit::ClipboardItem::new_image(&gpui_kit::Image::from_bytes(
+        gpui_kit::ImageFormat::Png,
+        png,
+    )));
+    let handled = w.1.update(|a, _, cx| a.paste_attachments(super::Pane::Channel, cx));
+    assert!(handled);
+    w.1.read(|a, _| assert_eq!(a.attachments.len(), 1));
+    // Du texte se colle normalement.
+    w.0.write_to_clipboard(gpui_kit::ClipboardItem::new_string("bonjour".into()));
+    let handled = w.1.update(|a, _, cx| a.paste_attachments(super::Pane::Channel, cx));
+    assert!(!handled);
+}

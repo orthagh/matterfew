@@ -323,6 +323,13 @@ clipboard:
   message_text: "Texte du message"
   channel_link: "Lien du canal"
 post_menu:
+  follow: "Suivre le fil"
+  unfollow: "Ne plus suivre le fil"
+  remind: "Me le rappeler"
+  remind_30m: "Dans 30 minutes"
+  remind_1h: "Dans 1 heure"
+  remind_2h: "Dans 2 heures"
+  remind_tomorrow: "Demain"
   saved_flash: "Message enregistré."
   unsaved_flash: "Message retiré des enregistrés."
   delete_confirm: "Supprimer ce message ?"
@@ -474,3 +481,7 @@ dates:
     october: "octobre"
     november: "novembre"
     december: "décembre"
+notice:
+  reminder_set: "Rappel programmé."
+  following: "Vous suivez ce fil."
+  unfollowed: "Vous ne suivez plus ce fil."

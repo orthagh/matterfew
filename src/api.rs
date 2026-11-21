@@ -411,6 +411,9 @@ pub struct Post {
     pub reply_count: i64,
     #[serde(default)]
     pub is_pinned: bool,
+    /// Fil suivi par l'utilisateur (fils réduits), si le serveur le dit.
+    #[serde(default)]
+    pub is_following: Option<bool>,
     #[serde(default)]
     pub update_at: i64,
     #[serde(default)]
@@ -980,6 +983,37 @@ impl Client {
     pub async fn invite_by_email(&self, team_id: &str, emails: &[String]) -> Result<()> {
         let _: serde_json::Value = self.post(&format!("/teams/{team_id}/invite/email"), &emails).await?;
         Ok(())
+    }
+
+    pub async fn post_by_id(&self, post_id: &str) -> Result<Post> {
+        self.get(&format!("/posts/{post_id}")).await
+    }
+
+    pub async fn team_by_name(&self, name: &str) -> Result<Team> {
+        self.get(&format!("/teams/name/{name}")).await
+    }
+
+    pub async fn channel_by_name(&self, team_id: &str, name: &str) -> Result<Channel> {
+        self.get(&format!("/teams/{team_id}/channels/name/{name}")).await
+    }
+
+    /// Équipe d'un canal (vide pour un message direct).
+    pub async fn channel_team(&self, channel_id: &str) -> Result<String> {
+        let v: serde_json::Value = self.get(&format!("/channels/{channel_id}")).await?;
+        Ok(v.get("team_id").and_then(|t| t.as_str()).unwrap_or_default().to_string())
+    }
+
+    /// Suivre ou ne plus suivre un fil.
+    pub async fn set_thread_following(&self, user_id: &str, team_id: &str, root_id: &str, follow: bool) -> Result<()> {
+        let path = format!("/users/{user_id}/teams/{team_id}/threads/{root_id}/following");
+        let method = if follow { reqwest::Method::PUT } else { reqwest::Method::DELETE };
+        self.send_json::<()>(method, &path, None).await
+    }
+
+    /// Rappel sur un message (« Me le rappeler »), `at` en secondes Unix.
+    pub async fn set_reminder(&self, user_id: &str, post_id: &str, at: i64) -> Result<()> {
+        let body = serde_json::json!({ "target_time": at });
+        self.send_json(reqwest::Method::POST, &format!("/users/{user_id}/posts/{post_id}/reminder"), Some(&body)).await
     }
 
     pub async fn user_by_username(&self, username: &str) -> Result<User> {

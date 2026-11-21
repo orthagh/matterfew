@@ -902,6 +902,18 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         Command::InviteByEmail { emails, .. } => {
             send(Event::Notice(t!("demo.invitations_sent", count = emails.len()).into()));
         }
+        Command::OpenPermalink { post_id } => {
+            if let Some(post) = demo.posts.values().flatten().find(|p| p.id == post_id).cloned() {
+                send(Event::JumpTo(post));
+            }
+        }
+        Command::OpenChannelLink { channel_name, .. } => {
+            if let Some(c) = demo.channels.iter().find(|c| c.name == channel_name) {
+                send(Event::OpenChannel { team_id: "t1".into(), channel_id: c.id.clone() });
+            }
+        }
+        Command::FollowThread { .. } => {}
+        Command::Remind { .. } => send(Event::Notice(t!("notice.reminder_set").to_string())),
         Command::PatchChannel { channel_id, purpose, header } => {
             if let Some(c) = demo.channels.iter_mut().find(|c| c.id == channel_id) {
                 c.purpose = purpose;

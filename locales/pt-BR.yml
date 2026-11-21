@@ -323,6 +323,13 @@ clipboard:
   message_text: "Texto da mensagem"
   channel_link: "Link do canal"
 post_menu:
+  follow: "Seguir tópico"
+  unfollow: "Deixar de seguir tópico"
+  remind: "Lembrar-me"
+  remind_30m: "Em 30 minutos"
+  remind_1h: "Em 1 hora"
+  remind_2h: "Em 2 horas"
+  remind_tomorrow: "Amanhã"
   saved_flash: "Mensagem salva."
   unsaved_flash: "Mensagem removida das salvas."
   delete_confirm: "Excluir esta mensagem?"
@@ -474,3 +481,7 @@ dates:
     october: "outubro"
     november: "novembro"
     december: "dezembro"
+notice:
+  reminder_set: "Lembrete definido."
+  following: "Você está seguindo este tópico."
+  unfollowed: "Você deixou de seguir este tópico."

@@ -1619,6 +1619,172 @@ impl ChatApp {
         self.flash(t!("clipboard.copied", what = what).into(), cx);
     }
 
+    /// Lien vers ce serveur (message, canal, message direct) : ouvert dans
+    /// l'application plutôt que dans le navigateur. Renvoie `false` sinon.
+    fn open_internal_link(&mut self, url: &str, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if let Some(name) = url.strip_prefix(markdown::CHANNEL_SCHEME) {
+            let team = self.team_name();
+            self.open_channel_link(team, name.to_string(), window, cx);
+            return true;
+        }
+        let Some(server) = self.server_url.clone() else { return false };
+        let server = server.trim_end_matches('/');
+        let Some(path) = url.strip_prefix(server).filter(|p| p.starts_with('/')) else { return false };
+        let path = path.split(['?', '#']).next().unwrap_or_default();
+        let parts: Vec<&str> = path.trim_matches('/').split('/').collect();
+        match parts.as_slice() {
+            [_team, "pl", post_id] => {
+                match self.find_post(post_id).cloned() {
+                    Some(post) => self.jump_to_post(post, window, cx),
+                    None => self.send(Command::OpenPermalink { post_id: post_id.to_string() }),
+                }
+                true
+            }
+            [team, "channels", name] => {
+                self.open_channel_link(team.to_string(), name.to_string(), window, cx);
+                true
+            }
+            [_team, "messages", who] if who.starts_with('@') => {
+                let name = &who[1..];
+                match self.users.values().find(|u| u.username == name).map(|u| u.id.clone()) {
+                    Some(id) => self.open_direct(id, window, cx),
+                    None => return false,
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn open_channel_link(&mut self, team: String, name: String, window: &mut Window, cx: &mut Context<Self>) {
+        let here = team == self.team_name();
+        let known = self.channels.values().find(|c| c.channel.name == name).map(|c| c.channel.id.clone());
+        match (here, known) {
+            (true, Some(id)) => {
+                self.select_channel(id, cx);
+                self.focus_composer(window, cx);
+            }
+            _ => self.send(Command::OpenChannelLink { team_name: team, channel_name: name }),
+        }
+    }
+
+    /// Ctrl+V : une image ou des fichiers dans le presse-papiers deviennent des
+    /// pièces jointes. Renvoie `false` pour laisser coller du texte.
+    fn paste_attachments(&mut self, pane: Pane, cx: &mut Context<Self>) -> bool {
+        let Some(item) = cx.read_from_clipboard() else { return false };
+        let has_text =
+            item.entries().iter().any(|e| matches!(e, ClipboardEntry::String(s) if !s.text().trim().is_empty()));
+        let mut paths = Vec::new();
+        for entry in item.entries() {
+            match entry {
+                ClipboardEntry::ExternalPaths(p) => paths.extend(p.paths().iter().cloned()),
+                ClipboardEntry::Image(image) if !has_text => {
+                    let dir = std::env::temp_dir().join("mm-gpui").join("collages");
+                    let name =
+                        format!("image-{}.{}", chrono::Local::now().format("%Y%m%d-%H%M%S"), image.format.extension());
+                    if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(dir.join(&name), &image.bytes).is_ok() {
+                        paths.push(dir.join(name));
+                    }
+                }
+                _ => {}
+            }
+        }
+        if paths.is_empty() {
+            return false;
+        }
+        self.add_files(pane, paths, cx);
+        true
+    }
+
+    /// Flèche haut dans une zone de saisie vide : modifier son dernier message.
+    fn edit_last_message(&mut self, pane: Pane, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.editing.is_some() || !self.composer_for(pane).read(cx).value().is_empty() {
+            return false;
+        }
+        let me = self.me_id().to_string();
+        let list = match pane {
+            Pane::Channel => &self.posts,
+            Pane::Thread => match &self.thread {
+                Some(t) => &t.posts,
+                None => return false,
+            },
+        };
+        let Some(id) = list
+            .iter()
+            .rev()
+            .map(|v| &v.post)
+            .find(|p| p.user_id == me && !p.is_system() && p.delete_at == 0)
+            .map(|p| p.id.clone())
+        else {
+            return false;
+        };
+        self.start_edit(pane, id, window, cx);
+        true
+    }
+
+    /// Alt+↑/↓ : canal précédent ou suivant de la barre latérale ;
+    /// avec Maj, seulement les canaux non lus.
+    fn cycle_channel(&mut self, down: bool, unread_only: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let mut order: Vec<String> = Vec::new();
+        for section in self.sidebar_sections() {
+            for id in section.channel_ids {
+                if !order.contains(&id) {
+                    order.push(id);
+                }
+            }
+        }
+        let current = self.channel_id.clone().unwrap_or_default();
+        let candidates: Vec<&String> = order
+            .iter()
+            .filter(|id| **id == current || !unread_only || self.channels.get(*id).is_some_and(|c| c.shows_unread()))
+            .collect();
+        if candidates.len() < 2 {
+            return;
+        }
+        let pos = candidates.iter().position(|id| **id == current).unwrap_or(0);
+        let next = if down { (pos + 1) % candidates.len() } else { (pos + candidates.len() - 1) % candidates.len() };
+        let id = candidates[next].clone();
+        self.select_channel(id, cx);
+        self.focus_composer(window, cx);
+    }
+
+    /// Suivre ou ne plus suivre le fil d'un message.
+    fn toggle_follow(&mut self, post_id: String, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id.clone() else { return };
+        let root =
+            self.find_post(&post_id).map(|p| if p.root_id.is_empty() { p.id.clone() } else { p.root_id.clone() });
+        let Some(root) = root else { return };
+        let follow = !self.is_following(&root);
+        for view in self.posts.iter_mut().chain(self.thread.iter_mut().flat_map(|t| t.posts.iter_mut())) {
+            if view.post.id == root {
+                view.post.is_following = Some(follow);
+            }
+        }
+        self.send(Command::FollowThread { team_id, root_id: root, follow });
+        self.flash(if follow { t!("notice.following") } else { t!("notice.unfollowed") }.into(), cx);
+    }
+
+    fn is_following(&self, root_id: &str) -> bool {
+        self.find_post(root_id).and_then(|p| p.is_following).unwrap_or(false)
+            || self.threads.iter().flatten().any(|t| t.id == root_id)
+    }
+
+    /// « Me le rappeler » : dans `minutes`, ou demain à 9 h si `None`.
+    fn remind(&mut self, post_id: String, minutes: Option<i64>) {
+        let at = match minutes {
+            Some(m) => chrono::Utc::now().timestamp() + m * 60,
+            None => {
+                let tomorrow = chrono::Local::now().date_naive() + chrono::Duration::days(1);
+                tomorrow
+                    .and_hms_opt(9, 0, 0)
+                    .and_then(|t| t.and_local_timezone(chrono::Local).single())
+                    .map(|t| t.timestamp())
+                    .unwrap_or_else(|| chrono::Utc::now().timestamp() + 86_400)
+            }
+        };
+        self.send(Command::Remind { post_id, at });
+    }
+
     fn copy_post_link(&mut self, post_id: &str, cx: &mut Context<Self>) {
         let server = self.server_url.clone().unwrap_or_default();
         let link = format!("{server}/{}/pl/{post_id}", self.team_name());
@@ -2103,6 +2269,12 @@ impl ChatApp {
         };
         match scene.as_str() {
             "bots" => self.select_channel("backend".into(), cx),
+            "edition" => {
+                self.select_channel("backend".into(), cx);
+                after(self, 700, window, cx, |this, window, cx| {
+                    this.edit_last_message(Pane::Channel, window, cx);
+                });
+            }
             "creer-canal" => {
                 after(self, 400, window, cx, |this, window, cx| this.open_create(CreateKind::Channel, window, cx))
             }
@@ -2737,6 +2909,17 @@ impl ChatApp {
                 self.focus_composer(window, cx);
             }
             Event::Notice(text) => self.flash(text, cx),
+            Event::JumpTo(post) => self.jump_to_post(post, window, cx),
+            Event::OpenChannel { team_id, channel_id } => {
+                if self.team_id.as_deref() == Some(team_id.as_str()) {
+                    self.select_channel(channel_id, cx);
+                    self.focus_composer(window, cx);
+                } else {
+                    // Ouvert une fois les canaux de l'équipe chargés.
+                    self.settings.last_channels.insert(team_id.clone(), channel_id);
+                    self.select_team(team_id, cx);
+                }
+            }
             Event::ChannelUpdated(channel) => {
                 if let Some(state) = self.channels.get_mut(&channel.id) {
                     state.channel.display_name = channel.display_name;

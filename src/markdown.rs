@@ -17,6 +17,8 @@ use crate::emoji;
 
 /// Préfixe des liens de mention, intercepté au clic par l'interface.
 pub const MENTION_SCHEME: &str = "mm-mention:";
+/// Préfixe des liens de canaux (`~nom`), ouverts dans l'application.
+pub const CHANNEL_SCHEME: &str = "mm-channel:";
 /// Préfixe des liens d'étiquettes (`#sujet`), qui lancent une recherche.
 pub const HASHTAG_SCHEME: &str = "mm-hashtag:";
 
@@ -185,6 +187,7 @@ fn transform_text(text: &str, emoji_size: u32, channel_id: Option<&str>) -> Stri
         match kind {
             Token::Mention => out.push_str(&format!("[{chunk}]({MENTION_SCHEME}{})", &chunk[1..])),
             Token::Hashtag => out.push_str(&format!("[{chunk}]({HASHTAG_SCHEME}{})", &chunk[1..])),
+            Token::Channel => out.push_str(&format!("[{chunk}]({CHANNEL_SCHEME}{})", &chunk[1..])),
             // Emojis Unicode → images Twemoji (même rendu partout, plus moderne
             // que la police emoji du système).
             Token::Text => {
@@ -235,6 +238,8 @@ enum Token {
     Text,
     Mention,
     Hashtag,
+    /// `~nom-du-canal`
+    Channel,
 }
 
 /// Découpe « salut @alice, voir #release-12 » en texte, mentions et étiquettes.
@@ -252,6 +257,25 @@ fn split_tokens(text: &str) -> Vec<(&str, Token)> {
         let mut iter = chunk.char_indices().peekable();
         while let Some((i, c)) = iter.next() {
             let starts_word = prev.is_none_or(|p| !(p.is_alphanumeric() || matches!(p, '#' | '&' | '/' | '_' | '-')));
+            if c == '~' && starts_word {
+                let after = &chunk[i + 1..];
+                let len =
+                    after.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))).unwrap_or(after.len());
+                let name = after[..len].trim_end_matches(['-', '_']);
+                if name.chars().next().is_some_and(|c| c.is_ascii_lowercase()) {
+                    let end = i + 1 + name.len();
+                    if last < i {
+                        out.push((&chunk[last..i], Token::Text));
+                    }
+                    out.push((&chunk[i..end], Token::Channel));
+                    last = end;
+                    while iter.peek().is_some_and(|(j, _)| *j < end) {
+                        iter.next();
+                    }
+                    prev = chunk[..end].chars().last();
+                    continue;
+                }
+            }
             if c == '#' && starts_word {
                 let after = &chunk[i + 1..];
                 let len =
@@ -353,6 +377,16 @@ mod tests {
     fn mentions_become_links() {
         assert_eq!(prepare("merci @jean.dupont."), "merci [@jean.dupont](mm-mention:jean.dupont).");
         assert_eq!(prepare("**@alice** !"), "**[@alice](mm-mention:alice)** !");
+    }
+
+    #[test]
+    fn canaux_en_liens() {
+        let out = prepare("voir ~dev-backend. et ~/dossier, ~5 min");
+        assert!(out.contains("[~dev-backend](mm-channel:dev-backend)."), "{out}");
+        assert!(!out.contains("mm-channel:5"), "{out}");
+        assert!(out.contains("~/dossier"), "{out}");
+        // Le barré « ~~ » n'est pas un canal.
+        assert!(!prepare("~~barré~~").contains("mm-channel"));
     }
 
     #[test]

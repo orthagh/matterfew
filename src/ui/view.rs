@@ -11,7 +11,7 @@ use gpui_kit::component::{
     avatar::Avatar,
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Enter, Escape, IndentInline, Input, MoveDown, MoveUp, Textarea},
+    input::{Enter, Escape, IndentInline, Input, MoveDown, MoveUp, Paste, Textarea},
     message_scroller::MessageScroller,
     text::TextView,
     v_flex,
@@ -337,7 +337,7 @@ impl ChatApp {
         )
     }
 
-    fn sidebar_sections(&self) -> Vec<Section> {
+    pub(super) fn sidebar_sections(&self) -> Vec<Section> {
         sidebar::build(&sidebar::Input {
             channels: &self.channels,
             categories: &self.categories,
@@ -1005,8 +1005,10 @@ impl ChatApp {
                                 } else if let Some(tag) = url.strip_prefix(markdown::HASHTAG_SCHEME) {
                                     let terms = format!("#{tag}");
                                     entity.update(cx, |this, cx| this.search_for(terms, window, cx));
-                                } else {
+                                } else if !entity.update(cx, |this, cx| this.open_internal_link(url, window, cx)) {
                                     open_link(url, cx);
+                                } else {
+                                    cx.stop_propagation();
                                 }
                             }
                         }),
@@ -1439,6 +1441,10 @@ impl ChatApp {
         // Toutes les options dans « ⋯ ».
         let saved = self.is_saved(&post_id);
         let pinned = self.find_post(&post_id).is_some_and(|p| p.is_pinned);
+        let root =
+            self.find_post(&post_id).map(|p| if p.root_id.is_empty() { p.id.clone() } else { p.root_id.clone() });
+        let following = root.as_deref().is_some_and(|r| self.is_following(r));
+        let crt = self.crt;
         let (entity, pid) = (entity.clone(), post_id.clone());
         bar.child(
             Button::new(id("more"))
@@ -1475,7 +1481,27 @@ impl ChatApp {
                             &if pinned { t!("post_menu.unpin") } else { t!("post_menu.pin") },
                             IconName::Pin,
                             |this, id, _, _| this.toggle_pinned(id),
-                        ))
+                        ));
+                    if crt {
+                        menu = menu.item(item(
+                            &if following { t!("post_menu.unfollow") } else { t!("post_menu.follow") },
+                            if following { IconName::BellOff } else { IconName::Bell },
+                            |this, id, _, cx| this.toggle_follow(id, cx),
+                        ));
+                    }
+                    let remind = |label: &str, minutes: Option<i64>| {
+                        let (entity, pid) = (entity.clone(), pid.clone());
+                        PopupMenuItem::new(label.to_string())
+                            .icon(Icon::new(IconName::Clock))
+                            .on_click(move |_, _, cx| entity.update(cx, |this, _| this.remind(pid.clone(), minutes)))
+                    };
+                    menu = menu
+                        .separator()
+                        .label(t!("post_menu.remind"))
+                        .item(remind(&t!("post_menu.remind_30m"), Some(30)))
+                        .item(remind(&t!("post_menu.remind_1h"), Some(60)))
+                        .item(remind(&t!("post_menu.remind_2h"), Some(120)))
+                        .item(remind(&t!("post_menu.remind_tomorrow"), None))
                         .separator()
                         .item(item(&t!("post_menu.copy_link"), IconName::Link, |this, id, _, cx| {
                             this.copy_post_link(&id, cx)
@@ -1633,6 +1659,11 @@ impl ChatApp {
             // Avant la zone de saisie (phase de capture) : quand des propositions
             // sont affichées, ↑ ↓ Entrée Tab Échap servent à les parcourir.
             .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| this.ac_action(pane, "up", window, cx)))
+            .capture_action(cx.listener(move |this, _: &Paste, _, cx| {
+                if this.paste_attachments(pane, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .capture_action(cx.listener(move |this, _: &MoveDown, window, cx| this.ac_action(pane, "down", window, cx)))
             .capture_action(cx.listener(move |this, _: &Enter, window, cx| this.ac_action(pane, "enter", window, cx)))
             .capture_action(
@@ -2026,7 +2057,7 @@ impl ChatApp {
     /// Action clavier de la zone de saisie : prise par l'autocomplétion si
     /// des propositions sont affichées, sinon laissée à la zone de saisie.
     fn ac_action(&mut self, pane: Pane, key: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if self.autocomplete_key(pane, key, window, cx) {
+        if self.autocomplete_key(pane, key, window, cx) || (key == "up" && self.edit_last_message(pane, window, cx)) {
             cx.stop_propagation();
         }
     }
@@ -2518,6 +2549,11 @@ impl ChatApp {
                     this.close_create(cx);
                     this.close_team_card(cx);
                     this.close_add_members(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if k.modifiers.alt && !k.modifiers.control && (k.key == "up" || k.key == "down") {
+                    this.cycle_channel(k.key == "down", k.modifiers.shift, window, cx);
                     cx.stop_propagation();
                     return;
                 }

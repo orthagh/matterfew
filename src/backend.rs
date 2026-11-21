@@ -168,6 +168,24 @@ pub enum Command {
         purpose: String,
         header: String,
     },
+    /// Lien vers un message (`…/pl/<id>`) : le retrouver et l'ouvrir.
+    OpenPermalink {
+        post_id: String,
+    },
+    /// Lien vers un canal (`…/<équipe>/channels/<nom>`).
+    OpenChannelLink {
+        team_name: String,
+        channel_name: String,
+    },
+    FollowThread {
+        team_id: String,
+        root_id: String,
+        follow: bool,
+    },
+    Remind {
+        post_id: String,
+        at: i64,
+    },
     CreateChannel {
         team_id: String,
         name: String,
@@ -349,6 +367,13 @@ pub enum Event {
     ChannelUpdated(Channel),
     /// Canal créé par l'utilisateur : à ouvrir.
     ChannelCreated(Channel),
+    /// Message à ouvrir (lien permanent).
+    JumpTo(Post),
+    /// Canal à ouvrir, éventuellement dans une autre équipe.
+    OpenChannel {
+        team_id: String,
+        channel_id: String,
+    },
     /// Information à afficher brièvement (invitations envoyées…).
     Notice(String),
     /// Règles du plugin Autolink lues sur le serveur.
@@ -892,6 +917,27 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
                 t!("team.invitation_sent.other", count = n).into()
             }))
             .await;
+        }
+        Command::OpenPermalink { post_id } => {
+            let post = client.post_by_id(&post_id).await?;
+            let team_id = client.channel_team(&post.channel_id).await?;
+            if !team_id.is_empty() {
+                ctx.emit(Event::ChannelTeams(vec![(post.channel_id.clone(), team_id)])).await;
+            }
+            ctx.ensure_users([post.user_id.clone()]).await;
+            ctx.emit(Event::JumpTo(post)).await;
+        }
+        Command::OpenChannelLink { team_name, channel_name } => {
+            let team = client.team_by_name(&team_name).await?;
+            let channel = client.channel_by_name(&team.id, &channel_name).await?;
+            ctx.emit(Event::OpenChannel { team_id: team.id, channel_id: channel.id }).await;
+        }
+        Command::FollowThread { team_id, root_id, follow } => {
+            client.set_thread_following(&ctx.me_id, &team_id, &root_id, follow).await?;
+        }
+        Command::Remind { post_id, at } => {
+            client.set_reminder(&ctx.me_id, &post_id, at).await?;
+            ctx.emit(Event::Notice(t!("notice.reminder_set").to_string())).await;
         }
         Command::PatchChannel { channel_id, purpose, header } => {
             let channel = client.patch_channel(&channel_id, &purpose, &header).await?;

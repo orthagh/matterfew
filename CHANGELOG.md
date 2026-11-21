@@ -10,6 +10,16 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 
 ## [Non publié]
 
+### Ajouté
+
+- Liens vers ce serveur (message, canal, message direct) et `~canal`
+  ouverts dans l'application plutôt que dans le navigateur.
+- Coller une image ou des fichiers (Ctrl+V) les joint au message.
+- Flèche ↑ dans une zone de saisie vide : modifier son dernier message.
+- Alt+↑/↓ : canal précédent ou suivant ; Alt+Maj+↑/↓ : canal non lu.
+- Suivre ou ne plus suivre un fil, depuis le menu d'un message.
+- « Me le rappeler » : dans 30 min, 1 h, 2 h ou demain.
+
 ## [0.1.0] - 2026-11-21
 
 Première version publique.
