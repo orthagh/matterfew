@@ -21,6 +21,8 @@ pub struct ClickTarget {
 
 /// Action demandée depuis l'icône de la zone de notification.
 #[derive(Debug, Clone, Copy)]
+// Envoyées seulement par l'icône de Windows (Linux et macOS : à venir).
+#[cfg_attr(not(windows), allow(dead_code))]
 pub enum TrayAction {
     Show,
     Quit,

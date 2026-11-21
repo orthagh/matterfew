@@ -30,9 +30,9 @@ fn user(id: &str, first: &str, last: &str) -> User {
         notify_props: HashMap::from([("desktop".to_string(), "mention".to_string())]),
         email: format!("{}.{}@exemple.org", first.to_lowercase(), last.to_lowercase()),
         position: match first {
-            "Lucas" => "Responsable support".into(),
-            "Inès" => "Designer".into(),
-            "Nathan" => "Développeur backend".into(),
+            "Lucas" => t!("demo.position_support").into(),
+            "Inès" => t!("demo.position_designer").into(),
+            "Nathan" => t!("demo.position_backend").into(),
             _ => String::new(),
         },
         is_bot: false,
@@ -115,18 +115,32 @@ impl Demo {
                     "general",
                     "O",
                     "town-square",
-                    "Général",
-                    "Annonces et discussions pour toute l'équipe",
+                    &t!("demo.channels.general"),
+                    &t!("demo.channels.general_purpose"),
                     now - h,
                 );
-                c.header = "**Réunion** lundi 10 h · [Wiki de l'équipe](https://example.org/wiki) · [Planning](https://example.org/planning)".into();
+                c.header = t!("demo.channels.general_header").into();
                 c
             },
-            channel("backend", "O", "dev-backend", "dev-backend", "API, base de données et déploiements", now - 2 * h),
-            channel("design", "O", "design", "design", "Maquettes et retours d'interface", now - 26 * h),
-            channel("support", "P", "support-n2", "support-n2", "Escalades du support", now - 5 * h),
-            channel("veille", "O", "veille-techno", "veille-techno", "Articles et outils à partager", now - 72 * h),
-            channel("random", "O", "off-topic", "Hors sujet", "", now - 30 * h),
+            channel("backend", "O", "dev-backend", "dev-backend", &t!("demo.channels.backend_purpose"), now - 2 * h),
+            channel("design", "O", "design", "design", &t!("demo.channels.design_purpose"), now - 26 * h),
+            channel(
+                "support",
+                "P",
+                "support-n2",
+                &t!("demo.channels.support"),
+                &t!("demo.channels.support_purpose"),
+                now - 5 * h,
+            ),
+            channel(
+                "veille",
+                "O",
+                "veille-techno",
+                &t!("demo.channels.veille"),
+                &t!("demo.channels.veille_purpose"),
+                now - 72 * h,
+            ),
+            channel("random", "O", "off-topic", &t!("demo.channels.random"), "", now - 30 * h),
             channel("dm1", "D", "me__u1", "", "", now - 20 * 60_000),
             channel("dm2", "D", "me__u2", "", "", now - 3 * h),
             channel("dm3", "D", "me__u4", "", "", now - 50 * h),
@@ -188,182 +202,106 @@ impl Demo {
             "general",
             "u1",
             now - day - 3 * h,
-            "Bonjour à tous :wave: La démo client est **jeudi à 14h**, salle Turing.",
+            &t!("demo.posts.general_demo_day"),
             &[("+1", &["u2", "u3", ME]), ("tada", &["u4"])],
             3,
         );
-        demo.add(
-            "general",
-            "u3",
-            now - day - 2 * h,
-            "Je prépare les slides, n'hésitez pas à m'envoyer vos captures d'ici mercredi.",
-            &[],
-            0,
-        );
-        demo.add(
-            "general",
-            "u3",
-            now - day - 2 * h + 2 * m,
-            "Le modèle est dans le drive partagé > *Présentations*.",
-            &[],
-            0,
-        );
-        demo.add(
-            "general",
-            ME,
-            now - 5 * h,
-            "Merci @chloe.durand ! J'ajoute la partie sur les performances.",
-            &[("heart", &["u3"])],
-            0,
-        );
-        demo.add("general", "u4", now - 2 * h, "Rappel : la mise en production de la **v2.4** est prévue ce soir.\n\n- gel des fusions à 17h\n- déploiement à 19h\n- vérifications à 19h30", &[("eyes", &["u1", "u2"])], 1);
+        demo.add("general", "u3", now - day - 2 * h, &t!("demo.posts.general_slides"), &[], 0);
+        demo.add("general", "u3", now - day - 2 * h + 2 * m, &t!("demo.posts.general_template"), &[], 0);
+        demo.add("general", ME, now - 5 * h, &t!("demo.posts.general_thanks"), &[("heart", &["u3"])], 0);
+        demo.add("general", "u4", now - 2 * h, &t!("demo.posts.general_release"), &[("eyes", &["u1", "u2"])], 1);
         // Réponse éphémère d'une commande « /github subscriptions list ».
-        demo.add(
-            "general",
-            "ugh",
-            now - 2 * m,
-            "##### Subscriptions in this channel
-* glpi-project/doc - pulls,issues,creates,deletes --render-style collapsed
-* glpi-project/glpi - pulls,issues,creates,deletes --render-style collapsed
-* glpi-project/roadmap - pulls,issues --render-style collapsed",
-            &[],
-            0,
-        );
+        demo.add("general", "ugh", now - 2 * m, &t!("demo.github.subscriptions"), &[], 0);
         if let Some(post) =
             demo.posts.get_mut("general").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * m))
         {
             post.kind = "system_ephemeral".into();
         }
-        demo.add(
-            "general",
-            "u1",
-            now - h - 5 * m,
-            "Ordre du jour de lundi :
-1. point sur la version 12
-2. recette du client GPUI
-Merci de compléter avant vendredi.",
-            &[],
-            0,
-        );
-        demo.add("general", "u2", now - h, "Pour info, la doc est à jour : [notes de version](https://example.org/notes) :white_check_mark: #release-12 #documentation", &[], 0);
+        demo.add("general", "u1", now - h - 5 * m, &t!("demo.posts.general_agenda"), &[], 0);
+        demo.add("general", "u2", now - h, &t!("demo.posts.general_docs"), &[], 0);
 
-        demo.add("backend", "u2", now - day - 4 * h, "Quelqu'un a vu la lenteur sur `/api/tickets` ce matin ?", &[], 2);
-        demo.add("backend", "u6", now - day - 4 * h + 5 * m, "Oui, un index manquait. Correctif :\n\n```sql\nCREATE INDEX idx_tickets_status\n    ON tickets (status, updated_at);\n```", &[("+1", &["u2", ME])], 0);
-        demo.add("backend", ME, now - 3 * h, "Je relis la MR de @nathan.simon cet après-midi.", &[], 0);
+        demo.add("backend", "u2", now - day - 4 * h, &t!("demo.posts.backend_slow"), &[], 2);
         demo.add(
             "backend",
             "u6",
-            now - 2 * h,
-            "Top, merci ! Les tests passent en local, la CI est encore en cours :hourglass:",
-            &[],
+            now - day - 4 * h + 5 * m,
+            &t!("demo.posts.backend_index"),
+            &[("+1", &["u2", ME])],
             0,
         );
+        demo.add("backend", ME, now - 3 * h, &t!("demo.posts.backend_review"), &[], 0);
+        demo.add("backend", "u6", now - 2 * h, &t!("demo.posts.backend_ci"), &[], 0);
         for i in 0..70 {
             demo.add(
                 "backend",
                 if i % 3 == 0 { "u2" } else { "u6" },
                 now - 10 * day - (70 - i) * h,
-                &format!("Ancien message n°{} de l'historique (pour tester le défilement).", i + 1),
+                &t!("demo.posts.backend_history", n = i + 1),
                 &[],
                 0,
             );
         }
 
-        demo.add(
-            "design",
-            "u5",
-            now - 2 * day,
-            "Nouvelle version de la page d'accueil :art: Vos avis ?",
-            &[("heart", &["u1", "u3"])],
-            4,
-        );
-        demo.add(
-            "design",
-            "u1",
-            now - 26 * h,
-            "J'aime beaucoup la nouvelle typographie. Le contraste du bouton secondaire me semble un peu faible.",
-            &[],
-            0,
-        );
+        demo.add("design", "u5", now - 2 * day, &t!("demo.posts.design_home"), &[("heart", &["u1", "u3"])], 4);
+        demo.add("design", "u1", now - 26 * h, &t!("demo.posts.design_feedback"), &[], 0);
 
-        demo.add(
-            "support",
-            "u4",
-            now - 6 * h,
-            "Escalade client : export CSV vide depuis la mise à jour. Ticket **#4821**, support !4821.",
-            &[],
-            0,
-        );
-        demo.add(
-            "support",
-            "u4",
-            now - 5 * h,
-            "@camille.martin tu peux regarder ? C'est lié à ton changement sur les filtres.",
-            &[],
-            0,
-        );
+        demo.add("support", "u4", now - 6 * h, &t!("demo.posts.support_escalation"), &[], 0);
+        demo.add("support", "u4", now - 5 * h, &t!("demo.posts.support_ping"), &[], 0);
 
-        demo.add(
-            "veille",
-            "u2",
-            now - 3 * day,
-            "Article intéressant sur GPUI, le framework d'interface de Zed :rocket:",
-            &[("+1", &["u6"])],
-            0,
-        );
+        demo.add("veille", "u2", now - 3 * day, &t!("demo.posts.veille_gpui"), &[("+1", &["u6"])], 0);
         demo.add(
             "random",
             "u3",
             now - 30 * h,
-            "Qui vient au repas d'équipe vendredi ? :pizza:",
+            &t!("demo.posts.random_lunch"),
             &[("raised_hand", &["u1", "u2", "u4", ME])],
             0,
         );
-        demo.add("random", "u5", now - 29 * h, "Moi ! Et vive :glpi: :tada:", &[("glpi", &["u1", "u3"])], 0);
+        demo.add("random", "u5", now - 29 * h, &t!("demo.posts.random_me"), &[("glpi", &["u1", "u3"])], 0);
         if let Some(post) =
             demo.posts.get_mut("random").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 29 * h))
         {
             post.metadata.emojis = vec![crate::api::CustomEmoji { id: "e-glpi".into(), name: "glpi".into() }];
         }
 
-        demo.add("dm1", "u1", now - 40 * m, "Tu as deux minutes pour la démo de jeudi ?", &[], 0);
-        demo.add("dm1", "u1", now - 20 * m, "Je voudrais caler l'ordre de passage :slightly_smiling_face:", &[], 0);
-        demo.add("dm2", ME, now - 3 * h, "Je t'envoie le lien de la MR.", &[], 0);
-        demo.add("dm2", "u2", now - 3 * h + m, "Merci !", &[], 0);
-        demo.add("dm3", "u4", now - 50 * h, "Bon week-end :sunglasses:", &[], 0);
-        demo.add("gm1", "u5", now - 8 * h, "On se cale un point design lundi ?", &[], 0);
+        demo.add("dm1", "u1", now - 40 * m, &t!("demo.posts.dm1_ask"), &[], 0);
+        demo.add("dm1", "u1", now - 20 * m, &t!("demo.posts.dm1_order"), &[], 0);
+        demo.add("dm2", ME, now - 3 * h, &t!("demo.posts.dm2_link"), &[], 0);
+        demo.add("dm2", "u2", now - 3 * h + m, &t!("demo.posts.dm2_thanks"), &[], 0);
+        demo.add("dm3", "u4", now - 50 * h, &t!("demo.posts.dm3_weekend"), &[], 0);
+        demo.add("gm1", "u5", now - 8 * h, &t!("demo.posts.gm1_sync"), &[], 0);
 
         // Messages avec pièces jointes.
         demo.add_with_files(
             "design",
             "u5",
             now - 20 * h,
-            "Les captures de la revue d'interface :camera:",
+            &t!("demo.posts.design_screenshots"),
             vec![
-                file("f-d1", "accueil-large.png", "image/png", 820_000, 1600, 900),
-                file("f-d2", "mobile-portrait.png", "image/png", 410_000, 750, 1334),
-                file("f-d3", "icone.png", "image/png", 90_000, 1024, 1024),
-                file("f-d4", "tableau-de-bord.png", "image/png", 990_000, 1440, 960),
-                file("f-d5", "bandeau.jpg", "image/jpeg", 300_000, 2400, 800),
-                file("f-d6", "carte.png", "image/png", 520_000, 1200, 1500),
-                file("f-d7", "pastille.png", "image/png", 12_000, 240, 160),
+                file("f-d1", &t!("demo.files.home_wide"), "image/png", 820_000, 1600, 900),
+                file("f-d2", &t!("demo.files.mobile_portrait"), "image/png", 410_000, 750, 1334),
+                file("f-d3", &t!("demo.files.icon"), "image/png", 90_000, 1024, 1024),
+                file("f-d4", &t!("demo.files.dashboard"), "image/png", 990_000, 1440, 960),
+                file("f-d5", &t!("demo.files.banner"), "image/jpeg", 300_000, 2400, 800),
+                file("f-d6", &t!("demo.files.card"), "image/png", 520_000, 1200, 1500),
+                file("f-d7", &t!("demo.files.badge"), "image/png", 12_000, 240, 160),
             ],
         );
         demo.add_with_files(
             "general",
             "u5",
             now - 30 * m,
-            "Voici la maquette finale de la page d'accueil :point_down:",
-            vec![file("f-img1", "accueil-v2.png", "image/png", 1_240_000, 1600, 900)],
+            &t!("demo.posts.general_mockup"),
+            vec![file("f-img1", &t!("demo.files.home_v2"), "image/png", 1_240_000, 1600, 900)],
         );
         demo.add_with_files(
             "general",
             "u6",
             now - 10 * m,
-            "Le rapport de performances et les mesures brutes :",
+            &t!("demo.posts.general_perf_report"),
             vec![
-                file("f-pdf1", "rapport-performances.pdf", "application/pdf", 245_000, 0, 0),
-                file("f-csv1", "mesures.csv", "text/csv", 18_300, 0, 0),
+                file("f-pdf1", &t!("demo.files.perf_report"), "application/pdf", 245_000, 0, 0),
+                file("f-csv1", &t!("demo.files.measurements"), "text/csv", 18_300, 0, 0),
             ],
         );
 
@@ -377,17 +315,17 @@ Merci de compléter avant vendredi.",
                 "override_username": "GitLab",
                 "attachments": [{
                     "color": "#fc6d26",
-                    "pretext": "Nathan Simon a fusionné une demande de fusion",
+                    "pretext": t!("demo.gitlab.pretext"),
                     "author_name": "glpi / glpi",
-                    "title": "!1842 Correction de l'export CSV des tickets",
+                    "title": t!("demo.gitlab.title"),
                     "title_link": "https://example.org/glpi/glpi/-/merge_requests/1842",
-                    "text": "Corrige les filtres perdus lors de l'export. Ajoute des tests sur `Search::export`.",
+                    "text": t!("demo.gitlab.text"),
                     "fields": [
-                        {"title": "Branche", "value": "fix/csv-export", "short": true},
-                        {"title": "Pipeline", "value": "✅ réussi", "short": true}
+                        {"title": t!("demo.gitlab.branch"), "value": "fix/csv-export", "short": true},
+                        {"title": "Pipeline", "value": t!("demo.gitlab.pipeline_passed"), "short": true}
                     ],
                     "footer": "GitLab",
-                    "actions": [{"id": "deploy", "name": "Déployer en recette", "type": "button", "style": "primary"}]
+                    "actions": [{"id": "deploy", "name": t!("demo.gitlab.deploy"), "type": "button", "style": "primary"}]
                 }]
             });
         }
@@ -401,23 +339,13 @@ Merci de compléter avant vendredi.",
                 "override_username": "github",
                 "attachments": [{
                     "color": "#24292f",
-                    "pretext": "[glpi-project/glpi] Nouvelle pull request ouverte par nathan-simon",
-                    "title": "#18342 Refonte du moteur de recherche des tickets",
+                    "pretext": t!("demo.github.pr_pretext"),
+                    "title": t!("demo.github.pr_title"),
                     "title_link": "https://example.org/glpi-project/glpi/pull/18342",
-                    "text": "## Résumé
-- remplace l'ancien moteur de requêtes
-- ajoute un cache des critères
-- corrige le tri sur les colonnes calculées
-
-## Tests
-- 214 tests unitaires ajoutés
-- scénarios de bout en bout sur l'export CSV
-
-## Notes
-La migration des recherches enregistrées est automatique.",
+                    "text": t!("demo.github.pr_text"),
                     "fields": [
-                        {"title": "Relecteurs", "value": "lea-bernard, hugo-petit", "short": true},
-                        {"title": "Étiquettes", "value": "search, performance", "short": true}
+                        {"title": t!("demo.github.reviewers"), "value": "lea-bernard, hugo-petit", "short": true},
+                        {"title": t!("demo.github.labels"), "value": "search, performance", "short": true}
                     ],
                     "footer": "GitHub"
                 }]
@@ -432,8 +360,8 @@ La migration des recherches enregistrées est automatique.",
                 "override_username": "github",
                 "attachments": [{
                     "color": "#2da44e",
-                    "pretext": "[glpi-project/glpi] Vérifications réussies sur #18342",
-                    "text": "Toutes les vérifications sont passées (42 tâches).",
+                    "pretext": t!("demo.github.checks_pretext"),
+                    "text": t!("demo.github.checks_text"),
                     "footer": "GitHub Actions"
                 }]
             });
@@ -447,26 +375,15 @@ La migration des recherches enregistrées est automatique.",
                 "override_username": "github",
                 "attachments": [{
                     "color": "#8250df",
-                    "pretext": "[glpi-project/glpi] lea-bernard a approuvé #18342",
-                    "text": "Relu, rien à redire. Merci pour les tests de bout en bout sur l'export.
-On peut fusionner après la passe de traduction.
-Pense à la note de version.",
+                    "pretext": t!("demo.github.approved_pretext"),
+                    "text": t!("demo.github.approved_text"),
                     "footer": "GitHub"
                 }]
             });
         }
         // Plugin GitHub : messages Markdown postés par son bot, sans pièce jointe.
-        for (k, text) in [
-            (
-                77,
-                "#### Corriger l'export des tickets fusionnés\n##### [glpi-project/glpi#18350](https://github.com/glpi-project/glpi/pull/18350) nouvelle pull request de [nathan-simon](https://github.com/nathan-simon)\n\nCorrige la fusion des colonnes calculées dans l'export CSV.",
-            ),
-            (
-                76,
-                "[glpi-project/glpi] Nouveau commentaire de [lea-bernard](https://github.com/lea-bernard) sur [#18350 Corriger l'export des tickets fusionnés](https://github.com/glpi-project/glpi/pull/18350) :\n> Ajoute un test sur les colonnes vides, sinon parfait.",
-            ),
-        ] {
-            demo.add("backend", "ugh", now - k * m, text, &[], 0);
+        for (k, text) in [(77, t!("demo.github.pr_opened")), (76, t!("demo.github.pr_comment"))] {
+            demo.add("backend", "ugh", now - k * m, &text, &[], 0);
             if let Some(post) =
                 demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - k * m))
             {
@@ -474,7 +391,7 @@ Pense à la note de version.",
                 post.kind = "custom_git_pr".into();
             }
         }
-        demo.add("veille", "u2", now - 2 * day, "À lire : https://example.org/gpui-zed", &[], 0);
+        demo.add("veille", "u2", now - 2 * day, &t!("demo.posts.veille_link"), &[], 0);
         if let Some(post) =
             demo.posts.get_mut("veille").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * day))
         {
@@ -482,9 +399,9 @@ Pense à la note de version.",
                 "type": "opengraph",
                 "url": "https://example.org/gpui-zed",
                 "data": {
-                    "site_name": "Le blog tech",
-                    "title": "GPUI : le moteur d'interface de Zed",
-                    "description": "Comment Zed dessine son interface directement sur la carte graphique, et pourquoi Discord l'a choisi pour sa réécriture.",
+                    "site_name": t!("demo.link_preview.site_name"),
+                    "title": t!("demo.link_preview.title"),
+                    "description": t!("demo.link_preview.description"),
                     "images": [{"secure_url": "demo://og-gpui"}]
                 }
             }]);
@@ -493,20 +410,20 @@ Pense à la note de version.",
         // Réponses de quelques fils.
         let root = demo.posts["general"][0].id.clone();
         for (who, text) in [
-            ("u2", "Je serai là."),
-            ("u4", "Moi aussi, je présente la partie API."),
-            (ME, "Parfait, merci à vous deux !"),
+            ("u2", t!("demo.replies.demo_present")),
+            ("u4", t!("demo.replies.demo_api")),
+            (ME, t!("demo.replies.demo_thanks")),
         ] {
-            demo.reply(&root, "general", who, now - day - 3 * h + 10 * m, text);
+            demo.reply(&root, "general", who, now - day - 3 * h + 10 * m, &text);
         }
         let root = demo.posts["design"][0].id.clone();
         for (who, text) in [
-            ("u1", "Très réussi !"),
-            ("u3", "Le header est plus lisible."),
-            ("u6", "On peut tester en sombre ?"),
-            ("u5", "Oui, je la publie demain."),
+            ("u1", t!("demo.replies.design_great")),
+            ("u3", t!("demo.replies.design_header")),
+            ("u6", t!("demo.replies.design_dark")),
+            ("u5", t!("demo.replies.design_publish")),
         ] {
-            demo.reply(&root, "design", who, now - 2 * day + 20 * m, text);
+            demo.reply(&root, "design", who, now - 2 * day + 20 * m, &text);
         }
         demo
     }
@@ -582,16 +499,16 @@ pub fn start() -> Backend {
                     Team {
                         id: "t1".into(),
                         name: "demo".into(),
-                        display_name: "Équipe démo".into(),
+                        display_name: t!("demo.team_name").into(),
                         last_team_icon_update: 1,
-                        description: "Espace de démonstration : support, design et projets internes.".into(),
+                        description: t!("demo.team_description").into(),
                         team_type: "I".into(),
                         create_at: now_ms() - 400 * 24 * 3_600_000,
                     },
                     Team {
                         id: "t2".into(),
                         name: "clients".into(),
-                        display_name: "Projets clients".into(),
+                        display_name: t!("demo.team_clients").into(),
                         last_team_icon_update: 0,
                         team_type: "O".into(),
                         ..Default::default()
@@ -641,7 +558,7 @@ pub fn start() -> Backend {
                                 create_at: now_ms(),
                                 user_id: "u5".into(),
                                 channel_id: "random".into(),
-                                message: "@camille.martin nouveau message en temps réel (démo) :sparkles:".into(),
+                                message: t!("demo.live_message").into(),
                                 ..Default::default()
                             };
                             demo.posts.entry("random".into()).or_default().push(post.clone());
@@ -725,10 +642,22 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             send(Event::Categories {
                 team_id: team_id.clone(),
                 categories: vec![
-                    category("fav", "favorites", "Favoris", "", &["general"]),
-                    category("ch", "channels", "Canaux", "alpha", &channel_ids),
-                    category("clients", "custom", "Clients", "manual", &["support", "veille", "backend"]),
-                    category("dm", "direct_messages", "Messages directs", "recent", &["dm1", "dm2", "dm3", "gm1"]),
+                    category("fav", "favorites", &t!("sidebar.favorites"), "", &["general"]),
+                    category("ch", "channels", &t!("sidebar.channels"), "alpha", &channel_ids),
+                    category(
+                        "clients",
+                        "custom",
+                        &t!("demo.category_clients"),
+                        "manual",
+                        &["support", "veille", "backend"],
+                    ),
+                    category(
+                        "dm",
+                        "direct_messages",
+                        &t!("sidebar.direct_messages"),
+                        "recent",
+                        &["dm1", "dm2", "dm3", "gm1"],
+                    ),
                 ],
             });
             send(Event::Channels { team_id, channels: demo.channels.clone(), members });
@@ -831,7 +760,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             let dir = std::env::temp_dir().join("mm-gpui-demo");
             let _ = std::fs::create_dir_all(&dir);
             let path = dir.join(&file.name);
-            let _ = std::fs::write(&path, format!("Fichier de démonstration : {}\n", file.name));
+            let _ = std::fs::write(&path, format!("{}\n", t!("demo.download_content", name = file.name)));
             send(Event::Downloaded { path, open });
         }
         Command::Upload { local_id, path, .. } => {
@@ -942,7 +871,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         Command::SaveTeamDescription { team_id, description } => send(Event::TeamUpdated(Team {
             id: team_id,
             name: "demo".into(),
-            display_name: "Équipe démo".into(),
+            display_name: t!("demo.team_name").into(),
             last_team_icon_update: 1,
             description,
             team_type: "I".into(),
@@ -1176,4 +1105,36 @@ fn demo_preferences() -> Vec<Preference> {
         }
     }
     prefs
+}
+
+#[cfg(test)]
+mod tests {
+    /// Les traductions du contenu de la démo gardent ce qui ne se traduit
+    /// pas : mentions, hashtags, code, références et liens.
+    #[test]
+    fn contenu_traduit_sans_perte() {
+        let checks: [(&str, &[&str]); 7] = [
+            ("demo.posts.general_thanks", &["@chloe.durand"]),
+            ("demo.posts.backend_review", &["@nathan.simon"]),
+            ("demo.posts.support_ping", &["@camille.martin"]),
+            ("demo.live_message", &["@camille.martin", ":sparkles:"]),
+            ("demo.posts.general_docs", &["#release-12", "#documentation", "](https://example.org/notes)"]),
+            (
+                "demo.posts.backend_index",
+                &["```sql\nCREATE INDEX idx_tickets_status\n    ON tickets (status, updated_at);\n```"],
+            ),
+            ("demo.posts.support_escalation", &["**#4821**", "!4821"]),
+        ];
+        for locale in ["en", "fr", "pt-BR"] {
+            for (key, needles) in checks {
+                let text = t!(key, locale = locale);
+                for needle in needles {
+                    assert!(text.contains(needle), "{locale} {key} : « {needle} » manquant dans {text:?}");
+                }
+            }
+            assert_eq!(t!("demo.github.pr_title", locale = locale), "#18342 Rework the ticket search engine");
+        }
+        assert_eq!(t!("demo.channels.general", locale = "fr"), "Général");
+        assert_eq!(t!("demo.channels.general", locale = "en"), "General");
+    }
 }
