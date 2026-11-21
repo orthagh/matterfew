@@ -509,7 +509,7 @@ pub fn start() -> Backend {
                         id: "t2".into(),
                         name: "clients".into(),
                         display_name: t!("demo.team_clients").into(),
-                        last_team_icon_update: 0,
+                        last_team_icon_update: 1,
                         team_type: "O".into(),
                         ..Default::default()
                     },
@@ -517,7 +517,13 @@ pub fn start() -> Backend {
                 config: HashMap::from([("CollapsedThreads".to_string(), "default_on".to_string())]),
                 prefs: demo_preferences(),
             });
-            send(Event::TeamIcon { team_id: "t1".into(), bytes: Arc::new(bmp(64, 64, 0x2f6fd8, 0x30c4a0)) });
+            // Logos des équipes (pictogrammes dessinés pour la démo).
+            for (team, png) in [
+                ("t1", &include_bytes!("../assets/demo/team-dev.png")[..]),
+                ("t2", &include_bytes!("../assets/demo/team-clients.png")[..]),
+            ] {
+                send(Event::TeamIcon { team_id: team.into(), bytes: Arc::new(png.to_vec()) });
+            }
             send(Event::TeamUnreads(vec![TeamUnread {
                 team_id: "t2".into(),
                 msg_count_root: 3,
