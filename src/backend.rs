@@ -532,12 +532,19 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
                     .await?
                     .into_iter()
                     .take(12)
-                    .map(|c| Suggestion {
-                        label: format!("{} {}", c.suggestion, c.hint).trim().to_string(),
-                        detail: c.description,
-                        insert: format!("{} ", c.complete),
-                        user_id: None,
-                        glyph: None,
+                    .map(|c| {
+                        // Le serveur renvoie la commande sans son « / » (« jira create ») :
+                        // on le remet. Le premier niveau s'affiche avec le « / ».
+                        let complete = c.complete.trim_start_matches('/');
+                        let top = !term.trim_start_matches('/').contains(' ');
+                        let name = if top { format!("/{}", c.suggestion.trim_start_matches('/')) } else { c.suggestion.clone() };
+                        Suggestion {
+                            label: format!("{name} {}", c.hint).trim().to_string(),
+                            detail: c.description,
+                            insert: format!("/{complete} "),
+                            user_id: None,
+                            glyph: None,
+                        }
                     })
                     .collect(),
             };
