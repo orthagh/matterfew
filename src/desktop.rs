@@ -342,6 +342,11 @@ mod sys_tray {
             use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
             use tray_icon::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
+            // macOS : AppKit n'accepte l'icône que depuis le fil principal (les
+            // tests de bout en bout construisent l'interface sur un autre fil).
+            #[cfg(target_os = "macos")]
+            objc2::MainThreadMarker::new()?;
+
             let menu = Menu::new();
             let open = MenuItem::with_id("open", t!("tray.open"), true, None);
             let quit = MenuItem::with_id("quit", t!("tray.quit"), true, None);
@@ -601,7 +606,7 @@ mod unix_impl {
                 // tray_icon : RGBA ; StatusNotifierItem : ARGB.
                 let size = 32;
                 let rgba = icons::tray_icon(size, self.mentions, self.unread);
-                let data = rgba.chunks_exact(4).flat_map(|p| [p[3], p[0], p[1], p[2]]).collect();
+                let data = rgba.as_chunks::<4>().0.iter().flat_map(|p| [p[3], p[0], p[1], p[2]]).collect();
                 vec![ksni::Icon { width: size as i32, height: size as i32, data }]
             }
             fn tool_tip(&self) -> ksni::ToolTip {

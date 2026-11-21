@@ -41,6 +41,7 @@ allow = [
   "bzip2-1.0.6",
   "NCSA",
   "Ubuntu-font-1.0",
+  "Unlicense",
 ]
 
 [bans]
