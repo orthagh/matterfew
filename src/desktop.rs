@@ -6,8 +6,9 @@
 //!   fenêtre qui la réduit dans cette zone ;
 //! - clignotement de la barre des tâches à l'arrivée d'une notification.
 //!
-//! Hors Windows, ces fonctions ne font rien (les notifications passent alors
-//! par `notify-rust`).
+//! Linux (GNOME, KDE) et macOS : notifications cliquables (`notify-rust`),
+//! pastille du lanceur ou du Dock, icône StatusNotifierItem ou de la barre
+//! des menus, une seule instance (socket Unix).
 
 use std::sync::OnceLock;
 
@@ -21,8 +22,6 @@ pub struct ClickTarget {
 
 /// Action demandée depuis l'icône de la zone de notification.
 #[derive(Debug, Clone, Copy)]
-// Envoyées seulement par l'icône de Windows (Linux et macOS : à venir).
-#[cfg_attr(not(windows), allow(dead_code))]
 pub enum TrayAction {
     Show,
     Quit,
@@ -54,11 +53,11 @@ pub fn tray_actions() -> async_channel::Receiver<TrayAction> {
 pub use windows_impl::*;
 
 #[cfg(not(windows))]
-pub use other::*;
+pub use unix_impl::*;
 
 #[cfg(windows)]
 mod windows_impl {
-    use super::{ClickTarget, TrayAction, clicks_pipe, tray_pipe};
+    use super::{ClickTarget, clicks_pipe};
     use crate::icons;
     use anyhow::{Context as _, Result};
     use windows::Win32::Foundation::{HWND, TRUE};
@@ -75,7 +74,10 @@ mod windows_impl {
 
     /// Identifiant de l'application pour Windows (notifications, barre des tâches).
     pub const AUMID: &str = "MmGpui.Client";
-    const DISPLAY_NAME: &str = "Mattermost (mm-gpui)";
+    use super::DISPLAY_NAME;
+
+    /// Fermer la fenêtre la masque dans la zone de notification.
+    pub const CLOSE_TO_TRAY: bool = true;
 
     /// À appeler au démarrage : identité de l'application auprès de Windows.
     /// Windows n'affiche les notifications d'une application non installée
@@ -319,6 +321,16 @@ mod windows_impl {
         });
     }
 
+    pub use super::sys_tray::Tray;
+}
+
+/// Icône de la zone de notification (Windows) ou de la barre des menus
+/// (macOS), avec la bibliothèque `tray-icon`.
+#[cfg(any(windows, target_os = "macos"))]
+mod sys_tray {
+    use super::{DISPLAY_NAME, TrayAction, tray_pipe};
+    use crate::icons;
+
     /// Icône de la zone de notification. À créer sur le thread principal.
     pub struct Tray {
         icon: tray_icon::TrayIcon,
@@ -387,36 +399,305 @@ mod windows_impl {
     }
 }
 
+/// Nom affiché de l'application (raccourcis, infobulles).
+const DISPLAY_NAME: &str = "Mattermost (mm-gpui)";
+
+/// Linux (GNOME, KDE…) et macOS.
 #[cfg(not(windows))]
-mod other {
-    use super::ClickTarget;
+mod unix_impl {
+    use super::{ClickTarget, TrayAction, clicks_pipe, tray_pipe};
+
+    /// Pas de fermeture vers la zone de notification hors Windows : fermer la
+    /// fenêtre quitte l'application, comme la plupart des applications GNOME.
+    pub const CLOSE_TO_TRAY: bool = false;
 
     pub fn window_title() -> String {
         t!("app.window_title").to_string()
     }
 
+    /// Identifiant de l'application (bundle macOS, nom D-Bus, Flatpak).
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
+    const APP_ID: &str = "io.github.orthagh.MattermostRustClient";
+
+    pub fn init() {
+        // macOS : les notifications portent le nom et l'icône de l'application.
+        #[cfg(target_os = "macos")]
+        let _ = notify_rust::set_application(APP_ID);
+    }
+
+    /// Une seule instance : une prise locale (socket Unix) dans le dossier
+    /// d'exécution de l'utilisateur. Si une instance répond, on lui demande
+    /// de revenir au premier plan, et on s'arrête.
     pub fn single_instance() -> bool {
+        use std::io::{Read as _, Write as _};
+        use std::os::unix::net::{UnixListener, UnixStream};
+
+        let dir = dirs::runtime_dir().or_else(dirs::cache_dir).unwrap_or_else(std::env::temp_dir);
+        let path = dir.join("mm-gpui.sock");
+        if let Ok(mut stream) = UnixStream::connect(&path) {
+            let _ = stream.write_all(b"show");
+            return false;
+        }
+        // Prise orpheline (instance arrêtée brutalement) : on la remplace.
+        let _ = std::fs::remove_file(&path);
+        let Ok(listener) = UnixListener::bind(&path) else { return true };
+        let sender = tray_pipe().0.clone();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut buf = [0u8; 8];
+                let _ = stream.read(&mut buf);
+                let _ = sender.send_blocking(TrayAction::Show);
+            }
+        });
         true
     }
-    pub fn init() {}
-    pub fn show_notification(title: &str, body: &str, _target: Option<ClickTarget>) -> anyhow::Result<()> {
-        notify_rust::Notification::new().summary(title).body(body).show()?;
+
+    /// Notification du bureau ; un clic ouvre le canal (actions XDG sous
+    /// Linux, Centre de notifications sous macOS).
+    pub fn show_notification(title: &str, body: &str, target: Option<ClickTarget>) -> anyhow::Result<()> {
+        let mut notification = notify_rust::Notification::new();
+        notification.summary(title).body(body).appname(super::DISPLAY_NAME);
+        #[cfg(target_os = "linux")]
+        {
+            notification.action("default", &t!("tray.open"));
+            notification.hint(notify_rust::Hint::DesktopEntry(linux::desktop_entry()));
+        }
+        let handle = notification.show()?;
+        if let Some(target) = target {
+            let sender = clicks_pipe().0.clone();
+            std::thread::spawn(move || {
+                handle.wait_for_action(|action| {
+                    if action == "default" {
+                        let _ = sender.send_blocking(target);
+                    }
+                });
+            });
+        }
         Ok(())
     }
+
+    /// Pas de poignée de fenêtre ici : une valeur fixe, pour que l'interface
+    /// mette à jour la pastille et signale les mentions comme sous Windows.
     pub fn hwnd(_window: &gpui_kit::Window) -> Option<isize> {
-        None
+        Some(0)
     }
-    pub fn flash(_hwnd: isize) {}
+
+    /// Une mention arrive alors que la fenêtre n'a pas le focus.
+    pub fn flash(_hwnd: isize) {
+        #[cfg(target_os = "linux")]
+        linux::urgent();
+        #[cfg(target_os = "macos")]
+        macos::bounce();
+    }
+
     pub fn hide_window(_hwnd: isize) {}
     pub fn show_window(_hwnd: isize) {}
-    pub fn set_taskbar_badge(_hwnd: isize, _mentions: i64, _unread: bool, _expired: bool) {}
 
-    pub struct Tray;
-    impl Tray {
-        pub fn new() -> Option<Self> {
-            None
+    /// Pastille de l'icône du lanceur (Linux) ou du Dock (macOS).
+    pub fn set_taskbar_badge(_hwnd: isize, mentions: i64, unread: bool, expired: bool) {
+        #[cfg(target_os = "linux")]
+        linux::badge(mentions, unread, expired);
+        #[cfg(target_os = "macos")]
+        macos::badge(mentions, unread, expired);
+    }
+
+    #[cfg(target_os = "macos")]
+    pub use super::sys_tray::Tray;
+    #[cfg(target_os = "linux")]
+    pub use linux::Tray;
+
+    /// Linux : pastille du lanceur (« LauncherEntry », compris par KDE Plasma,
+    /// le dock d'Ubuntu et Dash to Dock) et icône StatusNotifierItem (KDE ;
+    /// GNOME avec l'extension AppIndicator, installée d'office sur Ubuntu).
+    #[cfg(target_os = "linux")]
+    mod linux {
+        use super::super::{TrayAction, tray_pipe};
+        use crate::icons;
+        use std::collections::HashMap;
+        use std::sync::OnceLock;
+        use std::sync::mpsc::{Sender, channel};
+
+        /// Fichier `.desktop` de l'application, selon l'emballage.
+        pub fn desktop_entry() -> String {
+            if let Ok(id) = std::env::var("FLATPAK_ID") {
+                return id;
+            }
+            if let Ok(name) = std::env::var("SNAP_NAME") {
+                return format!("{name}_mm-gpui");
+            }
+            "mm-gpui".to_string()
         }
-        pub fn update(&mut self, _mentions: i64, _unread: bool) {}
+
+        /// Mise à jour de la pastille : (nombre, visible, urgent).
+        type Update = (i64, bool, bool);
+
+        /// Les signaux D-Bus partent d'un fil dédié (sa propre boucle tokio et
+        /// sa connexion au bus de session), pour ne jamais bloquer l'interface.
+        fn launcher() -> &'static Option<Sender<Update>> {
+            static SENDER: OnceLock<Option<Sender<Update>>> = OnceLock::new();
+            SENDER.get_or_init(|| {
+                let (tx, rx) = channel::<Update>();
+                let uri = format!("application://{}.desktop", desktop_entry());
+                std::thread::Builder::new()
+                    .name("launcher-entry".into())
+                    .spawn(move || {
+                        let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
+                            return;
+                        };
+                        rt.block_on(async move {
+                            let Ok(conn) = zbus::Connection::session().await else { return };
+                            while let Ok((count, visible, urgent)) = rx.recv() {
+                                let mut props: HashMap<&str, zbus::zvariant::Value> = HashMap::new();
+                                props.insert("count", count.into());
+                                props.insert("count-visible", visible.into());
+                                props.insert("urgent", urgent.into());
+                                let _ = conn
+                                    .emit_signal(
+                                        None::<&str>,
+                                        "/io/github/orthagh/MattermostRustClient",
+                                        "com.canonical.Unity.LauncherEntry",
+                                        "Update",
+                                        &(uri.as_str(), props),
+                                    )
+                                    .await;
+                            }
+                        });
+                    })
+                    .ok()
+                    .map(|_| tx)
+            })
+        }
+
+        pub fn badge(mentions: i64, unread: bool, expired: bool) {
+            if let Some(tx) = launcher() {
+                // Le lanceur n'affiche qu'un nombre : les mentions ; « 1 » pour
+                // une session expirée, rien pour de simples non-lus.
+                let count = if expired { 1 } else { mentions };
+                let _ = tx.send((count, count > 0, false));
+                let _ = unread;
+            }
+        }
+
+        pub fn urgent() {
+            if let Some(tx) = launcher() {
+                let _ = tx.send((0, false, true));
+            }
+        }
+
+        /// Icône StatusNotifierItem.
+        struct SniTray {
+            mentions: i64,
+            unread: bool,
+        }
+
+        impl ksni::Tray for SniTray {
+            fn id(&self) -> String {
+                "mm-gpui".into()
+            }
+            fn title(&self) -> String {
+                super::super::DISPLAY_NAME.into()
+            }
+            fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+                // tray_icon : RGBA ; StatusNotifierItem : ARGB.
+                let size = 32;
+                let rgba = icons::tray_icon(size, self.mentions, self.unread);
+                let data = rgba.chunks_exact(4).flat_map(|p| [p[3], p[0], p[1], p[2]]).collect();
+                vec![ksni::Icon { width: size as i32, height: size as i32, data }]
+            }
+            fn tool_tip(&self) -> ksni::ToolTip {
+                let title = if self.mentions > 0 {
+                    if self.mentions == 1 {
+                        t!("tray.mentions.one").to_string()
+                    } else {
+                        t!("tray.mentions.other", count = self.mentions).to_string()
+                    }
+                } else if self.unread {
+                    t!("tray.unread").to_string()
+                } else {
+                    super::super::DISPLAY_NAME.into()
+                };
+                ksni::ToolTip { title, ..Default::default() }
+            }
+            fn activate(&mut self, _x: i32, _y: i32) {
+                let _ = tray_pipe().0.send_blocking(TrayAction::Show);
+            }
+            fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
+                use ksni::menu::StandardItem;
+                vec![
+                    StandardItem {
+                        label: t!("tray.open").to_string(),
+                        activate: Box::new(|_| {
+                            let _ = tray_pipe().0.send_blocking(TrayAction::Show);
+                        }),
+                        ..Default::default()
+                    }
+                    .into(),
+                    ksni::MenuItem::Separator,
+                    StandardItem {
+                        label: t!("tray.quit").to_string(),
+                        activate: Box::new(|_| {
+                            let _ = tray_pipe().0.send_blocking(TrayAction::Quit);
+                        }),
+                        ..Default::default()
+                    }
+                    .into(),
+                ]
+            }
+        }
+
+        pub struct Tray {
+            handle: ksni::blocking::Handle<SniTray>,
+        }
+
+        impl Tray {
+            pub fn new() -> Option<Self> {
+                use ksni::blocking::TrayMethods as _;
+                // Dans Flatpak, pas de nom D-Bus « bien connu » (interdit par le bac à sable).
+                let sandboxed = std::env::var("FLATPAK_ID").is_ok();
+                let handle = SniTray { mentions: 0, unread: false }.disable_dbus_name(sandboxed).spawn().ok()?;
+                Some(Self { handle })
+            }
+
+            pub fn update(&mut self, mentions: i64, unread: bool) {
+                self.handle.update(|t| {
+                    t.mentions = mentions;
+                    t.unread = unread;
+                });
+            }
+        }
+    }
+
+    /// macOS : pastille et rebond de l'icône du Dock.
+    #[cfg(target_os = "macos")]
+    mod macos {
+        use objc2::MainThreadMarker;
+        use objc2_app_kit::{NSApplication, NSRequestUserAttentionType};
+        use objc2_foundation::NSString;
+
+        pub fn badge(mentions: i64, unread: bool, expired: bool) {
+            // Appelé depuis l'interface, donc le fil principal.
+            let Some(mtm) = MainThreadMarker::new() else { return };
+            let label = if expired {
+                Some("!".to_string())
+            } else if mentions > 0 {
+                Some(if mentions > 99 { "99+".to_string() } else { mentions.to_string() })
+            } else if unread {
+                Some("•".to_string())
+            } else {
+                None
+            };
+            let tile = NSApplication::sharedApplication(mtm).dockTile();
+            match label {
+                Some(text) => tile.setBadgeLabel(Some(&NSString::from_str(&text))),
+                None => tile.setBadgeLabel(None),
+            }
+        }
+
+        pub fn bounce() {
+            let Some(mtm) = MainThreadMarker::new() else { return };
+            NSApplication::sharedApplication(mtm)
+                .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
+        }
     }
 }
 

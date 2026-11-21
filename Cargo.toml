@@ -96,6 +96,18 @@ winresource = "0.1"
 [target.'cfg(not(windows))'.dependencies]
 notify-rust = "4"
 
+# Linux (GNOME, KDE) : icône StatusNotifierItem, pastille du lanceur (D-Bus).
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { version = "0.3", features = ["blocking"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+# macOS : pastille et rebond de l'icône du Dock, icône de la barre des menus.
+[target.'cfg(target_os = "macos")'.dependencies]
+tray-icon = "0.26"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSDockTile", "NSResponder"] }
+
 # Tests de bout en bout : fenêtres GPUI sans écran (TestApp).
 [dev-dependencies]
 gpui-pre = { version = "=0.3.12", features = ["test-support"] }

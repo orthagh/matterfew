@@ -739,7 +739,8 @@ impl ChatApp {
         .detach();
         // Avec une icône dans la zone de notification, fermer la fenêtre la
         // masque (comme le client officiel) ; « Quitter » est dans son menu.
-        if self.tray.is_some()
+        if desktop::CLOSE_TO_TRAY
+            && self.tray.is_some()
             && let Some(hwnd) = self.hwnd
         {
             window.on_window_should_close(cx, move |_, _| {
