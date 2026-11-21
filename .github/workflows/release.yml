@@ -46,8 +46,8 @@ jobs:
         run: |
           v="${{ steps.v.outputs.version }}"
           awk -v v="$v" '
-            $0 ~ "^## \\[" v "\\]" { keep = 1; next }
-            /^## \[/ { keep = 0 }
+            index($0, "## [" v "]") == 1 { keep = 1; next }
+            index($0, "## [") == 1 { keep = 0 }
             keep { print }
           ' CHANGELOG.md > notes.md
           if [[ "$GITHUB_REF" == refs/tags/v* && ! -s notes.md ]]; then
