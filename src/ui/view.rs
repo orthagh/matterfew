@@ -223,7 +223,7 @@ impl ChatApp {
         let p = self.palette;
         let current = self.team_id.clone();
         // Teinte de la barre latérale, plus profonde : les deux barres se répondent.
-        let tb = shade(p.sidebar_bg, 0.0, -0.05);
+        let tb = shade(p.sidebar_bg, 0.0, depth(&p, 0.05));
         Some(
             v_flex()
                 .w(px(TEAM_BAR_WIDTH))
@@ -235,7 +235,7 @@ impl ChatApp {
                 .bg(linear_gradient(
                     180.,
                     linear_color_stop(tb, 0.),
-                    linear_color_stop(shade(tb, 0.10, -0.08), 1.),
+                    linear_color_stop(shade(tb, 0.10, depth(&p, 0.08)), 1.),
                 ))
                 .border_r_1()
                 .border_color(p.sidebar_text.opacity(0.08))
@@ -614,14 +614,35 @@ impl ChatApp {
             .absolute()
             .top_0()
             .right_0()
-            .w(px(5.))
+            .w(px(7.))
             .h_full()
             .cursor(CursorStyle::ResizeLeftRight)
-            .when(self.resizing, |el| el.bg(p.sidebar_active_border))
-            .hover(|s| s.bg(p.sidebar_active_border.opacity(0.7)))
             .on_drag(SidebarResize, |_, _, _, cx| cx.new(|_| SidebarResize));
 
         let open_team = cx.listener(|this, _, _, cx| this.open_team_card(cx));
+        // Gros bouton « + » : créer un canal, une catégorie, inviter quelqu'un.
+        let create_button = {
+            let entity = cx.entity();
+            Button::new("sidebar-create")
+                .icon(Icon::new(IconName::Plus).size(px(18.)))
+                .rounded(px(16.))
+                .with_size(px(32.))
+                .primary()
+                .tooltip("Créer un canal, une catégorie, inviter…")
+                .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
+                    let item = |label: &str, icon: IconName, kind: super::CreateKind| {
+                        let entity = entity.clone();
+                        PopupMenuItem::new(label.to_string())
+                            .icon(Icon::new(icon))
+                            .on_click(move |_, window, cx| entity.update(cx, |this, cx| this.open_create(kind, window, cx)))
+                    };
+                    menu.min_w(px(240.))
+                        .item(item("Créer un canal", IconName::Hash, super::CreateKind::Channel))
+                        .item(item("Créer une catégorie", IconName::FolderPlus, super::CreateKind::Category))
+                        .separator()
+                        .item(item("Inviter dans l'équipe", IconName::UserPlus, super::CreateKind::Invite))
+                })
+        };
         let goto = cx.listener(|this, _, window, cx| this.open_switcher(window, cx));
         v_flex()
             .relative()
@@ -631,41 +652,51 @@ impl ChatApp {
             .bg(p.sidebar_bg)
             .bg(linear_gradient(
                     180.,
-                    linear_color_stop(shade(p.sidebar_bg, -0.02, 0.03), 0.),
-                    linear_color_stop(shade(p.sidebar_bg, 0.10, -0.12), 1.),
+                    linear_color_stop(shade(p.sidebar_bg, -0.02, depth(&p, -0.03)), 0.),
+                    linear_color_stop(shade(p.sidebar_bg, 0.10, depth(&p, 0.12)), 1.),
                 ))
-            .child(resize_handle)
             .text_color(p.sidebar_text)
             .child(
                 h_flex()
-                    .id("team-header")
                     .h(px(62.))
                     .border_b_1()
                     .border_color(p.sidebar_text.opacity(0.08))
                     .flex_none()
-                    .px_4()
-                    .gap_1p5()
+                    .pl_2()
+                    .pr_3()
+                    .gap_2()
                     .bg(p.sidebar_header_bg)
                     .text_color(p.sidebar_header_text)
-                    .text_size(px(18.))
-                    .font_bold()
-                    .cursor_pointer()
-                    .hover(|s| s.bg(p.sidebar_header_text.opacity(0.06)))
-                    .child(div().truncate().child(team_name))
-                    .child(Icon::new(IconName::ChevronDown).size(px(15.)).text_color(p.sidebar_header_text.opacity(0.6)))
-                    .on_click(open_team)
-                    .when(self.demo, |el| {
-                        el.child(
-                            div()
-                                .ml_2()
-                                .px_1p5()
-                                .rounded(px(4.))
-                                .bg(p.away)
-                                .text_color(black())
-                                .text_size(px(10.))
-                                .child("DÉMO"),
-                        )
-                    }),
+                    .child(
+                        h_flex()
+                            .id("team-header")
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(44.))
+                            .px_2()
+                            .gap_1p5()
+                            .rounded(px(8.))
+                            .text_size(px(18.))
+                            .font_bold()
+                            .cursor_pointer()
+                            .hover(|s| s.bg(p.sidebar_header_text.opacity(0.06)))
+                            .child(div().truncate().child(team_name))
+                            .child(Icon::new(IconName::ChevronDown).size(px(15.)).text_color(p.sidebar_header_text.opacity(0.6)))
+                            .when(self.demo, |el| {
+                                el.child(
+                                    div()
+                                        .ml_1()
+                                        .px_1p5()
+                                        .rounded(px(4.))
+                                        .bg(p.away)
+                                        .text_color(black())
+                                        .text_size(px(10.))
+                                        .child("DÉMO"),
+                                )
+                            })
+                            .on_click(open_team),
+                    )
+                    .child(create_button),
             )
             // Comme le client officiel : un champ qui ouvre le sélecteur (Ctrl+K).
             .child(
@@ -720,6 +751,7 @@ impl ChatApp {
                     )
                     .child(account_menu),
             )
+            .child(resize_handle)
     }
 
     /// « ⋯ » d'une catégorie : tri et « tout marquer comme lu ».
@@ -729,6 +761,7 @@ impl ChatApp {
         let category = self.categories.iter().find(|c| c.id == category_id);
         let sorting = category.map(|c| c.sorting.clone()).unwrap_or_default();
         let dm = category.is_some_and(|c| c.kind == "direct_messages");
+        let muted = category.is_some_and(|c| c.muted);
         let p = self.palette;
         div()
             .invisible()
@@ -754,12 +787,19 @@ impl ChatApp {
                         if !dm {
                             menu = menu.item(sort("Ordre manuel", "manual", sorting == "manual"));
                         }
+                        let (entity2, id2) = (entity.clone(), id.clone());
                         let (entity, id) = (entity.clone(), id.clone());
-                        menu.separator().item(
-                            PopupMenuItem::new("Marquer la catégorie comme lue")
-                                .icon(Icon::new(IconName::CheckCheck))
-                                .on_click(move |_, _, cx| entity.update(cx, |this, cx| this.mark_category_read(&id, cx))),
-                        )
+                        menu.separator()
+                            .item(
+                                PopupMenuItem::new(if muted { "Réactiver la catégorie" } else { "Mettre la catégorie en sourdine" })
+                                    .icon(Icon::new(if muted { IconName::Bell } else { IconName::BellOff }))
+                                    .on_click(move |_, _, cx| entity2.update(cx, |this, cx| this.toggle_category_muted(&id2, cx))),
+                            )
+                            .item(
+                                PopupMenuItem::new("Marquer la catégorie comme lue")
+                                    .icon(Icon::new(IconName::CheckCheck))
+                                    .on_click(move |_, _, cx| entity.update(cx, |this, cx| this.mark_category_read(&id, cx))),
+                            )
                     }),
             )
             .into_any_element()
@@ -1012,11 +1052,11 @@ impl ChatApp {
             let (entity, post_id) = (entity.clone(), post.id.clone());
             div()
                 .id(key("react-add"))
-                .h(px(26.))
-                .px_1p5()
+                .h(px(24.))
+                .px_2()
                 .flex()
                 .items_center()
-                .rounded(px(13.))
+                .rounded(px(4.))
                 .border_1()
                 .border_color(transparent_black())
                 .bg(p.center_color.opacity(0.06))
@@ -1167,8 +1207,10 @@ impl ChatApp {
                         if bot_block {
                             // Une ligne par notification (couleur, résumé, heure) ; un clic
                             // (hors liens) déplie ou replie, le chevron restant à droite.
-                            let expanded = self.expanded_bots.contains(&post.id);
                             let (summary, color) = bot_summary(post);
+                            // Tout tient dans le résumé : rien à déplier.
+                            let expandable = bot_expandable(post, &summary);
+                            let expanded = expandable && self.expanded_bots.contains(&post.id);
                             let bar = color
                                 .as_deref()
                                 .and_then(rich::attachment_color)
@@ -1181,10 +1223,12 @@ impl ChatApp {
                                 .text_xs()
                                 .text_color(p.muted())
                                 .child(format_hour(post.create_at))
-                                .child(
-                                    Icon::new(if expanded { IconName::ChevronUp } else { IconName::ChevronDown })
-                                        .size(px(13.)),
-                                );
+                                .child(div().w(px(13.)).when(expandable, |d| {
+                                    d.child(
+                                        Icon::new(if expanded { IconName::ChevronUp } else { IconName::ChevronDown })
+                                            .size(px(13.)),
+                                    )
+                                }));
                             // Dépliée : le résumé laisse la place au contenu (sinon il se répète).
                             let line = h_flex()
                                 .gap_2()
@@ -1220,13 +1264,16 @@ impl ChatApp {
                                 .border_1()
                                 .border_color(transparent_black())
                                 .when(expanded, |d| d.bg(p.center_color.opacity(0.03)).border_color(p.border()))
-                                .cursor_pointer()
-                                .hover(|d| d.bg(p.center_color.opacity(0.04)).border_color(p.border()))
+                                .when(expandable, |d| {
+                                    d.cursor_pointer().hover(|d| d.bg(p.center_color.opacity(0.04)).border_color(p.border()))
+                                })
                                 .child(line)
                                 .when(expanded, |d| d.child(div().mt(-px(26.)).pl(px(11.)).pr(px(70.)).pb_2().child(content_full)))
                                 .on_click(move |_, _, cx| {
-                                    let id = id.clone();
-                                    entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
+                                    if expandable {
+                                        let id = id.clone();
+                                        entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
+                                    }
                                 })
                                 .into_any_element()
                         } else {
@@ -2397,7 +2444,8 @@ impl ChatApp {
                     cx.stop_propagation();
                     return;
                 }
-                if k.key == "escape" && (this.team_card.is_some() || this.add_members.is_some()) {
+                if k.key == "escape" && (this.team_card.is_some() || this.add_members.is_some() || this.create.is_some()) {
+                    this.close_create(cx);
                     this.close_team_card(cx);
                     this.close_add_members(cx);
                     cx.stop_propagation();
@@ -2428,6 +2476,7 @@ impl ChatApp {
             .children(self.render_profile_card(cx))
             .children(self.render_team_card(cx))
             .children(self.render_add_members(cx))
+            .children(self.render_create(cx))
     }
 
     /// Photo en médaillon, statut, poste, adresse, heure locale, bouton message.
@@ -4266,6 +4315,149 @@ impl ChatApp {
         )
     }
 
+    /// Fenêtre du bouton « + » : canal (nom, description, public/privé),
+    /// catégorie (nom) ou invitation (adresses).
+    fn render_create(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let kind = self.create?;
+        let p = self.palette;
+        let (title, icon, action) = match kind {
+            super::CreateKind::Channel => ("Créer un canal", IconName::Hash, "Créer le canal"),
+            super::CreateKind::Category => ("Créer une catégorie", IconName::FolderPlus, "Créer la catégorie"),
+            super::CreateKind::Invite => ("Inviter dans l'équipe", IconName::UserPlus, "Envoyer les invitations"),
+        };
+        let label = |t: &'static str| div().text_xs().font_semibold().text_color(p.muted()).child(t);
+        let choice = |id: &'static str, on: bool, icon: IconName, t: &'static str, hint: &'static str| {
+            h_flex()
+                .id(id)
+                .flex_1()
+                .gap_2()
+                .p_2()
+                .rounded(px(8.))
+                .border_1()
+                .border_color(if on { p.button_bg } else { p.border() })
+                .when(on, |el| el.bg(p.button_bg.opacity(0.08)))
+                .cursor_pointer()
+                .child(Icon::new(icon).size(px(16.)).text_color(if on { p.button_bg } else { p.muted() }))
+                .child(
+                    v_flex()
+                        .child(div().text_sm().font_semibold().child(t))
+                        .child(div().text_xs().text_color(p.muted()).child(hint)),
+                )
+        };
+        let name = self.channel_slug_preview(cx);
+        Some(
+            div()
+                .id("create-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .bg(black().opacity(0.35))
+                .flex()
+                .justify_center()
+                .items_start()
+                .pt(px(110.))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_create(cx)))
+                .child(
+                    v_flex()
+                        .id("create")
+                        .occlude()
+                        .w(px(460.))
+                        .gap_3()
+                        .p_5()
+                        .rounded(px(12.))
+                        .border_1()
+                        .border_color(p.border())
+                        .bg(p.center_bg)
+                        .text_color(p.center_color)
+                        .shadow_xl()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .child(Icon::new(icon).size(px(18.)).text_color(p.button_bg))
+                                .child(div().flex_1().text_size(px(16.)).font_bold().child(title))
+                                .child(
+                                    Button::new("create-close")
+                                        .icon(Icon::new(IconName::X))
+                                        .ghost()
+                                        .small()
+                                        .on_click(cx.listener(|this, _, _, cx| this.close_create(cx))),
+                                ),
+                        )
+                        .child(
+                            v_flex()
+                                .gap_1()
+                                .child(label(match kind {
+                                    super::CreateKind::Invite => "Adresses e-mail (séparées par des virgules)",
+                                    _ => "Nom",
+                                }))
+                                .child(Input::new(&self.create_name_input))
+                                .when(kind == super::CreateKind::Channel && !name.is_empty(), |el| {
+                                    el.child(div().text_xs().text_color(p.muted()).child(format!("Lien : ~{name}")))
+                                }),
+                        )
+                        .when(kind == super::CreateKind::Channel, |el| {
+                            el.child(
+                                v_flex()
+                                    .gap_1()
+                                    .child(label("Description"))
+                                    .child(Input::new(&self.create_purpose_input)),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        choice("create-public", !self.create_private, IconName::Hash, "Public", "Ouvert à toute l'équipe")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.create_private = false;
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
+                                        choice("create-private", self.create_private, IconName::Lock, "Privé", "Sur invitation")
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.create_private = true;
+                                                cx.notify();
+                                            })),
+                                    ),
+                            )
+                        })
+                        .when(kind == super::CreateKind::Invite, |el| {
+                            el.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(p.muted())
+                                    .child("Chaque personne reçoit un courriel pour rejoindre l'équipe (si l'administrateur l'autorise)."),
+                            )
+                        })
+                        .child(
+                            h_flex()
+                                .gap_2()
+                                .justify_end()
+                                .child(
+                                    Button::new("create-cancel")
+                                        .label("Annuler")
+                                        .ghost()
+                                        .on_click(cx.listener(|this, _, _, cx| this.close_create(cx))),
+                                )
+                                .child(
+                                    Button::new("create-submit")
+                                        .label(action)
+                                        .primary()
+                                        .on_click(cx.listener(|this, _, _, cx| this.submit_create(cx))),
+                                ),
+                        ),
+                )
+                .into_any_element(),
+        )
+    }
+
+    fn channel_slug_preview(&self, cx: &App) -> String {
+        let name = self.create_name_input.read(cx).value().trim().to_string();
+        if name.is_empty() { String::new() } else { super::channel_slug(&name) }
+    }
+
     /// Fenêtre « Ajouter des membres » : recherche dans l'équipe, ajout un par un.
     fn render_add_members(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let add = self.add_members.as_ref()?;
@@ -5355,4 +5547,34 @@ mod notification_color_tests {
         let comment = "[glpi] Nouveau commentaire de [lea](https://y) sur [#12 Corriger les tickets fusionnés](https://x) :";
         assert_eq!(c(comment), c("commented"));
     }
+}
+
+/// La notification a-t-elle plus à montrer que son résumé d'une ligne ?
+fn bot_expandable(post: &Post, summary: &str) -> bool {
+    let long_summary = markdown::plain_text(summary).chars().count() > 90;
+    if let Some(a) = rich::attachments(post).into_iter().next() {
+        let more = !a.text.trim().is_empty() || !a.fields.is_empty() || !a.image_url.is_empty() || !a.actions.is_empty();
+        return more || long_summary || rich::attachments(post).len() > 1;
+    }
+    let lines = post.message.lines().filter(|l| !l.trim().is_empty()).count();
+    lines > 2 || long_summary || !post.metadata.files.is_empty()
+}
+
+#[cfg(test)]
+mod expand_tests {
+    use super::{bot_expandable, bot_summary};
+    use crate::api::Post;
+
+    #[test]
+    fn une_ligne_sans_repli() {
+        let short = Post { message: "[glpi] lea a approuvé #12".into(), ..Default::default() };
+        assert!(!bot_expandable(&short, &bot_summary(&short).0));
+        let long = Post { message: "#### Titre\n##### [glpi#12](https://x) nouvelle PR\n\nCorps de la PR".into(), ..Default::default() };
+        assert!(bot_expandable(&long, &bot_summary(&long).0));
+    }
+}
+
+/// Sens des dégradés : vers le clair en thème sombre, vers le foncé sinon.
+fn depth(p: &Palette, amount: f32) -> f32 {
+    if p.center_bg.l < 0.5 { amount } else { -amount }
 }

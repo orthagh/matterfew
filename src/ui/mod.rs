@@ -158,6 +158,29 @@ pub(crate) const NARROW_SIDEBAR: f32 = 860.;
 /// En dessous : membres dans un tiroir, fil et panneaux flottants.
 pub(crate) const NARROW_PANELS: f32 = 1150.;
 
+/// Fenêtre de création (bouton « + » de la barre latérale).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum CreateKind {
+    Channel,
+    Category,
+    Invite,
+}
+
+/// Nom court d'un canal (dans les liens) à partir de son nom affiché.
+pub(crate) fn channel_slug(display: &str) -> String {
+    let folded = crate::fuzzy::fold(display);
+    let mut slug = String::new();
+    for c in folded.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c.to_ascii_lowercase());
+        } else if !slug.ends_with('-') && !slug.is_empty() {
+            slug.push('-');
+        }
+    }
+    let slug: String = slug.trim_end_matches('-').chars().take(64).collect();
+    if slug.len() < 2 { format!("canal-{}", chrono::Utc::now().timestamp_millis() % 100_000) } else { slug }
+}
+
 /// Démarrage : selon la ligne de commande (connexion mémorisée), ou démo.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Launch {
@@ -330,6 +353,11 @@ pub struct ChatApp {
     info: Option<String>,
     viewer: Option<Viewer>,
     viewer_focus: FocusHandle,
+    /// Fenêtre de création ouverte (canal, catégorie, invitation) et ses champs.
+    create: Option<CreateKind>,
+    create_private: bool,
+    create_name_input: Entity<InputState>,
+    create_purpose_input: Entity<InputState>,
     /// Groupes repliés de la liste des membres (« En ligne »…).
     collapsed_member_groups: HashSet<String>,
     /// Largeur de la fenêtre (mise en page étroite).
@@ -423,6 +451,8 @@ impl ChatApp {
         let mfa_input = cx.new(|cx| InputState::new(window, cx).placeholder("Code à 6 chiffres"));
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher"));
         let team_desc_input = cx.new(|cx| InputState::new(window, cx).placeholder("Décrivez l'équipe en une phrase"));
+        let create_name_input = cx.new(|cx| InputState::new(window, cx));
+        let create_purpose_input = cx.new(|cx| InputState::new(window, cx).placeholder("À quoi sert ce canal ? (facultatif)"));
         let channel_purpose_input = cx.new(|cx| InputState::new(window, cx).placeholder("À quoi sert ce canal ?"));
         let channel_header_input = cx.new(|cx| InputState::new(window, cx).placeholder("Liens utiles, consignes… (Markdown)"));
         let member_search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Nom ou identifiant"));
@@ -625,6 +655,10 @@ impl ChatApp {
             info: None,
             viewer: None,
             viewer_focus: cx.focus_handle(),
+            create: None,
+            create_private: false,
+            create_name_input,
+            create_purpose_input,
             collapsed_member_groups: HashSet::new(),
             viewport_w: 1200.,
             drawer: None,
@@ -1769,6 +1803,81 @@ impl ChatApp {
         cx.notify();
     }
 
+    /// Fenêtre « + » : créer un canal, une catégorie, inviter quelqu'un.
+    fn open_create(&mut self, kind: CreateKind, window: &mut Window, cx: &mut Context<Self>) {
+        let placeholder = match kind {
+            CreateKind::Channel => "Nom du canal",
+            CreateKind::Category => "Nom de la catégorie",
+            CreateKind::Invite => "adresse@exemple.org, autre@exemple.org",
+        };
+        self.create = Some(kind);
+        self.create_private = false;
+        self.create_purpose_input.update(cx, |s, cx| s.set_value("", window, cx));
+        self.create_name_input.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.set_placeholder(placeholder, window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn close_create(&mut self, cx: &mut Context<Self>) {
+        if self.create.take().is_some() {
+            cx.notify();
+        }
+    }
+
+    fn submit_create(&mut self, cx: &mut Context<Self>) {
+        let (Some(kind), Some(team_id)) = (self.create, self.team_id.clone()) else { return };
+        let name = self.create_name_input.read(cx).value().trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        match kind {
+            CreateKind::Channel => {
+                let purpose = self.create_purpose_input.read(cx).value().trim().to_string();
+                self.send(Command::CreateChannel {
+                    team_id,
+                    name: channel_slug(&name),
+                    display_name: name,
+                    purpose,
+                    private: self.create_private,
+                });
+            }
+            CreateKind::Category => self.send(Command::CreateCategory { team_id, name }),
+            CreateKind::Invite => {
+                let emails: Vec<String> = name
+                    .split([',', ';', ' ', '\n'])
+                    .map(str::trim)
+                    .filter(|e| e.contains('@'))
+                    .map(str::to_string)
+                    .collect();
+                if emails.is_empty() {
+                    self.flash("Aucune adresse e-mail reconnue.".into(), cx);
+                    return;
+                }
+                self.send(Command::InviteByEmail { team_id, emails });
+            }
+        }
+        self.create = None;
+        cx.notify();
+    }
+
+    /// Met toute une catégorie en sourdine, ou la réactive (comme le client officiel).
+    fn toggle_category_muted(&mut self, category_id: &str, cx: &mut Context<Self>) {
+        let Some(team_id) = self.team_id.clone() else { return };
+        let Some(category) = self.categories.iter_mut().find(|c| c.id == category_id) else { return };
+        category.muted = !category.muted;
+        let (muted, ids, updated) = (category.muted, category.channel_ids.clone(), category.clone());
+        for id in ids {
+            if let Some(state) = self.channels.get_mut(&id) {
+                state.muted = muted;
+            }
+        }
+        self.send(Command::UpdateCategories { team_id, categories: vec![updated] });
+        cx.notify();
+    }
+
     fn toggle_member_group(&mut self, title: &str, cx: &mut Context<Self>) {
         if !self.collapsed_member_groups.remove(title) {
             self.collapsed_member_groups.insert(title.to_string());
@@ -1979,6 +2088,7 @@ impl ChatApp {
         };
         match scene.as_str() {
             "bots" => self.select_channel("backend".into(), cx),
+            "creer-canal" => after(self, 400, window, cx, |this, window, cx| this.open_create(CreateKind::Channel, window, cx)),
             "bots-deplie" => {
                 self.select_channel("backend".into(), cx);
                 after(self, 700, window, cx, |this, _, cx| {
@@ -2576,6 +2686,24 @@ impl ChatApp {
             Event::TeamInfo { team_id, total, active, admin } => {
                 self.team_info.insert(team_id, TeamInfo { total, active, admin });
             }
+            Event::ChannelCreated(channel) => {
+                let id = channel.id.clone();
+                self.channels.entry(id.clone()).or_insert(ChannelState {
+                    channel,
+                    unread_messages: false,
+                    mentions: 0,
+                    muted: false,
+                    notify_desktop: String::new(),
+                });
+                if let Some(c) = self.categories.iter_mut().find(|c| c.kind == "channels")
+                    && !c.channel_ids.contains(&id)
+                {
+                    c.channel_ids.insert(0, id.clone());
+                }
+                self.select_channel(id, cx);
+                self.focus_composer(window, cx);
+            }
+            Event::Notice(text) => self.flash(text, cx),
             Event::ChannelUpdated(channel) => {
                 if let Some(state) = self.channels.get_mut(&channel.id) {
                     state.channel.display_name = channel.display_name;
@@ -3315,5 +3443,17 @@ mod exec_tests {
         assert!(is_executable(Path::new("x.ps1")));
         assert!(!is_executable(Path::new("rapport.pdf")));
         assert!(!is_executable(Path::new("sans-extension")));
+    }
+}
+
+#[cfg(test)]
+mod slug_tests {
+    use super::channel_slug;
+
+    #[test]
+    fn noms_courts() {
+        assert_eq!(channel_slug("Équipe Support N2"), "equipe-support-n2");
+        assert_eq!(channel_slug("  Dév / Backend !  "), "dev-backend");
+        assert!(channel_slug("🚀").starts_with("canal-"));
     }
 }

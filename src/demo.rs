@@ -751,6 +751,18 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 ..Default::default()
             }))
         }
+        Command::CreateChannel { name, display_name, purpose, private, .. } => {
+            let mut c = channel(&format!("new-{name}"), if private { "P" } else { "O" }, &name, &display_name, &purpose, now_ms());
+            c.create_at = now_ms();
+            demo.channels.push(c.clone());
+            send(Event::ChannelCreated(c));
+        }
+        Command::CreateCategory { team_id, name } => {
+            send(Event::Notice(format!("Catégorie « {name} » créée (démo, équipe {team_id}).")));
+        }
+        Command::InviteByEmail { emails, .. } => {
+            send(Event::Notice(format!("{} invitation(s) envoyée(s) (démo).", emails.len())));
+        }
         Command::PatchChannel { channel_id, purpose, header } => {
             if let Some(c) = demo.channels.iter_mut().find(|c| c.id == channel_id) {
                 c.purpose = purpose;
