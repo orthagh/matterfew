@@ -73,10 +73,10 @@ jobs:
             os: windows-latest
             formats: nsis
           - name: macos-arm64
-            os: macos-14
+            os: macos-15
             formats: dmg
           - name: macos-x64
-            os: macos-13
+            os: macos-15-intel
             formats: dmg
           - name: linux-x64
             os: ubuntu-22.04
@@ -96,7 +96,7 @@ jobs:
         run: cargo build --profile dist --locked
       - name: Installateurs
         run: cargo packager --profile dist --formats ${{ matrix.formats }} --verbose
-      - name: Exécutable seul (Linux : pour snap et flatpak)
+      - name: "Exécutable seul (Linux, pour snap et flatpak)"
         if: runner.os == 'Linux'
         run: |
           mkdir -p target/packages

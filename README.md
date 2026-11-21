@@ -1,5 +1,11 @@
 # mm-gpui
 
+> [!WARNING]
+> This is a personal project, shaped around my own needs and my team's
+> Mattermost server. It is not meant to be a general-purpose client: some
+> features may be missing, and others may behave differently from the
+> official apps. Use it at your own risk.
+
 A native, lightweight desktop client for [Mattermost](https://mattermost.com),
 written in Rust with [GPUI](https://gpui.rs), the UI engine behind Zed. No
 Electron, no embedded browser.
