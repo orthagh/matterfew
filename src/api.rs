@@ -980,6 +980,33 @@ impl Client {
         self.get("/config").await
     }
 
+    /// Crée un canal (public « O » ou privé « P »).
+    pub async fn create_channel(&self, team_id: &str, name: &str, display_name: &str, purpose: &str, private: bool) -> Result<Channel> {
+        let body = serde_json::json!({
+            "team_id": team_id,
+            "name": name,
+            "display_name": display_name,
+            "purpose": purpose,
+            "type": if private { "P" } else { "O" },
+        });
+        self.post("/channels", &body).await
+    }
+
+    /// Crée une catégorie personnelle de la barre latérale.
+    pub async fn create_category(&self, user_id: &str, team_id: &str, name: &str) -> Result<()> {
+        let body = serde_json::json!({
+            "user_id": user_id, "team_id": team_id, "display_name": name, "type": "custom", "channel_ids": []
+        });
+        let _: serde_json::Value = self.post(&format!("/users/{user_id}/teams/{team_id}/channels/categories"), &body).await?;
+        Ok(())
+    }
+
+    /// Invite des personnes dans l'équipe par courriel.
+    pub async fn invite_by_email(&self, team_id: &str, emails: &[String]) -> Result<()> {
+        let _: serde_json::Value = self.post(&format!("/teams/{team_id}/invite/email"), &emails).await?;
+        Ok(())
+    }
+
     pub async fn user_by_username(&self, username: &str) -> Result<User> {
         self.get(&format!("/users/username/{username}")).await
     }

@@ -107,6 +107,9 @@ pub enum Command {
     LoadTeamInfo { team_id: String },
     SaveTeamDescription { team_id: String, description: String },
     PatchChannel { channel_id: String, purpose: String, header: String },
+    CreateChannel { team_id: String, name: String, display_name: String, purpose: String, private: bool },
+    CreateCategory { team_id: String, name: String },
+    InviteByEmail { team_id: String, emails: Vec<String> },
     /// Personnes à ajouter au canal (recherche dans l'équipe).
     SearchUsersForChannel { team_id: String, channel_id: String, term: String },
     AddChannelMember { channel_id: String, user_id: String },
@@ -163,6 +166,10 @@ pub enum Event {
     TeamUpdated(Team),
     /// Canal modifié (ici ou ailleurs) : nom, description, en-tête.
     ChannelUpdated(Channel),
+    /// Canal créé par l'utilisateur : à ouvrir.
+    ChannelCreated(Channel),
+    /// Information à afficher brièvement (invitations envoyées…).
+    Notice(String),
     /// Règles du plugin Autolink lues sur le serveur.
     AutolinkRules(Vec<crate::autolink::RuleDef>),
     UserCandidates { channel_id: String, term: String, users: Vec<User> },
@@ -619,6 +626,23 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::SaveTeamDescription { team_id, description } => {
             let team = client.patch_team_description(&team_id, &description).await?;
             ctx.emit(Event::TeamUpdated(team)).await;
+        }
+        Command::CreateChannel { team_id, name, display_name, purpose, private } => {
+            let channel = client.create_channel(&team_id, &name, &display_name, &purpose, private).await?;
+            ctx.emit(Event::ChannelCreated(channel)).await;
+            let categories = client.categories(&team_id).await?;
+            ctx.emit(Event::Categories { team_id, categories }).await;
+        }
+        Command::CreateCategory { team_id, name } => {
+            client.create_category(&ctx.me_id, &team_id, &name).await?;
+            let categories = client.categories(&team_id).await?;
+            ctx.emit(Event::Categories { team_id, categories }).await;
+        }
+        Command::InviteByEmail { team_id, emails } => {
+            let n = emails.len();
+            client.invite_by_email(&team_id, &emails).await?;
+            ctx.emit(Event::Notice(if n == 1 { "Invitation envoyée.".into() } else { format!("{n} invitations envoyées.") }))
+                .await;
         }
         Command::PatchChannel { channel_id, purpose, header } => {
             let channel = client.patch_channel(&channel_id, &purpose, &header).await?;
