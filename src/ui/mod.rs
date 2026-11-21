@@ -146,6 +146,18 @@ pub(crate) struct AddMembers {
     pub added: HashSet<String>,
 }
 
+/// Tiroir flottant de la mise en page étroite.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Drawer {
+    Channels,
+    Members,
+}
+
+/// En dessous : barre latérale des canaux dans un tiroir.
+pub(crate) const NARROW_SIDEBAR: f32 = 860.;
+/// En dessous : membres dans un tiroir, fil et panneaux flottants.
+pub(crate) const NARROW_PANELS: f32 = 1150.;
+
 /// Démarrage : selon la ligne de commande (connexion mémorisée), ou démo.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Launch {
@@ -318,6 +330,12 @@ pub struct ChatApp {
     info: Option<String>,
     viewer: Option<Viewer>,
     viewer_focus: FocusHandle,
+    /// Groupes repliés de la liste des membres (« En ligne »…).
+    collapsed_member_groups: HashSet<String>,
+    /// Largeur de la fenêtre (mise en page étroite).
+    viewport_w: f32,
+    /// Tiroir flottant ouvert en mise en page étroite.
+    drawer: Option<Drawer>,
     /// Focus de la fenêtre quand aucune zone n'a le focus : Échap, Ctrl+K et
     /// Ctrl+F marchent toujours (après un clic dans la liste des messages…).
     root_focus: FocusHandle,
@@ -607,6 +625,9 @@ impl ChatApp {
             info: None,
             viewer: None,
             viewer_focus: cx.focus_handle(),
+            collapsed_member_groups: HashSet::new(),
+            viewport_w: 1200.,
+            drawer: None,
             root_focus: cx.focus_handle(),
             settings,
             resizing: false,
@@ -1007,6 +1028,9 @@ impl ChatApp {
         self.pending_text.push((Pane::Thread, String::new()));
         self.manually_unread = None;
         self.channel_editing = false;
+        if self.drawer == Some(Drawer::Channels) {
+            self.drawer = None;
+        }
         self.preview.clear();
         if self.side.as_ref().is_some_and(|p| p.kind == SideKind::Pinned) {
             self.side = None;
@@ -1745,7 +1769,29 @@ impl ChatApp {
         cx.notify();
     }
 
+    fn toggle_member_group(&mut self, title: &str, cx: &mut Context<Self>) {
+        if !self.collapsed_member_groups.remove(title) {
+            self.collapsed_member_groups.insert(title.to_string());
+        }
+        cx.notify();
+    }
+
+    /// Ouvre ou ferme un tiroir (mise en page étroite).
+    fn toggle_drawer(&mut self, drawer: Drawer, cx: &mut Context<Self>) {
+        self.drawer = if self.drawer == Some(drawer) { None } else { Some(drawer) };
+        if drawer == Drawer::Members
+            && let Some(id) = self.channel_id.clone().filter(|id| !self.members.contains_key(id))
+        {
+            self.send(Command::LoadMembers { channel_id: id });
+        }
+        cx.notify();
+    }
+
     fn toggle_members(&mut self, cx: &mut Context<Self>) {
+        if self.viewport_w < NARROW_PANELS {
+            self.toggle_drawer(Drawer::Members, cx);
+            return;
+        }
         self.settings.show_members = !self.settings.show_members;
         if !self.demo {
             self.settings.save();
@@ -1933,6 +1979,8 @@ impl ChatApp {
         };
         match scene.as_str() {
             "bots" => self.select_channel("backend".into(), cx),
+            "etroit-canaux" => after(self, 400, window, cx, |this, _, cx| this.toggle_drawer(Drawer::Channels, cx)),
+            "etroit-membres" => after(self, 400, window, cx, |this, _, cx| this.toggle_drawer(Drawer::Members, cx)),
             "autolink" => self.select_channel("support".into(), cx),
             "panneau-canal" => after(self, 400, window, cx, |this, window, cx| {
                 this.open_channel_card(point(px(600.), px(40.)), window, cx)
@@ -3107,18 +3155,21 @@ fn autocomplete_trigger(text: &str, cursor: usize) -> Option<(AcKind, usize, Str
     let start = before.rfind(char::is_whitespace).map(|i| i + before[i..].chars().next().map_or(1, char::len_utf8)).unwrap_or(0);
     let word = &before[start..];
     let mut chars = word.chars();
-    let first = chars.next()?;
-    let rest = chars.as_str();
-    match first {
-        '@' if !rest.is_empty() => Some((AcKind::User, start, rest.to_string())),
-        '~' if !rest.is_empty() => Some((AcKind::Channel, start, rest.to_string())),
-        ':' if rest.chars().count() >= 2 && !rest.contains(':') => Some((AcKind::Emoji, start, rest.to_lowercase())),
-        // Commande : seulement en tout début de message, sur la première ligne.
-        '/' if start == 0 && !before.contains('\n') && !rest.starts_with('/') => {
-            Some((AcKind::Command, 0, before.to_string()))
+    if let Some(first) = chars.next() {
+        let rest = chars.as_str();
+        match first {
+            '@' if !rest.is_empty() => return Some((AcKind::User, start, rest.to_string())),
+            '~' if !rest.is_empty() => return Some((AcKind::Channel, start, rest.to_string())),
+            ':' if rest.chars().count() >= 2 && !rest.contains(':') => {
+                return Some((AcKind::Emoji, start, rest.to_lowercase()));
+            }
+            _ => {}
         }
-        _ => None,
     }
+    // Commande et ses paramètres : tout le début du message (première
+    // ligne), comme le client officiel (« /jira cr » → « /jira create »).
+    (before.starts_with('/') && !before.starts_with("//") && !before.contains('\n'))
+        .then(|| (AcKind::Command, 0, before.to_string()))
 }
 
 /// Exécute une tâche bloquante sur un thread à part ; le résultat arrive
@@ -3167,6 +3218,12 @@ mod tests {
         assert_eq!(autocomplete_trigger("voir ~glp", 9), Some((AcKind::Channel, 5, "glp".into())));
         assert_eq!(autocomplete_trigger("bravo :th", 9), Some((AcKind::Emoji, 6, "th".into())));
         assert_eq!(autocomplete_trigger("/aw", 3), Some((AcKind::Command, 0, "/aw".into())));
+        // Paramètres d'une commande : toute la ligne est envoyée au serveur.
+        assert_eq!(autocomplete_trigger("/jira cr", 8), Some((AcKind::Command, 0, "/jira cr".into())));
+        assert_eq!(autocomplete_trigger("/jira ", 6), Some((AcKind::Command, 0, "/jira ".into())));
+        // Une mention dans les paramètres reste une mention.
+        assert_eq!(autocomplete_trigger("/msg @le", 8), Some((AcKind::User, 5, "le".into())));
+        assert_eq!(autocomplete_trigger("// pas une commande", 4), None);
         assert_eq!(autocomplete_trigger("a /aw", 5), None);
         assert_eq!(autocomplete_trigger("12:30", 5), None);
         assert_eq!(autocomplete_trigger("mail a@b", 8), None);

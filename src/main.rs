@@ -33,7 +33,7 @@ gpui_kit::assets::icon_assets!(
         Bold, Italic, Strikethrough, Code, Link, Heading, TextQuote, List, ListOrdered, SquareCode, Paperclip,
         SendHorizontal, Eye, EyeOff, Reply, Ellipsis, EllipsisVertical, Star, Bell, BellOff, Pin, Bookmark, Copy,
         Pencil, Trash, MailOpen, Hash, Lock, Users, ChevronDown, ChevronRight, X, LogOut, Moon, CircleMinus,
-        CircleCheck, Circle, ArrowUpDown, CheckCheck, Search, FaceSlightlySmilingPlus, FaceSlightlySmiling, MessagesSquare, AtSign, Download, ExternalLink, Mail, Clock, Shield, FolderOpen, Type, Images, FileText, Link2, UserPlus, Info, PencilLine, SpellCheck
+        CircleCheck, Circle, ArrowUpDown, CheckCheck, Search, FaceSlightlySmilingPlus, FaceSlightlySmiling, MessagesSquare, AtSign, Download, ExternalLink, Mail, Clock, Shield, FolderOpen, Type, Images, FileText, Link2, UserPlus, Info, PencilLine, SpellCheck, StarFill, Menu
     ]
 );
 
@@ -69,16 +69,23 @@ fn main() {
         return;
     }
 
+    // Démo : MM_DEMO_SIZE=« 760x800 » pour voir la mise en page étroite.
+    let (w, h): (f32, f32) = std::env::var("MM_DEMO_SIZE")
+        .ok()
+        .filter(|_| args.iter().any(|a| a == "--demo"))
+        .and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))))
+        .unwrap_or((1200., 800.));
+
     gpui_kit::application()
         .with_assets(AppAssets)
-        .run(|cx| {
+        .run(move |cx| {
             gpui_kit::init(cx);
             // Identité de l'application pour Windows (notifications, barre des tâches).
             desktop::init();
             // Thème clair ou sombre selon le réglage du système.
             gpui_kit::component::Theme::sync_system_appearance(None, cx);
 
-            let bounds = Bounds::centered(None, size(px(1200.), px(800.)), cx);
+            let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {

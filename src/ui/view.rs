@@ -638,7 +638,9 @@ impl ChatApp {
             .child(
                 h_flex()
                     .id("team-header")
-                    .h(px(60.))
+                    .h(px(62.))
+                    .border_b_1()
+                    .border_color(p.sidebar_text.opacity(0.08))
                     .flex_none()
                     .px_4()
                     .gap_1p5()
@@ -1096,7 +1098,11 @@ impl ChatApp {
                         if bot_block && !self.expanded_bots.contains(&post.id) {
                             // Une ligne par notification : couleur, résumé tronqué ; clic pour déplier.
                             let (summary, color) = bot_summary(post);
-                            let bar = color.as_deref().and_then(rich::attachment_color).and_then(crate::theme::parse_color);
+                            let bar = color
+                                .as_deref()
+                                .and_then(rich::attachment_color)
+                                .and_then(crate::theme::parse_color)
+                                .or_else(|| notification_color(&post.message));
                             let (entity, id) = (entity.clone(), post.id.clone());
                             h_flex()
                                 .id(key("bot-line"))
@@ -1985,7 +1991,7 @@ impl ChatApp {
                 .child(
                     Button::new("hdr-favorite")
                         .icon(
-                            Icon::new(IconName::Star)
+                            Icon::new(if favorite { IconName::StarFill } else { IconName::Star })
                                 .size(px(14.))
                                 .text_color(if favorite { p.away } else { p.muted().opacity(0.6) }),
                         )
@@ -2011,6 +2017,16 @@ impl ChatApp {
                     linear_color_stop(p.sidebar_bg.opacity(0.24), 0.),
                     linear_color_stop(p.button_bg.opacity(0.07), 1.),
                 ))
+            .when(self.viewport_w < super::NARROW_SIDEBAR, |el| {
+                el.child(
+                    Button::new("hdr-channels")
+                        .icon(Icon::new(IconName::Menu))
+                        .ghost()
+                        .small()
+                        .tooltip("Canaux")
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_drawer(super::Drawer::Channels, cx))),
+                )
+            })
             .when_some(partner.clone(), |el, partner| el.child(self.avatar(&partner, 32., p.center_bg)))
             .children(badge)
             .child(
@@ -2171,6 +2187,7 @@ impl ChatApp {
                 .child(
                     h_flex()
                         .h(px(62.))
+                        .bg(right_header_bg(&p))
                         .flex_none()
                         .px_5()
                         .gap_2()
@@ -2199,12 +2216,63 @@ impl ChatApp {
         });
 
         let side_panel = self.render_side_panel(cx);
+        let thread_panel: Option<AnyElement> = thread_panel.map(IntoElement::into_any_element);
+        let w = self.viewport_w;
+        let narrow_sidebar = w < super::NARROW_SIDEBAR;
+        let float_panels = w < super::NARROW_PANELS;
         // Les membres restent affichés, sauf quand un fil ou un panneau prend la place.
-        let members_panel = if thread_panel.is_none() && side_panel.is_none() {
-            self.render_members_panel(cx)
+        let members_panel = if !float_panels && thread_panel.is_none() && side_panel.is_none() {
+            self.render_members_panel(false, cx)
         } else {
             None
         };
+        // Fenêtre étroite : fil ou panneau flottant à droite, au-dessus des messages.
+        let (floating_panel, thread_panel, side_panel) =
+            if float_panels { (thread_panel.or(side_panel), None, None) } else { (None, thread_panel, side_panel) };
+        let drawer = self.drawer.filter(|d| match d {
+            super::Drawer::Channels => narrow_sidebar,
+            super::Drawer::Members => float_panels,
+        });
+        let drawer_el = drawer.map(|d| {
+            let content: AnyElement = match d {
+                super::Drawer::Channels => h_flex()
+                    .h_full()
+                    .children(self.render_team_bar(cx))
+                    .child(self.render_sidebar(cx))
+                    .into_any_element(),
+                super::Drawer::Members => div()
+                    .h_full()
+                    .bg(p.center_bg)
+                    .children(self.render_members_panel(true, cx))
+                    .into_any_element(),
+            };
+            let left = d == super::Drawer::Channels;
+            div()
+                .id("drawer-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .bg(black().opacity(0.3))
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| {
+                    this.drawer = None;
+                    cx.notify();
+                }))
+                .child(
+                    div()
+                        .id("drawer")
+                        .occlude()
+                        .absolute()
+                        .top_0()
+                        .h_full()
+                        .when(left, |el| el.left_0())
+                        .when(!left, |el| el.right_0())
+                        .shadow_xl()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(content),
+                )
+                .into_any_element()
+        });
         let team_bar = if self.teams.len() >= 2 { TEAM_BAR_WIDTH } else { 0. };
         let layout = h_flex()
             .id("chat-root")
@@ -2217,8 +2285,7 @@ impl ChatApp {
             }))
             .on_drop(cx.listener(|this, _: &SidebarResize, _, _| this.end_resize()))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.end_resize()))
-            .children(self.render_team_bar(cx))
-            .child(self.render_sidebar(cx))
+            .when(!narrow_sidebar, |el| el.children(self.render_team_bar(cx)).child(self.render_sidebar(cx)))
             .child(main)
             .children(thread_panel)
             .children(side_panel)
@@ -2252,6 +2319,10 @@ impl ChatApp {
             .relative()
             .size_full()
             .child(layout)
+            .children(floating_panel.map(|panel| {
+                div().absolute().top_0().right_0().h_full().shadow_xl().child(panel).into_any_element()
+            }))
+            .children(drawer_el)
             .children(self.render_viewer(cx))
             .children(self.render_switcher(cx))
             .children(self.render_emoji_picker(cx))
@@ -2553,6 +2624,7 @@ impl ChatApp {
                 .child(
                     h_flex()
                         .h(px(62.))
+                        .bg(right_header_bg(&p))
                         .flex_none()
                         .px_5()
                         .gap_2()
@@ -2723,8 +2795,8 @@ impl ChatApp {
     }
 
     /// Liste permanente des membres du canal, par statut (comme Discord).
-    fn render_members_panel(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.settings.show_members {
+    fn render_members_panel(&self, in_drawer: bool, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.settings.show_members && !in_drawer {
             return None;
         }
         let channel_id = self.channel_id.as_ref()?;
@@ -2772,24 +2844,35 @@ impl ChatApp {
             }
             // Administrateurs : ceux en ligne d'abord.
             people.sort_by_key(|id| (status(id) == "offline", crate::fuzzy::fold(&self.user_name(id))));
-            let color = group_color(title, &p);
+            let collapsed = self.collapsed_member_groups.contains(title);
             list = list.child(
                 h_flex()
-                    .gap_2()
-                    .mx_2()
+                    .id(SharedString::from(format!("mgrp-{title}")))
+                    .flex_none()
+                    .h(px(28.))
                     .mt_3()
-                    .mb_1()
+                    .mx_2()
                     .px_2()
-                    .py_1()
+                    .gap_1p5()
                     .rounded(px(6.))
-                    .bg(color.opacity(0.10))
-                    .text_xs()
-                    .font_semibold()
-                    .text_color(color)
-                    .child(div().size(px(8.)).rounded_full().bg(color))
-                    .child(div().flex_1().child(title))
-                    .child(people.len().to_string()),
+                    .text_size(px(13.))
+                    .font_bold()
+                    .text_color(p.center_color.opacity(0.85))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.hover()))
+                    .child(
+                        div().flex_none().w(px(14.)).text_color(p.muted()).child(
+                            Icon::new(if collapsed { IconName::ChevronRight } else { IconName::ChevronDown }).size(px(13.)),
+                        ),
+                    )
+                    .child(div().flex_none().child(title))
+                    .child(div().flex_none().text_size(px(11.)).font_semibold().text_color(p.muted()).child(people.len().to_string()))
+                    .child(div().flex_1().h(px(1.)).ml_1().bg(p.border()))
+                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_member_group(title, cx))),
             );
+            if collapsed {
+                continue;
+            }
             for id in people {
                 let user_id = id.clone();
                 let offline = status(id) == "offline";
@@ -2865,6 +2948,7 @@ impl ChatApp {
                 .child(
                     h_flex()
                         .h(px(62.))
+                        .bg(right_header_bg(&p))
                         .flex_none()
                         .px_4()
                         .gap_2()
@@ -4553,6 +4637,7 @@ impl ChatApp {
 impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.scale = window.scale_factor();
+        self.viewport_w = window.viewport_size().width / px(1.);
         if self.screen == Screen::Chat && window.focused(cx).is_none() {
             window.focus(&self.root_focus, cx);
         }
@@ -5099,5 +5184,81 @@ mod bot_tests {
         assert!(summary.contains("glpi/glpi#12"), "{summary}");
         // Un message ordinaire n'est pas un bot.
         assert!(!Post { message: "salut".into(), ..Default::default() }.is_bot_post());
+    }
+}
+
+/// Fond des en-têtes de droite : prolonge le dégradé de l'en-tête du canal.
+fn right_header_bg(p: &Palette) -> Background {
+    linear_gradient(
+        90.,
+        linear_color_stop(p.button_bg.opacity(0.07), 0.),
+        linear_color_stop(p.button_bg.opacity(0.03), 1.),
+    )
+}
+
+/// Couleur d'une notification de bot sans pièce jointe (plugin GitHub),
+/// d'après son contenu, comme les pastilles de GitHub.
+fn notification_color(message: &str) -> Option<Hsla> {
+    // Seulement le texte de l'événement : sans les lignes de titre (« #### … »)
+    // ni le texte des liens (titres de PR ou de ticket, qui peuvent contenir
+    // « fusionné », « fermé »…).
+    let link = regex_lite_links();
+    let m: String = message
+        .lines()
+        .filter(|l| {
+            let hashes = l.trim_start().chars().take_while(|c| *c == '#').count();
+            !(1..=4).contains(&hashes)
+        })
+        .map(|l| link.replace_all(l, " ").to_string())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+    let has = |words: &[&str]| words.iter().any(|w| m.contains(w));
+    let hex = if has(&["merged", "fusionn"]) {
+        "#8250df"
+    } else if has(&["requested changes", "changes requested", "modifications demand"]) {
+        "#bc4c00"
+    } else if has(&["closed", "fermé", "fermée"]) {
+        "#cf222e"
+    } else if has(&[
+        "approved", "approuv", "new pull request", "opened", "reopened", "new issue", "nouvelle pull request",
+        "nouveau ticket", "ouvert",
+    ]) {
+        "#1a7f37"
+    } else if has(&["comment", "review", "revue"]) {
+        "#0969da"
+    } else if has(&["pushed", "push", "commit"]) {
+        "#57606a"
+    } else if has(&["release", "deploy", "déploi"]) {
+        "#0e8a16"
+    } else {
+        return None;
+    };
+    crate::theme::parse_color(hex)
+}
+
+/// `[texte](adresse)` : un lien Markdown entier.
+fn regex_lite_links() -> &'static regex::Regex {
+    static RE: OnceLock<regex::Regex> = OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"\[[^\]]*\]\([^)]*\)").expect("motif valide"))
+}
+
+#[cfg(test)]
+mod notification_color_tests {
+    use super::notification_color;
+
+    #[test]
+    fn couleurs_github() {
+        let c = |t: &str| notification_color(t).map(|h| (h.h * 360.).round() as i32);
+        assert!(c("[glpi] Pull request #12 merged by lea").is_some());
+        assert_ne!(c("Pull request merged"), c("Pull request closed"));
+        assert_eq!(c("New pull request #3 opened"), c("Review approved"));
+        assert_eq!(c("salut à tous"), None);
+        // Le titre de la PR ne compte pas : nouvelle PR (vert), pas fusionnée (violet).
+        let pr = "#### Corriger les tickets fusionnés
+##### [glpi#12](https://x) nouvelle pull request de [lea](https://y)";
+        assert_eq!(c(pr), c("New pull request"));
+        let comment = "[glpi] Nouveau commentaire de [lea](https://y) sur [#12 Corriger les tickets fusionnés](https://x) :";
+        assert_eq!(c(comment), c("commented"));
     }
 }
