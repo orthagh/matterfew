@@ -97,23 +97,62 @@ fn prepare_text(source: &str, emoji_size: u32, channel_id: Option<&str>) -> Stri
     let mut cursor = 0;
     // HTML écrit dans un message : affiché comme du texte, jamais interprété
     // (pas d'image distante ni de balise venue d'un message).
-    let mut ranges: Vec<(Range<usize>, bool)> = text_ranges(source).into_iter().map(|r| (r, true)).collect();
-    ranges.extend(html_ranges(source).into_iter().map(|r| (r, false)));
+    let mut ranges: Vec<(Range<usize>, Piece)> = text_ranges(source).into_iter().map(|r| (r, Piece::Text)).collect();
+    ranges.extend(html_ranges(source).into_iter().map(|r| (r, Piece::Html)));
+    // Comme Mattermost : un simple retour à la ligne est un vrai saut de ligne
+    // (CommonMark le changerait en espace). Utile aussi pour les réponses des
+    // commandes « / », souvent écrites ligne par ligne.
+    ranges.extend(soft_breaks(source).into_iter().map(|r| (r, Piece::Break)));
     ranges.sort_by_key(|(r, _)| r.start);
-    for (range, is_text) in ranges {
+    for (range, piece) in ranges {
         if range.start < cursor {
             continue;
         }
         out.push_str(&source[cursor..range.start]);
-        if !is_text {
-            out.push_str(&escape_html(&source[range.clone()]));
-            cursor = range.end;
-            continue;
+        match piece {
+            Piece::Html => {
+                out.push_str(&escape_html(&source[range.clone()]));
+                cursor = range.end;
+                continue;
+            }
+            Piece::Break => {
+                out.push_str("\\\n");
+                cursor = range.end;
+                continue;
+            }
+            Piece::Text => {}
         }
         out.push_str(&transform_text(&source[range.clone()], emoji_size, channel_id));
         cursor = range.end;
     }
     out.push_str(&source[cursor..]);
+    out
+}
+
+#[derive(Clone, Copy)]
+enum Piece {
+    Text,
+    Html,
+    Break,
+}
+
+/// Retours à la ligne simples dans un paragraphe (hors code).
+fn soft_breaks(source: &str) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    let mut in_code_block = false;
+    for (event, range) in Parser::new_ext(source, options()).into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
+            Event::End(TagEnd::CodeBlock) => in_code_block = false,
+            Event::SoftBreak if !in_code_block => {
+                // Le retour lui-même (les espaces de fin de ligne restent).
+                if let Some(nl) = source[range.clone()].find('\n') {
+                    out.push(range.start + nl..range.start + nl + 1);
+                }
+            }
+            _ => {}
+        }
+    }
     out
 }
 
@@ -324,6 +363,16 @@ mod tests {
         assert!(!out.contains("(mm-hashtag:Titre)"));
         assert!(!out.contains("mm-hashtag:."));
         assert!(prepare("`#code`").contains("`#code`"));
+    }
+
+    #[test]
+    fn retours_a_la_ligne_conserves() {
+        assert_eq!(prepare("ligne 1\nligne 2"), "ligne 1\\\nligne 2");
+        // Paragraphes et code inchangés.
+        assert_eq!(prepare("a\n\nb"), "a\n\nb");
+        assert_eq!(prepare("```\nx\ny\n```"), "```\nx\ny\n```");
+        // Listes : chaque élément reste un élément.
+        assert_eq!(prepare("- a\n- b"), "- a\n- b");
     }
 
     #[test]
