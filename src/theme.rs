@@ -230,22 +230,11 @@ pub fn parse_color(value: &str) -> Option<Hsla> {
         let n = u32::from_str_radix(&hex, 16).ok()?;
         return Some(rgb(n).into());
     }
-    let inner = v
-        .strip_prefix("rgba(")
-        .or_else(|| v.strip_prefix("rgb("))?
-        .strip_suffix(')')?;
+    let inner = v.strip_prefix("rgba(").or_else(|| v.strip_prefix("rgb("))?.strip_suffix(')')?;
     let parts: Vec<f32> = inner.split(',').map(|p| p.trim().parse::<f32>()).collect::<Result<_, _>>().ok()?;
     let (r, g, b) = (*parts.first()?, *parts.get(1)?, *parts.get(2)?);
     let a = parts.get(3).copied().unwrap_or(1.0);
-    Some(
-        Rgba {
-            r: r / 255.0,
-            g: g / 255.0,
-            b: b / 255.0,
-            a,
-        }
-        .into(),
-    )
+    Some(Rgba { r: r / 255.0, g: g / 255.0, b: b / 255.0, a }.into())
 }
 
 #[cfg(test)]
@@ -266,8 +255,18 @@ mod tests {
     #[test]
     fn team_theme_overrides_global() {
         let prefs = vec![
-            Preference { user_id: String::new(), category: "theme".into(), name: "".into(), value: r##"{"sidebarBg":"#111111"}"##.into() },
-            Preference { user_id: String::new(), category: "theme".into(), name: "team1".into(), value: r##"{"sidebarBg":"#222222"}"##.into() },
+            Preference {
+                user_id: String::new(),
+                category: "theme".into(),
+                name: "".into(),
+                value: r##"{"sidebarBg":"#111111"}"##.into(),
+            },
+            Preference {
+                user_id: String::new(),
+                category: "theme".into(),
+                name: "team1".into(),
+                value: r##"{"sidebarBg":"#222222"}"##.into(),
+            },
         ];
         assert_eq!(MattermostTheme::from_preferences(&prefs, Some("team1")).sidebar_bg, "#222222");
         assert_eq!(MattermostTheme::from_preferences(&prefs, Some("autre")).sidebar_bg, "#111111");

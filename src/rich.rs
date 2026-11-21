@@ -69,11 +69,7 @@ pub fn attachments(post: &Post) -> Vec<Attachment> {
 
 /// Nom affiché à la place de l'auteur (webhooks avec `override_username`).
 pub fn override_username(post: &Post) -> Option<String> {
-    post.props
-        .get("override_username")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+    post.props.get("override_username").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
 /// Couleur de la barre latérale d'une pièce jointe.

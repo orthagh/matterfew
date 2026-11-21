@@ -81,7 +81,13 @@ mod tests {
     use super::{Input, should_notify};
 
     fn base() -> Input<'static> {
-        Input { channel_type: "O", channel_level: "default", user_level: "mention", my_status: "online", ..Default::default() }
+        Input {
+            channel_type: "O",
+            channel_level: "default",
+            user_level: "mention",
+            my_status: "online",
+            ..Default::default()
+        }
     }
 
     #[test]

@@ -1,9 +1,9 @@
 //! Interface GPUI : état de l'application et réactions aux événements.
 //! Le rendu (ce qui est dessiné à l'écran) est dans `view.rs`.
 
-mod view;
 #[cfg(test)]
 mod e2e;
+mod view;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -15,14 +15,14 @@ use gpui_kit::component::message_scroller::MessageScrollerState;
 use gpui_kit::*;
 
 use crate::api::{Channel, FileInfo, Post, Preference, Reaction, SidebarCategory, Team, User, UserThread};
-use crate::backend::{self, AcKind, Command, Event, PAGE_SIZE, SideKind, Suggestion};
-pub(crate) use crate::backend::SideKind as PanelKind;
-use crate::sidebar::{ChannelState, SidebarPrefs};
-use crate::settings::{SIDEBAR_MAX, SIDEBAR_MIN, UiSettings};
-use crate::theme::{MattermostTheme, Palette};
 use crate::api::{LoginError, login_with_password};
+pub(crate) use crate::backend::SideKind as PanelKind;
+use crate::backend::{self, AcKind, Command, Event, PAGE_SIZE, SideKind, Suggestion};
 use crate::credentials::AuthKind;
-use crate::desktop::{self, ClickTarget, TrayAction, Tray};
+use crate::desktop::{self, ClickTarget, Tray, TrayAction};
+use crate::settings::{SIDEBAR_MAX, SIDEBAR_MIN, UiSettings};
+use crate::sidebar::{ChannelState, SidebarPrefs};
+use crate::theme::{MattermostTheme, Palette};
 use crate::{credentials, demo, markdown, sso};
 
 /// Un message et son Markdown déjà préparé (emojis, mentions).
@@ -430,52 +430,41 @@ impl ChatApp {
         } else {
             credentials::load().map(|s| (s.server_url, s.token, s.kind))
         };
-        let initial_url = auto
-            .as_ref()
-            .map(|(u, ..)| u.clone())
-            .or_else(credentials::last_server)
-            .unwrap_or(env_url);
+        let initial_url = auto.as_ref().map(|(u, ..)| u.clone()).or_else(credentials::last_server).unwrap_or(env_url);
 
-        let url_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("https://chat.exemple.org")
-                .default_value(initial_url)
-        });
-        let token_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder("Jeton d'accès personnel")
-                .masked(true)
-        });
+        let url_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("https://chat.exemple.org").default_value(initial_url));
+        let token_input = cx.new(|cx| InputState::new(window, cx).placeholder("Jeton d'accès personnel").masked(true));
         let email_input = cx.new(|cx| InputState::new(window, cx).placeholder("prenom.nom@exemple.org"));
         let password_input = cx.new(|cx| InputState::new(window, cx).placeholder("Mot de passe").masked(true));
         let mfa_input = cx.new(|cx| InputState::new(window, cx).placeholder("Code à 6 chiffres"));
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher"));
         let team_desc_input = cx.new(|cx| InputState::new(window, cx).placeholder("Décrivez l'équipe en une phrase"));
         let create_name_input = cx.new(|cx| InputState::new(window, cx));
-        let create_purpose_input = cx.new(|cx| InputState::new(window, cx).placeholder("À quoi sert ce canal ? (facultatif)"));
+        let create_purpose_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("À quoi sert ce canal ? (facultatif)"));
         let channel_purpose_input = cx.new(|cx| InputState::new(window, cx).placeholder("À quoi sert ce canal ?"));
-        let channel_header_input = cx.new(|cx| InputState::new(window, cx).placeholder("Liens utiles, consignes… (Markdown)"));
+        let channel_header_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("Liens utiles, consignes… (Markdown)"));
         let member_search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Nom ou identifiant"));
         let switcher_input =
             cx.new(|cx| InputState::new(window, cx).placeholder("Aller à un canal ou une conversation"));
         let emoji_search = cx.new(|cx| InputState::new(window, cx).placeholder("Rechercher un emoji"));
         let composer = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .auto_grow(1, 8)
-                .submit_on_enter(true)
-                .placeholder("Écrire un message")
+            TextareaState::new(window, cx).auto_grow(1, 8).submit_on_enter(true).placeholder("Écrire un message")
         });
         let thread_composer = cx.new(|cx| {
-            TextareaState::new(window, cx)
-                .auto_grow(1, 6)
-                .submit_on_enter(true)
-                .placeholder("Répondre dans le fil…")
+            TextareaState::new(window, cx).auto_grow(1, 6).submit_on_enter(true).placeholder("Répondre dans le fil…")
         });
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
         let thread_scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
 
         let composer_events = |pane: Pane| {
-            move |this: &mut Self, _: &Entity<TextareaState>, ev: &InputEvent, window: &mut Window, cx: &mut Context<Self>| {
+            move |this: &mut Self,
+                  _: &Entity<TextareaState>,
+                  ev: &InputEvent,
+                  window: &mut Window,
+                  cx: &mut Context<Self>| {
                 match ev {
                     InputEvent::PressEnter { .. } => this.send_from(pane, window, cx),
                     InputEvent::Change => {
@@ -550,10 +539,11 @@ impl ChatApp {
             }),
             cx.subscribe_in(&switcher_input, window, |this, _, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev
-                    && this.switcher.is_some() {
-                        this.switcher = Some(0);
-                        cx.notify();
-                    }
+                    && this.switcher.is_some()
+                {
+                    this.switcher = Some(0);
+                    cx.notify();
+                }
             }),
             cx.subscribe_in(&emoji_search, window, |_, _, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
@@ -730,12 +720,13 @@ impl ChatApp {
         // Avec une icône dans la zone de notification, fermer la fenêtre la
         // masque (comme le client officiel) ; « Quitter » est dans son menu.
         if self.tray.is_some()
-            && let Some(hwnd) = self.hwnd {
-                window.on_window_should_close(cx, move |_, _| {
-                    desktop::hide_window(hwnd);
-                    false
-                });
-            }
+            && let Some(hwnd) = self.hwnd
+        {
+            window.on_window_should_close(cx, move |_, _| {
+                desktop::hide_window(hwnd);
+                false
+            });
+        }
     }
 
     fn bring_to_front(&mut self, window: &mut Window) {
@@ -915,7 +906,8 @@ impl ChatApp {
             }
         });
         cx.spawn_in(window, async move |this, cx| {
-            let result = result.recv().await.unwrap_or_else(|_| Err(LoginError::Other("Connexion interrompue.".into())));
+            let result =
+                result.recv().await.unwrap_or_else(|_| Err(LoginError::Other("Connexion interrompue.".into())));
             let _ = this.update_in(cx, |this, window, cx| {
                 this.login_busy = None;
                 match result {
@@ -942,7 +934,14 @@ impl ChatApp {
         cx.notify();
     }
 
-    fn connect_with(&mut self, url: String, token: String, kind: AuthKind, window: &mut Window, cx: &mut Context<Self>) {
+    fn connect_with(
+        &mut self,
+        url: String,
+        token: String,
+        kind: AuthKind,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.screen == Screen::Connecting {
             return;
         }
@@ -1074,11 +1073,7 @@ impl ChatApp {
             self.settings.save();
         }
         // Un canal non lu reste dans « Non lus » tant qu'on ne le quitte pas.
-        self.sticky_unread = self
-            .channels
-            .get(&channel_id)
-            .filter(|c| c.shows_unread())
-            .map(|_| channel_id.clone());
+        self.sticky_unread = self.channels.get(&channel_id).filter(|c| c.shows_unread()).map(|_| channel_id.clone());
         self.new_since = self
             .channels
             .get(&channel_id)
@@ -1144,13 +1139,15 @@ impl ChatApp {
         }
         let state = scroller.read(cx);
         // Seulement quand l'utilisateur a lui-même remonté jusqu'en haut.
-        if state.is_scrolled_up() && state.logical_scroll_top().item_ix <= 2
-            && let Some(channel_id) = self.channel_id.clone() {
-                self.loading_older = true;
-                let before = self.posts[0].post.id.clone();
-                self.send(Command::LoadOlder { channel_id, before });
-                cx.notify();
-            }
+        if state.is_scrolled_up()
+            && state.logical_scroll_top().item_ix <= 2
+            && let Some(channel_id) = self.channel_id.clone()
+        {
+            self.loading_older = true;
+            let before = self.posts[0].post.id.clone();
+            self.send(Command::LoadOlder { channel_id, before });
+            cx.notify();
+        }
     }
 
     fn open_thread(&mut self, root_id: String, window: &mut Window, cx: &mut Context<Self>) {
@@ -1267,11 +1264,7 @@ impl ChatApp {
         self.send(Command::LoadTeamUnreads);
         self.send(Command::LoadPreferences);
         if let Some(channel_id) = self.channel_id.clone() {
-            let since = self
-                .posts
-                .iter()
-                .map(|p| p.post.create_at.max(p.post.update_at).max(p.post.edit_at))
-                .max();
+            let since = self.posts.iter().map(|p| p.post.create_at.max(p.post.update_at).max(p.post.edit_at)).max();
             match since {
                 Some(since) => self.send(Command::SyncChannel { channel_id, since }),
                 None => self.send(Command::LoadChannel { channel_id }),
@@ -1408,7 +1401,9 @@ impl ChatApp {
             }
             for e in crate::rich::embeds(post) {
                 match e {
-                    crate::rich::Embed::Link { image: Some(url), .. } | crate::rich::Embed::Image { url, .. } => urls.push(url),
+                    crate::rich::Embed::Link { image: Some(url), .. } | crate::rich::Embed::Image { url, .. } => {
+                        urls.push(url)
+                    }
                     _ => {}
                 }
             }
@@ -1628,9 +1623,7 @@ impl ChatApp {
 
     /// Message enregistré (« flagged » dans l'API).
     fn is_saved(&self, post_id: &str) -> bool {
-        self.raw_prefs
-            .iter()
-            .any(|p| p.category == "flagged_post" && p.name == post_id && p.value == "true")
+        self.raw_prefs.iter().any(|p| p.category == "flagged_post" && p.name == post_id && p.value == "true")
     }
 
     fn toggle_saved(&mut self, post_id: String, cx: &mut Context<Self>) {
@@ -1668,9 +1661,7 @@ impl ChatApp {
     }
 
     fn is_favorite(&self, channel_id: &str) -> bool {
-        self.categories
-            .iter()
-            .any(|c| c.kind == "favorites" && c.channel_ids.iter().any(|id| id == channel_id))
+        self.categories.iter().any(|c| c.kind == "favorites" && c.channel_ids.iter().any(|id| id == channel_id))
     }
 
     /// Ajoute aux favoris ou retire des favoris (déplace le canal entre la
@@ -1740,12 +1731,8 @@ impl ChatApp {
     }
 
     fn mark_category_read(&mut self, category_id: &str, cx: &mut Context<Self>) {
-        let ids = self
-            .categories
-            .iter()
-            .find(|c| c.id == category_id)
-            .map(|c| c.channel_ids.clone())
-            .unwrap_or_default();
+        let ids =
+            self.categories.iter().find(|c| c.id == category_id).map(|c| c.channel_ids.clone()).unwrap_or_default();
         self.mark_channels_read(ids, cx);
     }
 
@@ -1905,7 +1892,9 @@ impl ChatApp {
         if !self.demo {
             self.settings.save();
         }
-        if let Some(id) = self.channel_id.clone().filter(|id| self.settings.show_members && !self.members.contains_key(id)) {
+        if let Some(id) =
+            self.channel_id.clone().filter(|id| self.settings.show_members && !self.members.contains_key(id))
+        {
             self.send(Command::LoadMembers { channel_id: id });
         }
         cx.notify();
@@ -1987,10 +1976,8 @@ impl ChatApp {
         }
         let start = self.posts.len().saturating_sub(crate::cache::MAX_POSTS);
         let posts: Vec<Post> = self.posts[start..].iter().map(|v| v.post.clone()).collect();
-        let users: HashMap<String, User> = posts
-            .iter()
-            .filter_map(|p| self.users.get(&p.user_id).map(|u| (u.id.clone(), u.clone())))
-            .collect();
+        let users: HashMap<String, User> =
+            posts.iter().filter_map(|p| self.users.get(&p.user_id).map(|u| (u.id.clone(), u.clone()))).collect();
         std::thread::spawn(move || crate::cache::store(&dir, &channel_id, &posts, &users));
     }
 
@@ -2078,7 +2065,11 @@ impl ChatApp {
     /// (captures pour la documentation, sans piloter la souris).
     fn play_demo_scene(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let scene = std::env::var("MM_DEMO_SCENE").unwrap_or_default();
-        let after = |this: &mut Self, ms: u64, window: &mut Window, cx: &mut Context<Self>, f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
+        let after = |this: &mut Self,
+                     ms: u64,
+                     window: &mut Window,
+                     cx: &mut Context<Self>,
+                     f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
             let _ = this;
             cx.spawn_in(window, async move |this, cx| {
                 cx.background_executor().timer(Duration::from_millis(ms)).await;
@@ -2088,11 +2079,18 @@ impl ChatApp {
         };
         match scene.as_str() {
             "bots" => self.select_channel("backend".into(), cx),
-            "creer-canal" => after(self, 400, window, cx, |this, window, cx| this.open_create(CreateKind::Channel, window, cx)),
+            "creer-canal" => {
+                after(self, 400, window, cx, |this, window, cx| this.open_create(CreateKind::Channel, window, cx))
+            }
             "bots-deplie" => {
                 self.select_channel("backend".into(), cx);
                 after(self, 700, window, cx, |this, _, cx| {
-                    let id = this.posts.iter().rev().find(|v| v.post.is_bot_post() && v.post.user_id == "u6").map(|v| v.post.id.clone());
+                    let id = this
+                        .posts
+                        .iter()
+                        .rev()
+                        .find(|v| v.post.is_bot_post() && v.post.user_id == "u6")
+                        .map(|v| v.post.id.clone());
                     if let Some(id) = id {
                         this.toggle_bot_post(id, cx);
                     }
@@ -2109,7 +2107,8 @@ impl ChatApp {
             "visionneuse" => {
                 self.select_channel("design".into(), cx);
                 after(self, 600, window, cx, |this, window, cx| {
-                    let file = this.posts.iter().flat_map(|v| v.post.metadata.files.iter()).find(|f| f.id == "f-d7").cloned();
+                    let file =
+                        this.posts.iter().flat_map(|v| v.post.metadata.files.iter()).find(|f| f.id == "f-d7").cloned();
                     if let Some(file) = file {
                         this.open_image(file, window, cx);
                     }
@@ -2156,7 +2155,9 @@ impl ChatApp {
     }
 
     fn edit_channel_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(c) = self.channel_id.as_ref().and_then(|id| self.channels.get(id)).map(|c| c.channel.clone()) else { return };
+        let Some(c) = self.channel_id.as_ref().and_then(|id| self.channels.get(id)).map(|c| c.channel.clone()) else {
+            return;
+        };
         self.channel_purpose_input.update(cx, |s, cx| {
             s.set_value(c.purpose.clone(), window, cx);
             s.focus(window, cx);
@@ -2293,8 +2294,17 @@ impl ChatApp {
     }
 
     /// Remplace un mot signalé par la proposition choisie.
-    fn correct_spelling(&mut self, pane: Pane, word: String, replacement: String, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(m) = self.misspellings.get(&pane).and_then(|l| l.iter().find(|m| m.word == word)).cloned() else { return };
+    fn correct_spelling(
+        &mut self,
+        pane: Pane,
+        word: String,
+        replacement: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(m) = self.misspellings.get(&pane).and_then(|l| l.iter().find(|m| m.word == word)).cloned() else {
+            return;
+        };
         let state = self.composer_for(pane);
         let text = state.read(cx).value().to_string();
         if text.get(m.range.clone()) != Some(word.as_str()) {
@@ -2576,9 +2586,7 @@ impl ChatApp {
             .iter()
             .chain(self.thread.iter().flat_map(|t| t.posts.iter()))
             .find(|p| p.post.id == post_id)
-            .is_some_and(|p| {
-                p.post.metadata.reactions.iter().any(|r| r.user_id == me && r.emoji_name == emoji)
-            });
+            .is_some_and(|p| p.post.metadata.reactions.iter().any(|r| r.user_id == me && r.emoji_name == emoji));
         self.send(Command::React { post_id, emoji, add: !mine });
     }
 
@@ -2614,9 +2622,10 @@ impl ChatApp {
                 self.crt = collapsed_threads_enabled(&self.server_config, &self.raw_prefs);
                 self.send(Command::SetCollapsedThreads(self.crt));
                 if let Some((url, token, kind)) = self.pending_credentials.take()
-                    && let Err(err) = credentials::save(&url, &token, kind) {
-                        eprintln!("connexion non mémorisée : {err:#}");
-                    }
+                    && let Err(err) = credentials::save(&url, &token, kind)
+                {
+                    eprintln!("connexion non mémorisée : {err:#}");
+                }
                 self.users.insert(me.id.clone(), me.clone());
                 self.me = Some(me);
                 self.teams = teams;
@@ -2730,7 +2739,8 @@ impl ChatApp {
                 self.channel_teams.extend(list);
             }
             Event::MembersChanged { channel_id } => {
-                if self.members.remove(&channel_id).is_some() && self.channel_id.as_deref() == Some(channel_id.as_str()) {
+                if self.members.remove(&channel_id).is_some() && self.channel_id.as_deref() == Some(channel_id.as_str())
+                {
                     self.send(Command::LoadMembers { channel_id });
                 }
             }
@@ -2749,9 +2759,10 @@ impl ChatApp {
                     notify_desktop: String::new(),
                 });
                 if let Some(dm) = self.categories.iter_mut().find(|c| c.kind == "direct_messages")
-                    && !dm.channel_ids.contains(&id) {
-                        dm.channel_ids.insert(0, id.clone());
-                    }
+                    && !dm.channel_ids.contains(&id)
+                {
+                    dm.channel_ids.insert(0, id.clone());
+                }
                 self.select_channel(id, cx);
                 self.focus_composer(window, cx);
             }
@@ -2830,8 +2841,7 @@ impl ChatApp {
             }
             Event::Avatar { user_id, bytes } => {
                 if let Some(format) = image_format(&bytes) {
-                    self.avatars
-                        .insert(user_id, Arc::new(Image::from_bytes(format, bytes.to_vec())));
+                    self.avatars.insert(user_id, Arc::new(Image::from_bytes(format, bytes.to_vec())));
                 }
             }
             Event::Statuses(list) => self.statuses.extend(list),
@@ -2884,12 +2894,8 @@ impl ChatApp {
                 let current_ok = self.channel_id.as_ref().is_some_and(|id| self.channels.contains_key(id));
                 if !current_ok {
                     // Dernier canal ouvert dans cette équipe, sinon « Town Square ».
-                    let remembered = self
-                        .settings
-                        .last_channels
-                        .get(&team_id)
-                        .filter(|id| self.channels.contains_key(*id))
-                        .cloned();
+                    let remembered =
+                        self.settings.last_channels.get(&team_id).filter(|id| self.channels.contains_key(*id)).cloned();
                     let default = remembered.or_else(|| {
                         self.channels
                             .values()
@@ -2918,9 +2924,10 @@ impl ChatApp {
             }
             Event::CategoriesChanged { team_id } => {
                 if let Some(current) = self.team_id.clone()
-                    && (team_id.is_empty() || team_id == current) {
-                        self.send(Command::LoadCategories { team_id: current });
-                    }
+                    && (team_id.is_empty() || team_id == current)
+                {
+                    self.send(Command::LoadCategories { team_id: current });
+                }
             }
             Event::Prefs(prefs) => {
                 self.raw_prefs = prefs;
@@ -3026,7 +3033,8 @@ impl ChatApp {
                 if user_id.is_empty() || user_id == me {
                     return;
                 }
-                self.typing.retain(|t| !(t.user_id == user_id && t.channel_id == channel_id && t.parent_id == parent_id));
+                self.typing
+                    .retain(|t| !(t.user_id == user_id && t.channel_id == channel_id && t.parent_id == parent_id));
                 self.typing.push(Typing { channel_id, parent_id, user_id, at: Instant::now() });
                 // Efface l'indication si aucun nouveau signal n'arrive.
                 cx.spawn(async move |this, cx| {
@@ -3117,10 +3125,11 @@ impl ChatApp {
                 self.scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
             }
             if let Some(thread) = self.thread.as_mut().filter(|t| t.root_id == post.root_id)
-                && !thread.posts.iter().any(|p| p.post.id == post.id) {
-                    thread.posts.push(PostView::new(post.clone()));
-                    self.thread_scroller.update(cx, |s, cx| s.append(1, cx));
-                }
+                && !thread.posts.iter().any(|p| p.post.id == post.id)
+            {
+                thread.posts.push(PostView::new(post.clone()));
+                self.thread_scroller.update(cx, |s, cx| s.append(1, cx));
+            }
         }
         if in_channel_list && is_current && !self.posts.iter().any(|p| p.post.id == post.id) {
             self.posts.push(PostView::new(post.clone()));
@@ -3177,14 +3186,17 @@ impl ChatApp {
             };
             let body = markdown::plain_text(&post.message);
             let target = ClickTarget {
-                team_id: if team_id.is_empty() { self.team_id.clone().unwrap_or_default() } else { team_id.to_string() },
+                team_id: if team_id.is_empty() {
+                    self.team_id.clone().unwrap_or_default()
+                } else {
+                    team_id.to_string()
+                },
                 channel_id: post.channel_id.clone(),
             };
             self.send(Command::Notify { title, body, target: Some(target) });
-            if !active
-                && let Some(hwnd) = self.hwnd {
-                    desktop::flash(hwnd);
-                }
+            if !active && let Some(hwnd) = self.hwnd {
+                desktop::flash(hwnd);
+            }
         }
     }
 
@@ -3196,10 +3208,11 @@ impl ChatApp {
             self.scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
         }
         if let Some(thread) = self.thread.as_mut()
-            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post.id) {
-                thread.posts[ix] = PostView::new(post);
-                self.thread_scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
-            }
+            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post.id)
+        {
+            thread.posts[ix] = PostView::new(post);
+            self.thread_scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
+        }
     }
 
     fn remove_post(&mut self, post_id: &str, cx: &mut Context<Self>) {
@@ -3210,10 +3223,11 @@ impl ChatApp {
         if self.thread.as_ref().is_some_and(|t| t.root_id == post_id) {
             self.thread = None;
         } else if let Some(thread) = self.thread.as_mut()
-            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post_id) {
-                thread.posts.remove(ix);
-                self.thread_scroller.update(cx, |s, cx| s.splice(ix..ix + 1, 0, cx));
-            }
+            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post_id)
+        {
+            thread.posts.remove(ix);
+            self.thread_scroller.update(cx, |s, cx| s.splice(ix..ix + 1, 0, cx));
+        }
         if self.editing.as_ref().is_some_and(|(_, id)| id == post_id) {
             self.editing = None;
         }
@@ -3225,10 +3239,11 @@ impl ChatApp {
             self.scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
         }
         if let Some(thread) = self.thread.as_mut()
-            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post_id) {
-                f(&mut thread.posts[ix].post.metadata.reactions);
-                self.thread_scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
-            }
+            && let Some(ix) = thread.posts.iter().position(|p| p.post.id == post_id)
+        {
+            f(&mut thread.posts[ix].post.metadata.reactions);
+            self.thread_scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
+        }
     }
 
     // ------------------------------------------------------------------
@@ -3240,10 +3255,7 @@ impl ChatApp {
     }
 
     fn user_name(&self, user_id: &str) -> String {
-        self.users
-            .get(user_id)
-            .map(User::display_name)
-            .unwrap_or_else(|| "…".to_string())
+        self.users.get(user_id).map(User::display_name).unwrap_or_else(|| "…".to_string())
     }
 
     fn channel_title(&self, channel: &Channel) -> String {
@@ -3292,7 +3304,10 @@ fn image_format(bytes: &[u8]) -> Option<ImageFormat> {
 /// (type, début du mot en octets, terme recherché).
 fn autocomplete_trigger(text: &str, cursor: usize) -> Option<(AcKind, usize, String)> {
     let before = text.get(..cursor)?;
-    let start = before.rfind(char::is_whitespace).map(|i| i + before[i..].chars().next().map_or(1, char::len_utf8)).unwrap_or(0);
+    let start = before
+        .rfind(char::is_whitespace)
+        .map(|i| i + before[i..].chars().next().map_or(1, char::len_utf8))
+        .unwrap_or(0);
     let word = &before[start..];
     let mut chars = word.chars();
     if let Some(first) = chars.next() {
@@ -3348,7 +3363,12 @@ mod tests {
     use super::{HashMap, Preference, collapsed_threads_enabled};
 
     fn pref(v: &str) -> Vec<Preference> {
-        vec![Preference { user_id: String::new(), category: "display_settings".into(), name: "collapsed_reply_threads".into(), value: v.into() }]
+        vec![Preference {
+            user_id: String::new(),
+            category: "display_settings".into(),
+            name: "collapsed_reply_threads".into(),
+            value: v.into(),
+        }]
     }
 
     #[test]
@@ -3427,9 +3447,7 @@ fn is_executable(path: &std::path::Path) -> bool {
         "exe", "msi", "msp", "bat", "cmd", "com", "scr", "pif", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh",
         "hta", "jar", "lnk", "reg", "cpl", "dll", "appx", "msix",
     ];
-    path.extension()
-        .and_then(|e| e.to_str())
-        .is_some_and(|e| RISKY.iter().any(|r| r.eq_ignore_ascii_case(e)))
+    path.extension().and_then(|e| e.to_str()).is_some_and(|e| RISKY.iter().any(|r| r.eq_ignore_ascii_case(e)))
 }
 
 #[cfg(test)]

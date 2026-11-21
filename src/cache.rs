@@ -39,10 +39,7 @@ pub fn dir_for(server_url: &str) -> Option<PathBuf> {
 }
 
 fn file(dir: &Path, channel_id: &str) -> Option<PathBuf> {
-    channel_id
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric())
-        .then(|| dir.join(format!("{channel_id}.json")))
+    channel_id.chars().all(|c| c.is_ascii_alphanumeric()).then(|| dir.join(format!("{channel_id}.json")))
 }
 
 /// Messages connus d'un canal (du plus ancien au plus récent) et leurs auteurs.

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Mattermost (mm-gpui)
+Comment=Client de bureau Mattermost
+Exec=mm-gpui
+Icon=io.github.orthagh.MattermostRustClient
+Terminal=false
+Type=Application
+Categories=Network;InstantMessaging;Chat;
+StartupWMClass=mm-gpui

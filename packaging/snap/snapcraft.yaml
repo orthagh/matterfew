@@ -1,0 +1,44 @@
+# Snap construit à partir de l'exécutable Linux compilé par la release
+# (déposé dans payload/ par le workflow). Version remplacée par celle du tag.
+name: mm-gpui
+title: Mattermost (mm-gpui)
+version: '0.0.0'
+summary: Client de bureau Mattermost natif, en Rust avec GPUI
+description: |
+  Client de bureau pour Mattermost : rapide et léger, avec la recherche,
+  les fils, les notifications, l'éditeur Markdown et le thème de votre
+  serveur.
+license: MIT
+website: https://github.com/orthagh/mattermost_rust_client
+base: core22
+grade: stable
+confinement: strict
+
+apps:
+  mm-gpui:
+    command: bin/mm-gpui
+    desktop: share/applications/mm-gpui.desktop
+    extensions: [gnome]
+    plugs:
+      - network
+      - home
+      - desktop
+      - wayland
+      - x11
+      - opengl
+      - password-manager-service
+      - removable-media
+
+parts:
+  mm-gpui:
+    plugin: dump
+    source: payload
+    stage-packages:
+      - libvulkan1
+      - mesa-vulkan-drivers
+      - libxkbcommon-x11-0
+  desktop:
+    plugin: dump
+    source: gui
+    organize:
+      mm-gpui.desktop: share/applications/mm-gpui.desktop

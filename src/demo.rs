@@ -111,7 +111,14 @@ impl Demo {
         ];
         let channels = vec![
             {
-                let mut c = channel("general", "O", "town-square", "Général", "Annonces et discussions pour toute l'équipe", now - h);
+                let mut c = channel(
+                    "general",
+                    "O",
+                    "town-square",
+                    "Général",
+                    "Annonces et discussions pour toute l'équipe",
+                    now - h,
+                );
                 c.header = "**Réunion** lundi 10 h · [Wiki de l'équipe](https://example.org/wiki) · [Planning](https://example.org/planning)".into();
                 c
             },
@@ -130,10 +137,34 @@ impl Demo {
         // doit défiler sans écraser ses lignes.
         let mut channels = channels;
         for (i, name) in [
-            "marketplace", "partners-day", "itil-process", "glpi-ai", "securite", "tech-marketing", "equipe-caen",
-            "proservices", "cloud", "services-dev", "rd-edition", "matos-studio", "sportifs-du-jeudi", "green-it",
-            "articles", "formation", "agent-inventory", "mobile", "documentation", "qualite", "support-n1",
-            "commercial", "rh", "evenements", "infra", "recrutement", "traduction", "communaute",
+            "marketplace",
+            "partners-day",
+            "itil-process",
+            "glpi-ai",
+            "securite",
+            "tech-marketing",
+            "equipe-caen",
+            "proservices",
+            "cloud",
+            "services-dev",
+            "rd-edition",
+            "matos-studio",
+            "sportifs-du-jeudi",
+            "green-it",
+            "articles",
+            "formation",
+            "agent-inventory",
+            "mobile",
+            "documentation",
+            "qualite",
+            "support-n1",
+            "commercial",
+            "rh",
+            "evenements",
+            "infra",
+            "recrutement",
+            "traduction",
+            "communaute",
         ]
         .iter()
         .enumerate()
@@ -141,14 +172,50 @@ impl Demo {
             let kind = if i % 3 == 0 { "O" } else { "P" };
             channels.push(channel(&format!("x{i}"), kind, name, name, "", now - (40 + i as i64) * h));
         }
-        let mut demo = Self { users, channels, posts: HashMap::new(), replies: HashMap::new(), uploads: HashMap::new(), saved: Vec::new(), next_id: 1000 };
+        let mut demo = Self {
+            users,
+            channels,
+            posts: HashMap::new(),
+            replies: HashMap::new(),
+            uploads: HashMap::new(),
+            saved: Vec::new(),
+            next_id: 1000,
+        };
         let day = 24 * h;
         let m = 60_000;
 
-        demo.add("general", "u1", now - day - 3 * h, "Bonjour à tous :wave: La démo client est **jeudi à 14h**, salle Turing.", &[("+1", &["u2", "u3", ME]), ("tada", &["u4"])], 3);
-        demo.add("general", "u3", now - day - 2 * h, "Je prépare les slides, n'hésitez pas à m'envoyer vos captures d'ici mercredi.", &[], 0);
-        demo.add("general", "u3", now - day - 2 * h + 2 * m, "Le modèle est dans le drive partagé > *Présentations*.", &[], 0);
-        demo.add("general", ME, now - 5 * h, "Merci @chloe.durand ! J'ajoute la partie sur les performances.", &[("heart", &["u3"])], 0);
+        demo.add(
+            "general",
+            "u1",
+            now - day - 3 * h,
+            "Bonjour à tous :wave: La démo client est **jeudi à 14h**, salle Turing.",
+            &[("+1", &["u2", "u3", ME]), ("tada", &["u4"])],
+            3,
+        );
+        demo.add(
+            "general",
+            "u3",
+            now - day - 2 * h,
+            "Je prépare les slides, n'hésitez pas à m'envoyer vos captures d'ici mercredi.",
+            &[],
+            0,
+        );
+        demo.add(
+            "general",
+            "u3",
+            now - day - 2 * h + 2 * m,
+            "Le modèle est dans le drive partagé > *Présentations*.",
+            &[],
+            0,
+        );
+        demo.add(
+            "general",
+            ME,
+            now - 5 * h,
+            "Merci @chloe.durand ! J'ajoute la partie sur les performances.",
+            &[("heart", &["u3"])],
+            0,
+        );
         demo.add("general", "u4", now - 2 * h, "Rappel : la mise en production de la **v2.4** est prévue ce soir.\n\n- gel des fusions à 17h\n- déploiement à 19h\n- vérifications à 19h30", &[("eyes", &["u1", "u2"])], 1);
         // Réponse éphémère d'une commande « /github subscriptions list ».
         demo.add(
@@ -162,33 +229,100 @@ impl Demo {
             &[],
             0,
         );
-        if let Some(post) = demo.posts.get_mut("general").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * m)) {
+        if let Some(post) =
+            demo.posts.get_mut("general").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * m))
+        {
             post.kind = "system_ephemeral".into();
         }
-        demo.add("general", "u1", now - h - 5 * m, "Ordre du jour de lundi :
+        demo.add(
+            "general",
+            "u1",
+            now - h - 5 * m,
+            "Ordre du jour de lundi :
 1. point sur la version 12
 2. recette du client GPUI
-Merci de compléter avant vendredi.", &[], 0);
+Merci de compléter avant vendredi.",
+            &[],
+            0,
+        );
         demo.add("general", "u2", now - h, "Pour info, la doc est à jour : [notes de version](https://example.org/notes) :white_check_mark: #release-12 #documentation", &[], 0);
 
         demo.add("backend", "u2", now - day - 4 * h, "Quelqu'un a vu la lenteur sur `/api/tickets` ce matin ?", &[], 2);
         demo.add("backend", "u6", now - day - 4 * h + 5 * m, "Oui, un index manquait. Correctif :\n\n```sql\nCREATE INDEX idx_tickets_status\n    ON tickets (status, updated_at);\n```", &[("+1", &["u2", ME])], 0);
         demo.add("backend", ME, now - 3 * h, "Je relis la MR de @nathan.simon cet après-midi.", &[], 0);
-        demo.add("backend", "u6", now - 2 * h, "Top, merci ! Les tests passent en local, la CI est encore en cours :hourglass:", &[], 0);
+        demo.add(
+            "backend",
+            "u6",
+            now - 2 * h,
+            "Top, merci ! Les tests passent en local, la CI est encore en cours :hourglass:",
+            &[],
+            0,
+        );
         for i in 0..70 {
-            demo.add("backend", if i % 3 == 0 { "u2" } else { "u6" }, now - 10 * day - (70 - i) * h, &format!("Ancien message n°{} de l'historique (pour tester le défilement).", i + 1), &[], 0);
+            demo.add(
+                "backend",
+                if i % 3 == 0 { "u2" } else { "u6" },
+                now - 10 * day - (70 - i) * h,
+                &format!("Ancien message n°{} de l'historique (pour tester le défilement).", i + 1),
+                &[],
+                0,
+            );
         }
 
-        demo.add("design", "u5", now - 2 * day, "Nouvelle version de la page d'accueil :art: Vos avis ?", &[("heart", &["u1", "u3"])], 4);
-        demo.add("design", "u1", now - 26 * h, "J'aime beaucoup la nouvelle typographie. Le contraste du bouton secondaire me semble un peu faible.", &[], 0);
+        demo.add(
+            "design",
+            "u5",
+            now - 2 * day,
+            "Nouvelle version de la page d'accueil :art: Vos avis ?",
+            &[("heart", &["u1", "u3"])],
+            4,
+        );
+        demo.add(
+            "design",
+            "u1",
+            now - 26 * h,
+            "J'aime beaucoup la nouvelle typographie. Le contraste du bouton secondaire me semble un peu faible.",
+            &[],
+            0,
+        );
 
-        demo.add("support", "u4", now - 6 * h, "Escalade client : export CSV vide depuis la mise à jour. Ticket **#4821**, support !4821.", &[], 0);
-        demo.add("support", "u4", now - 5 * h, "@camille.martin tu peux regarder ? C'est lié à ton changement sur les filtres.", &[], 0);
+        demo.add(
+            "support",
+            "u4",
+            now - 6 * h,
+            "Escalade client : export CSV vide depuis la mise à jour. Ticket **#4821**, support !4821.",
+            &[],
+            0,
+        );
+        demo.add(
+            "support",
+            "u4",
+            now - 5 * h,
+            "@camille.martin tu peux regarder ? C'est lié à ton changement sur les filtres.",
+            &[],
+            0,
+        );
 
-        demo.add("veille", "u2", now - 3 * day, "Article intéressant sur GPUI, le framework d'interface de Zed :rocket:", &[("+1", &["u6"])], 0);
-        demo.add("random", "u3", now - 30 * h, "Qui vient au repas d'équipe vendredi ? :pizza:", &[("raised_hand", &["u1", "u2", "u4", ME])], 0);
+        demo.add(
+            "veille",
+            "u2",
+            now - 3 * day,
+            "Article intéressant sur GPUI, le framework d'interface de Zed :rocket:",
+            &[("+1", &["u6"])],
+            0,
+        );
+        demo.add(
+            "random",
+            "u3",
+            now - 30 * h,
+            "Qui vient au repas d'équipe vendredi ? :pizza:",
+            &[("raised_hand", &["u1", "u2", "u4", ME])],
+            0,
+        );
         demo.add("random", "u5", now - 29 * h, "Moi ! Et vive :glpi: :tada:", &[("glpi", &["u1", "u3"])], 0);
-        if let Some(post) = demo.posts.get_mut("random").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 29 * h)) {
+        if let Some(post) =
+            demo.posts.get_mut("random").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 29 * h))
+        {
             post.metadata.emojis = vec![crate::api::CustomEmoji { id: "e-glpi".into(), name: "glpi".into() }];
         }
 
@@ -235,7 +369,9 @@ Merci de compléter avant vendredi.", &[], 0);
 
         // Intégration (GitLab) et aperçu de lien.
         demo.add("backend", "u6", now - 90 * m, "", &[], 0);
-        if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 90 * m)) {
+        if let Some(post) =
+            demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 90 * m))
+        {
             post.props = serde_json::json!({
                 "from_webhook": "true",
                 "override_username": "GitLab",
@@ -257,7 +393,9 @@ Merci de compléter avant vendredi.", &[], 0);
         }
         // Bot GitHub : long message, réduit à l'affichage.
         demo.add("backend", "u6", now - 80 * m, "", &[], 0);
-        if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 80 * m)) {
+        if let Some(post) =
+            demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 80 * m))
+        {
             post.props = serde_json::json!({
                 "from_bot": "true",
                 "override_username": "github",
@@ -286,7 +424,9 @@ La migration des recherches enregistrées est automatique.",
             });
         }
         demo.add("backend", "u6", now - 79 * m, "", &[], 0);
-        if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 79 * m)) {
+        if let Some(post) =
+            demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 79 * m))
+        {
             post.props = serde_json::json!({
                 "from_bot": "true",
                 "override_username": "github",
@@ -299,7 +439,9 @@ La migration des recherches enregistrées est automatique.",
             });
         }
         demo.add("backend", "u6", now - 78 * m, "", &[], 0);
-        if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 78 * m)) {
+        if let Some(post) =
+            demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 78 * m))
+        {
             post.props = serde_json::json!({
                 "from_bot": "true",
                 "override_username": "github",
@@ -315,17 +457,27 @@ Pense à la note de version.",
         }
         // Plugin GitHub : messages Markdown postés par son bot, sans pièce jointe.
         for (k, text) in [
-            (77, "#### Corriger l'export des tickets fusionnés\n##### [glpi-project/glpi#18350](https://github.com/glpi-project/glpi/pull/18350) nouvelle pull request de [nathan-simon](https://github.com/nathan-simon)\n\nCorrige la fusion des colonnes calculées dans l'export CSV."),
-            (76, "[glpi-project/glpi] Nouveau commentaire de [lea-bernard](https://github.com/lea-bernard) sur [#18350 Corriger l'export des tickets fusionnés](https://github.com/glpi-project/glpi/pull/18350) :\n> Ajoute un test sur les colonnes vides, sinon parfait."),
+            (
+                77,
+                "#### Corriger l'export des tickets fusionnés\n##### [glpi-project/glpi#18350](https://github.com/glpi-project/glpi/pull/18350) nouvelle pull request de [nathan-simon](https://github.com/nathan-simon)\n\nCorrige la fusion des colonnes calculées dans l'export CSV.",
+            ),
+            (
+                76,
+                "[glpi-project/glpi] Nouveau commentaire de [lea-bernard](https://github.com/lea-bernard) sur [#18350 Corriger l'export des tickets fusionnés](https://github.com/glpi-project/glpi/pull/18350) :\n> Ajoute un test sur les colonnes vides, sinon parfait.",
+            ),
         ] {
             demo.add("backend", "ugh", now - k * m, text, &[], 0);
-            if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - k * m)) {
+            if let Some(post) =
+                demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - k * m))
+            {
                 post.props = serde_json::json!({ "from_plugin": "true" });
                 post.kind = "custom_git_pr".into();
             }
         }
         demo.add("veille", "u2", now - 2 * day, "À lire : https://example.org/gpui-zed", &[], 0);
-        if let Some(post) = demo.posts.get_mut("veille").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * day)) {
+        if let Some(post) =
+            demo.posts.get_mut("veille").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * day))
+        {
             post.metadata.embeds = serde_json::json!([{
                 "type": "opengraph",
                 "url": "https://example.org/gpui-zed",
@@ -340,11 +492,20 @@ Pense à la note de version.",
 
         // Réponses de quelques fils.
         let root = demo.posts["general"][0].id.clone();
-        for (who, text) in [("u2", "Je serai là."), ("u4", "Moi aussi, je présente la partie API."), (ME, "Parfait, merci à vous deux !")] {
+        for (who, text) in [
+            ("u2", "Je serai là."),
+            ("u4", "Moi aussi, je présente la partie API."),
+            (ME, "Parfait, merci à vous deux !"),
+        ] {
             demo.reply(&root, "general", who, now - day - 3 * h + 10 * m, text);
         }
         let root = demo.posts["design"][0].id.clone();
-        for (who, text) in [("u1", "Très réussi !"), ("u3", "Le header est plus lisible."), ("u6", "On peut tester en sombre ?"), ("u5", "Oui, je la publie demain.")] {
+        for (who, text) in [
+            ("u1", "Très réussi !"),
+            ("u3", "Le header est plus lisible."),
+            ("u6", "On peut tester en sombre ?"),
+            ("u5", "Oui, je la publie demain."),
+        ] {
             demo.reply(&root, "design", who, now - 2 * day + 20 * m, text);
         }
         demo
@@ -387,7 +548,15 @@ Pense à la note de version.",
 
     fn reply(&mut self, root: &str, ch: &str, who: &str, at: i64, text: &str) {
         let id = self.new_id();
-        let post = Post { id, create_at: at, user_id: who.into(), channel_id: ch.into(), root_id: root.into(), message: text.into(), ..Default::default() };
+        let post = Post {
+            id,
+            create_at: at,
+            user_id: who.into(),
+            channel_id: ch.into(),
+            root_id: root.into(),
+            message: text.into(),
+            ..Default::default()
+        };
         self.replies.entry(root.into()).or_default().push(post);
     }
 
@@ -459,7 +628,11 @@ pub fn start() -> Backend {
                         // Un peu de vie : quelqu'un écrit, puis publie.
                         tick += 1;
                         if tick % 3 == 1 {
-                            send(Event::Typing { channel_id: "general".into(), parent_id: String::new(), user_id: "u1".into() });
+                            send(Event::Typing {
+                                channel_id: "general".into(),
+                                parent_id: String::new(),
+                                user_id: "u1".into(),
+                            });
                         }
                         if tick == 8 {
                             let id = demo.new_id();
@@ -472,7 +645,13 @@ pub fn start() -> Backend {
                                 ..Default::default()
                             };
                             demo.posts.entry("random".into()).or_default().push(post.clone());
-                            send(Event::Posted { post, mentions_me: true, followed: false, channel_type: "O".into(), team_id: "t1".into() });
+                            send(Event::Posted {
+                                post,
+                                mentions_me: true,
+                                followed: false,
+                                channel_type: "O".into(),
+                                team_id: "t1".into(),
+                            });
                         }
                     }
                     Err(()) => return,
@@ -540,7 +719,8 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 })
                 .collect();
             let mut channel_ids = vec!["design", "random"];
-            let extra: Vec<String> = demo.channels.iter().filter(|c| c.id.starts_with('x')).map(|c| c.id.clone()).collect();
+            let extra: Vec<String> =
+                demo.channels.iter().filter(|c| c.id.starts_with('x')).map(|c| c.id.clone()).collect();
             channel_ids.extend(extra.iter().map(String::as_str));
             send(Event::Categories {
                 team_id: team_id.clone(),
@@ -591,7 +771,13 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                     root.reply_count += 1;
                 }
             }
-            send(Event::Posted { post, mentions_me: false, followed: false, channel_type: "O".into(), team_id: "t1".into() });
+            send(Event::Posted {
+                post,
+                mentions_me: false,
+                followed: false,
+                channel_type: "O".into(),
+                team_id: "t1".into(),
+            });
         }
         Command::Edit { post_id, message } => {
             if let Some(post) = demo.find_mut(&post_id) {
@@ -660,7 +846,17 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 _ => "application/octet-stream",
             };
             let id = demo.new_id();
-            let info = FileInfo { id: id.clone(), name, extension, size, mime_type: mime.into(), width: 800, height: 450, has_preview_image: mime.starts_with("image/"), ..Default::default() };
+            let info = FileInfo {
+                id: id.clone(),
+                name,
+                extension,
+                size,
+                mime_type: mime.into(),
+                width: 800,
+                height: 450,
+                has_preview_image: mime.starts_with("image/"),
+                ..Default::default()
+            };
             demo.uploads.insert(id, info.clone());
             send(Event::Uploaded { local_id, file: info });
         }
@@ -705,7 +901,9 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         Command::LoadMembers { channel_id } => {
             // Démo : tout le monde dans les canaux publics, deux personnes dans les autres.
             let ids: Vec<String> = match channel_id.as_str() {
-                "general" | "backend" | "design" | "random" | "veille" => demo.users.iter().map(|u| u.id.clone()).collect(),
+                "general" | "backend" | "design" | "random" | "veille" => {
+                    demo.users.iter().map(|u| u.id.clone()).collect()
+                }
                 _ => vec![ME.to_string(), "u1".to_string(), "u4".to_string()],
             };
             let total = ids.len() as i64;
@@ -720,9 +918,10 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                     let mut participants: Vec<User> = Vec::new();
                     for r in replies {
                         if let Some(u) = demo.users.iter().find(|u| u.id == r.user_id)
-                            && !participants.iter().any(|p| p.id == u.id) {
-                                participants.push(u.clone());
-                            }
+                            && !participants.iter().any(|p| p.id == u.id)
+                        {
+                            participants.push(u.clone());
+                        }
                     }
                     Some(crate::api::UserThread {
                         id: root.clone(),
@@ -740,19 +939,24 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         }
         Command::MarkThreadRead { .. } => {}
         Command::LoadTeamInfo { team_id } => send(Event::TeamInfo { team_id, total: 7, active: 5, admin: true }),
-        Command::SaveTeamDescription { team_id, description } => {
-            send(Event::TeamUpdated(Team {
-                id: team_id,
-                name: "demo".into(),
-                display_name: "Équipe démo".into(),
-                last_team_icon_update: 1,
-                description,
-                team_type: "I".into(),
-                ..Default::default()
-            }))
-        }
+        Command::SaveTeamDescription { team_id, description } => send(Event::TeamUpdated(Team {
+            id: team_id,
+            name: "demo".into(),
+            display_name: "Équipe démo".into(),
+            last_team_icon_update: 1,
+            description,
+            team_type: "I".into(),
+            ..Default::default()
+        })),
         Command::CreateChannel { name, display_name, purpose, private, .. } => {
-            let mut c = channel(&format!("new-{name}"), if private { "P" } else { "O" }, &name, &display_name, &purpose, now_ms());
+            let mut c = channel(
+                &format!("new-{name}"),
+                if private { "P" } else { "O" },
+                &name,
+                &display_name,
+                &purpose,
+                now_ms(),
+            );
             c.create_at = now_ms();
             demo.channels.push(c.clone());
             send(Event::ChannelCreated(c));
@@ -778,7 +982,9 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 .users
                 .iter()
                 .filter(|u| !inside.contains(&u.id.as_str()))
-                .filter(|u| crate::fuzzy::fold(&format!("{} {} {}", u.username, u.first_name, u.last_name)).contains(&needle))
+                .filter(|u| {
+                    crate::fuzzy::fold(&format!("{} {} {}", u.username, u.first_name, u.last_name)).contains(&needle)
+                })
                 .cloned()
                 .collect();
             send(Event::UserCandidates { channel_id, term, users });
@@ -816,8 +1022,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                     SideKind::Threads | SideKind::Files | SideKind::Channel => false,
                     SideKind::Mentions => p.message.contains("@camille.martin"),
                     SideKind::Search => {
-                        !terms.is_empty()
-                            && terms.split_whitespace().all(|t| p.message.to_lowercase().contains(t))
+                        !terms.is_empty() && terms.split_whitespace().all(|t| p.message.to_lowercase().contains(t))
                     }
                 })
                 .cloned()
@@ -863,7 +1068,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                         glyph: None,
                     })
                     .collect(),
-                AcKind::Emoji => ["glpi", "teclib"]
+                AcKind::Emoji => ["glpi", "acme"]
                     .iter()
                     .filter(|n| n.starts_with(&term))
                     .map(|n| Suggestion {
@@ -904,8 +1109,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         | Command::SetCategoryCollapsed { .. }
         | Command::Typing { .. }
         | Command::MarkRead { .. }
-        | Command::FetchChannel { .. }
-        => {}
+        | Command::FetchChannel { .. } => {}
         Command::Notify { title, body, target } => crate::notify::show(&title, &body, target),
     }
 }
@@ -965,7 +1169,9 @@ fn demo_preferences() -> Vec<Preference> {
     let args: Vec<String> = std::env::args().collect();
     if let Some(path) = args.iter().position(|a| a == "--theme").and_then(|i| args.get(i + 1)) {
         match std::fs::read_to_string(path) {
-            Ok(value) => prefs.push(Preference { user_id: String::new(), category: "theme".into(), name: String::new(), value }),
+            Ok(value) => {
+                prefs.push(Preference { user_id: String::new(), category: "theme".into(), name: String::new(), value })
+            }
             Err(err) => eprintln!("thème illisible ({path}) : {err}"),
         }
     }

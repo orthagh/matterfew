@@ -1,0 +1,14 @@
+# Mises à jour proposées chaque semaine (pull requests vérifiées par la CI).
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      dependances-mineures:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

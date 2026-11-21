@@ -1,11 +1,10 @@
-﻿// En version optimisée, pas de console noire à côté de la fenêtre sous Windows.
+// En version optimisée, pas de console noire à côté de la fenêtre sous Windows.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod api;
 mod autolink;
-mod spell;
-mod cache;
 mod backend;
+mod cache;
 mod credentials;
 mod demo;
 mod desktop;
@@ -19,6 +18,7 @@ mod notify_rules;
 mod rich;
 mod settings;
 mod sidebar;
+mod spell;
 mod sso;
 mod theme;
 mod ui;
@@ -30,10 +30,70 @@ use gpui_kit::*;
 gpui_kit::assets::icon_assets!(
     ExtraIcons,
     [
-        Bold, Italic, Strikethrough, Code, Link, Heading, TextQuote, List, ListOrdered, SquareCode, Paperclip,
-        SendHorizontal, Eye, EyeOff, Reply, Ellipsis, EllipsisVertical, Star, Bell, BellOff, Pin, Bookmark, Copy,
-        Pencil, Trash, MailOpen, Hash, Lock, Users, ChevronDown, ChevronRight, X, LogOut, Moon, CircleMinus,
-        CircleCheck, Circle, ArrowUpDown, CheckCheck, Search, FaceSlightlySmilingPlus, FaceSlightlySmiling, MessagesSquare, AtSign, Download, ExternalLink, Mail, Clock, Shield, FolderOpen, Type, Images, FileText, Link2, UserPlus, Info, PencilLine, SpellCheck, StarFill, Menu, ChevronUp, SquareTerminal, Plus, FolderPlus
+        Bold,
+        Italic,
+        Strikethrough,
+        Code,
+        Link,
+        Heading,
+        TextQuote,
+        List,
+        ListOrdered,
+        SquareCode,
+        Paperclip,
+        SendHorizontal,
+        Eye,
+        EyeOff,
+        Reply,
+        Ellipsis,
+        EllipsisVertical,
+        Star,
+        Bell,
+        BellOff,
+        Pin,
+        Bookmark,
+        Copy,
+        Pencil,
+        Trash,
+        MailOpen,
+        Hash,
+        Lock,
+        Users,
+        ChevronDown,
+        ChevronRight,
+        X,
+        LogOut,
+        Moon,
+        CircleMinus,
+        CircleCheck,
+        Circle,
+        ArrowUpDown,
+        CheckCheck,
+        Search,
+        FaceSlightlySmilingPlus,
+        FaceSlightlySmiling,
+        MessagesSquare,
+        AtSign,
+        Download,
+        ExternalLink,
+        Mail,
+        Clock,
+        Shield,
+        FolderOpen,
+        Type,
+        Images,
+        FileText,
+        Link2,
+        UserPlus,
+        Info,
+        PencilLine,
+        SpellCheck,
+        StarFill,
+        Menu,
+        ChevronUp,
+        SquareTerminal,
+        Plus,
+        FolderPlus
     ]
 );
 
@@ -76,37 +136,30 @@ fn main() {
         .and_then(|s| s.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?))))
         .unwrap_or((1200., 800.));
 
-    gpui_kit::application()
-        .with_assets(AppAssets)
-        .run(move |cx| {
-            gpui_kit::init(cx);
-            // Identité de l'application pour Windows (notifications, barre des tâches).
-            desktop::init();
-            // Thème clair ou sombre selon le réglage du système.
-            gpui_kit::component::Theme::sync_system_appearance(None, cx);
+    gpui_kit::application().with_assets(AppAssets).run(move |cx| {
+        gpui_kit::init(cx);
+        // Identité de l'application pour Windows (notifications, barre des tâches).
+        desktop::init();
+        // Thème clair ou sombre selon le réglage du système.
+        gpui_kit::component::Theme::sync_system_appearance(None, cx);
 
-            let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
-            let options = WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                titlebar: Some(TitlebarOptions {
-                    title: Some(desktop::WINDOW_TITLE.into()),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            };
+        let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(TitlebarOptions { title: Some(desktop::WINDOW_TITLE.into()), ..Default::default() }),
+            ..Default::default()
+        };
 
-            gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| ui::ChatApp::new(window, cx))
-            })
+        gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| ui::ChatApp::new(window, cx)))
             .expect("impossible d'ouvrir la fenêtre");
 
-            // Fermer la fenêtre quitte l'application.
-            cx.on_window_closed(|cx, _| {
-                if cx.windows().is_empty() {
-                    cx.quit();
-                }
-            })
-            .detach();
-            cx.activate(true);
-        });
+        // Fermer la fenêtre quitte l'application.
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
+        cx.activate(true);
+    });
 }

@@ -29,10 +29,7 @@ pub fn rank(title: &str, query: &str) -> Option<u8> {
     }
     if t.starts_with(&q) {
         Some(0)
-    } else if t
-        .split(|c: char| !c.is_alphanumeric())
-        .any(|word| word.starts_with(&q))
-    {
+    } else if t.split(|c: char| !c.is_alphanumeric()).any(|word| word.starts_with(&q)) {
         Some(1)
     } else if t.contains(&q) {
         Some(2)
