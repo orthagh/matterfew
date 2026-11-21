@@ -66,6 +66,12 @@ pub fn prepare(source: &str) -> String {
 /// Comme [`prepare`], et `:nom:` d'un emoji personnalisé connu devient une
 /// petite image en ligne (20 px), résolue par l'interface.
 pub fn prepare_with(source: &str, custom_emojis: &[String]) -> String {
+    prepare_for(source, custom_emojis, None)
+}
+
+/// Comme [`prepare_with`], pour un message du canal `channel_id` (les liens
+/// automatiques limités à certains canaux en dépendent).
+pub fn prepare_for(source: &str, custom_emojis: &[String], channel_id: Option<&str>) -> String {
     // Message fait seulement d'emojis : affichés en grand, comme Mattermost.
     let jumbo = {
         let mut shown = emoji::replace_shortcodes(source);
@@ -75,7 +81,7 @@ pub fn prepare_with(source: &str, custom_emojis: &[String]) -> String {
         emoji::only_emojis(&shown)
     };
     let size = if jumbo { 34 } else { 20 };
-    let mut prepared = prepare_text(source, size);
+    let mut prepared = prepare_text(source, size, channel_id);
     for name in custom_emojis {
         let code = format!(":{name}:");
         if prepared.contains(&code) {
@@ -86,19 +92,53 @@ pub fn prepare_with(source: &str, custom_emojis: &[String]) -> String {
     prepared
 }
 
-fn prepare_text(source: &str, emoji_size: u32) -> String {
+fn prepare_text(source: &str, emoji_size: u32, channel_id: Option<&str>) -> String {
     let mut out = String::with_capacity(source.len() + 16);
     let mut cursor = 0;
-    for range in text_ranges(source) {
+    // HTML écrit dans un message : affiché comme du texte, jamais interprété
+    // (pas d'image distante ni de balise venue d'un message).
+    let mut ranges: Vec<(Range<usize>, bool)> = text_ranges(source).into_iter().map(|r| (r, true)).collect();
+    ranges.extend(html_ranges(source).into_iter().map(|r| (r, false)));
+    ranges.sort_by_key(|(r, _)| r.start);
+    for (range, is_text) in ranges {
+        if range.start < cursor {
+            continue;
+        }
         out.push_str(&source[cursor..range.start]);
-        out.push_str(&transform_text(&source[range.clone()], emoji_size));
+        if !is_text {
+            out.push_str(&escape_html(&source[range.clone()]));
+            cursor = range.end;
+            continue;
+        }
+        out.push_str(&transform_text(&source[range.clone()], emoji_size, channel_id));
         cursor = range.end;
     }
     out.push_str(&source[cursor..]);
     out
 }
 
-fn transform_text(text: &str, emoji_size: u32) -> String {
+/// `<` et `>` en entités : le texte reste visible tel quel.
+fn escape_html(text: &str) -> String {
+    text.replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// HTML brut dans le message (hors code), que le rendu interpréterait.
+fn html_ranges(source: &str) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    let mut in_code_block = false;
+    for (event, range) in Parser::new_ext(source, options()).into_offset_iter() {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => in_code_block = true,
+            Event::End(TagEnd::CodeBlock) => in_code_block = false,
+            Event::Html(_) | Event::InlineHtml(_) if !in_code_block => out.push(range),
+            Event::Start(Tag::HtmlBlock) if !in_code_block => out.push(range),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn transform_text(text: &str, emoji_size: u32, channel_id: Option<&str>) -> String {
     let text = emoji::replace_shortcodes(text);
     let mut out = String::with_capacity(text.len());
     for (chunk, kind) in split_tokens(&text) {
@@ -108,7 +148,7 @@ fn transform_text(text: &str, emoji_size: u32) -> String {
             // Emojis Unicode → images Twemoji (même rendu partout, plus moderne
             // que la police emoji du système).
             Token::Text => {
-                for (piece, is_link) in crate::autolink::apply(chunk) {
+                for (piece, is_link) in crate::autolink::apply(chunk, channel_id) {
                     if is_link {
                         out.push_str(&piece);
                         continue;
@@ -131,7 +171,7 @@ fn push_with_emojis(out: &mut String, text: &str, emoji_size: u32) {
                 emoji::to_hex(part)
             ));
         } else {
-            out.push_str(part);
+            out.push_str(&escape_html(part));
         }
     }
 }
@@ -246,7 +286,7 @@ pub fn plain_text(source: &str) -> String {
         match event {
             Event::Text(t) | Event::Code(t) => out.push_str(&t),
             Event::SoftBreak | Event::HardBreak => out.push(' '),
-            Event::End(TagEnd::Paragraph) | Event::End(TagEnd::Item) => out.push(' '),
+            Event::End(TagEnd::Paragraph) | Event::End(TagEnd::Item) | Event::End(TagEnd::Heading(_)) => out.push(' '),
             _ => {}
         }
     }
@@ -284,6 +324,18 @@ mod tests {
         assert!(!out.contains("(mm-hashtag:Titre)"));
         assert!(!out.contains("mm-hashtag:."));
         assert!(prepare("`#code`").contains("`#code`"));
+    }
+
+    #[test]
+    fn html_brut_neutralise() {
+        let out = prepare(r#"avant <img src="https://pisteur.example/p.gif"> et <b>gras</b>"#);
+        assert!(!out.contains("<img"), "{out}");
+        assert!(out.contains("&lt;img"), "{out}");
+        assert!(!out.contains("<b>"), "{out}");
+        // Le code reste tel quel.
+        assert!(prepare("`<b>`").contains("`<b>`"));
+        // Nos propres images (emojis) restent des balises.
+        assert!(prepare(":tada: ok").contains("<img src=\"mm-twemoji:"));
     }
 
     #[test]

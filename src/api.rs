@@ -422,12 +422,27 @@ pub struct Post {
 
 impl Post {
     /// Message d'un bot ou d'une intégration.
-    pub fn from_bot(&self) -> bool {
-        self.props.get("from_bot").and_then(|v| v.as_str()) == Some("true") || self.from_webhook()
+    /// Message d'un bot, d'un plugin (GitHub, GitLab, Jira…) ou d'une intégration.
+    /// Le plugin GitHub poste par l'API des plugins : `from_plugin`, et des
+    /// types de message à lui (`custom_git_pr`…), pas forcément `from_bot`.
+    pub fn is_bot_post(&self) -> bool {
+        self.prop_flag("from_bot")
+            || self.prop_flag("from_plugin")
+            || self.is_webhook_post()
+            || self.kind.starts_with("custom_")
     }
 
-    pub fn from_webhook(&self) -> bool {
-        self.props.get("from_webhook").and_then(|v| v.as_str()) == Some("true")
+    pub fn is_webhook_post(&self) -> bool {
+        self.prop_flag("from_webhook")
+    }
+
+    /// Propriété vraie, écrite "true" ou true selon qui a créé le message.
+    fn prop_flag(&self, key: &str) -> bool {
+        match self.props.get(key) {
+            Some(serde_json::Value::Bool(b)) => *b,
+            Some(serde_json::Value::String(s)) => s.eq_ignore_ascii_case("true"),
+            _ => false,
+        }
     }
 
     pub fn is_system(&self) -> bool {
@@ -453,7 +468,7 @@ impl PostList {
         let mut out: Vec<Post> = self.order.iter().filter_map(|id| self.posts.remove(id)).collect();
         if out.is_empty() {
             out = self.posts.into_values().collect();
-            out.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+            out.sort_by_key(|x| std::cmp::Reverse(x.create_at));
         }
         out
     }
@@ -715,7 +730,7 @@ impl Client {
         if out.is_empty() {
             out = list.file_infos.into_values().collect();
         }
-        out.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+        out.sort_by_key(|x| std::cmp::Reverse(x.create_at));
         Ok(out)
     }
 
@@ -768,9 +783,15 @@ impl Client {
         if resp.content_length().is_some_and(|n| n as usize > MAX) {
             anyhow::bail!("{url} : image trop lourde");
         }
-        let bytes = resp.bytes().await?;
-        anyhow::ensure!(bytes.len() <= MAX, "{url} : image trop lourde");
-        Ok(bytes.to_vec())
+        // Lecture par morceaux : on s'arrête dès que la limite est dépassée,
+        // même si le serveur n'a pas annoncé de taille.
+        let mut resp = resp;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = resp.chunk().await? {
+            bytes.extend_from_slice(&chunk);
+            anyhow::ensure!(bytes.len() <= MAX, "{url} : image trop lourde");
+        }
+        Ok(bytes)
     }
 
     pub async fn emoji_image(&self, emoji_id: &str) -> Result<Vec<u8>> {
@@ -917,6 +938,15 @@ impl Client {
         }
         let m: Member = self.get(&format!("/teams/{team_id}/members/me")).await?;
         Ok(m.scheme_admin || m.roles.split_whitespace().any(|r| r == "team_admin"))
+    }
+
+    /// Modifie la description (« purpose ») et l'en-tête d'un canal.
+    pub async fn patch_channel(&self, channel_id: &str, purpose: &str, header: &str) -> Result<Channel> {
+        self.put(
+            &format!("/channels/{channel_id}/patch"),
+            &serde_json::json!({ "purpose": purpose, "header": header }),
+        )
+        .await
     }
 
     pub async fn patch_team_description(&self, team_id: &str, description: &str) -> Result<Team> {

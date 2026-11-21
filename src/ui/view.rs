@@ -825,9 +825,27 @@ impl ChatApp {
 
         let bot_name = rich::override_username(post);
         // Bots (GitHub…) : longs messages réduits, dépliables.
-        let is_bot = post.from_bot() || bot_name.is_some() || self.users.get(&post.user_id).is_some_and(|u| u.is_bot);
-        let long_bot = is_bot && bot_post_lines(post) > 5;
+        let is_bot = post.is_bot_post() || bot_name.is_some() || self.users.get(&post.user_id).is_some_and(|u| u.is_bot);
+        let long_bot = is_bot && bot_post_lines(post) > 3;
         let condensed = long_bot && !self.expanded_bots.contains(&post.id);
+        // Messages successifs d'un même bot : un seul bloc, sans nom ni heure,
+        // comme une suite de cartes (l'heure apparaît au survol).
+        let bot_key = |p: &Post| {
+            let name = rich::override_username(p);
+            let bot = p.is_bot_post() || name.is_some() || self.users.get(&p.user_id).is_some_and(|u| u.is_bot);
+            bot.then(|| name.unwrap_or_else(|| p.user_id.clone()))
+        };
+        let my_key = if is_bot { bot_key(post) } else { None };
+        let next = list.get(ix + 1).map(|v| &v.post);
+        let run_prev = my_key.is_some() && !new_day && !first_new && prev.and_then(&bot_key) == my_key;
+        let run_next = my_key.is_some()
+            && next.is_some_and(|n| {
+                day_of(n.create_at) == day_of(post.create_at)
+                    && !(pane == Pane::Channel && self.first_new_index() == Some(ix + 1))
+                    && bot_key(n) == my_key
+            });
+        let bot_block = my_key.is_some();
+        let compact = compact || run_prev;
         let header = h_flex()
             .gap_2()
             .items_baseline()
@@ -905,7 +923,7 @@ impl ChatApp {
                                     let terms = format!("#{tag}");
                                     entity.update(cx, |this, cx| this.search_for(terms, window, cx));
                                 } else {
-                                    cx.open_url(url);
+                                    open_link(url, cx);
                                 }
                             }
                         }),
@@ -988,7 +1006,9 @@ impl ChatApp {
                     div()
                         .id(key("av"))
                         .cursor_pointer()
-                        .child(self.avatar(&post.user_id, AVATAR, p.center_bg))
+                        // Bloc de bot : petit avatar, aligné sur la première ligne.
+                        .when(bot_block, |d| d.pt(px(4.)).pl(px(AVATAR - 22.)))
+                        .child(self.avatar(&post.user_id, if bot_block { 22. } else { AVATAR }, p.center_bg))
                         .on_click(move |ev, window, cx| {
                             let (uid, at) = (uid.clone(), ev.position());
                             entity.update(cx, |this, cx| this.open_profile(uid, at, window, cx));
@@ -1004,8 +1024,13 @@ impl ChatApp {
             .gap_3()
             .w_full()
             .px_5()
-            .when(!compact, |el| el.pt_3())
-            .pb_1()
+            .map(|el| match (bot_block, run_prev) {
+                (true, true) => el,
+                (true, false) => el.pt_2(),
+                (false, _) if !compact => el.pt_3(),
+                _ => el,
+            })
+            .when(!(bot_block && run_next), |el| el.pb_1())
             .when(mine && !highlighted, |el| {
                 el.bg(p.button_bg.opacity(0.05)).border_l_2().border_color(p.button_bg.opacity(0.55))
             })
@@ -1017,20 +1042,26 @@ impl ChatApp {
                 v_flex()
                     .flex_1()
                     .min_w_0()
-                    .when(!compact, |el| el.child(header))
+                    .when(!compact && !bot_block, |el| el.child(header))
                     .child({
-                        let content = v_flex()
+                        let inner = v_flex()
                             .child(body)
                             .children(self.render_rich(entity, post, &key("rich"), &p))
                             .when(!post.metadata.files.is_empty(), |el| {
                                 el.child(self.render_files(entity, &post.metadata.files, &key("files"), &p))
                             });
-                        if condensed {
+                        // (bot déplié) : contenu entier, sans réduction de hauteur.
+                        let (inner, content_full) = if bot_block {
+                            (div().into_any_element(), inner.into_any_element())
+                        } else {
+                            (inner.into_any_element(), div().into_any_element())
+                        };
+                        let inner = if condensed && !bot_block {
                             div()
                                 .relative()
                                 .max_h(px(BOT_MAX_HEIGHT))
                                 .overflow_hidden()
-                                .child(content)
+                                .child(inner)
                                 .child(
                                     div().absolute().left_0().right_0().bottom_0().h(px(30.)).bg(linear_gradient(
                                         180.,
@@ -1040,12 +1071,11 @@ impl ChatApp {
                                 )
                                 .into_any_element()
                         } else {
-                            content.into_any_element()
-                        }
-                    })
-                    .when(long_bot, |el| {
+                            inner
+                        };
+                        let more = (long_bot && !bot_block).then(|| {
                         let (entity, id) = (entity.clone(), post.id.clone());
-                        el.child(
+                        {
                             h_flex()
                                 .id(key("bot-more"))
                                 .gap_1()
@@ -1060,8 +1090,71 @@ impl ChatApp {
                                 .on_click(move |_, _, cx| {
                                     let id = id.clone();
                                     entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
-                                }),
-                        )
+                                })
+                        }
+                        });
+                        if bot_block && !self.expanded_bots.contains(&post.id) {
+                            // Une ligne par notification : couleur, résumé tronqué ; clic pour déplier.
+                            let (summary, color) = bot_summary(post);
+                            let bar = color.as_deref().and_then(rich::attachment_color).and_then(crate::theme::parse_color);
+                            let (entity, id) = (entity.clone(), post.id.clone());
+                            h_flex()
+                                .id(key("bot-line"))
+                                .gap_2()
+                                .px_3()
+                                .h(px(30.))
+                                .bg(p.center_color.opacity(0.025))
+                                .border_l_1()
+                                .border_r_1()
+                                .border_t_1()
+                                .border_color(p.border())
+                                .when(!run_prev, |d| d.rounded_t(px(10.)))
+                                .when(!run_next, |d| d.border_b_1().rounded_b(px(10.)))
+                                .cursor_pointer()
+                                .hover(|d| d.bg(p.center_color.opacity(0.05)))
+                                .child(div().flex_none().w(px(3.)).h(px(14.)).rounded(px(2.)).bg(bar.unwrap_or(p.muted())))
+                                .child(div().flex_1().min_w_0().truncate().text_sm().child(summary))
+                                .child(Icon::new(IconName::ChevronRight).size(px(13.)).text_color(p.muted()).flex_none())
+                                .on_click(move |_, _, cx| {
+                                    let id = id.clone();
+                                    entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
+                                })
+                                .into_any_element()
+                        } else if bot_block {
+                            // Notification dépliée : contenu complet, « Réduire ».
+                            let (entity, id) = (entity.clone(), post.id.clone());
+                            v_flex()
+                                .px_3()
+                                .py_1p5()
+                                .bg(p.center_color.opacity(0.025))
+                                .border_l_1()
+                                .border_r_1()
+                                .border_t_1()
+                                .border_color(p.border())
+                                .when(!run_prev, |d| d.rounded_t(px(10.)))
+                                .when(!run_next, |d| d.border_b_1().rounded_b(px(10.)))
+                                .child(content_full)
+                                .child(
+                                    h_flex()
+                                        .id(key("bot-less"))
+                                        .gap_1()
+                                        .mt_0p5()
+                                        .text_xs()
+                                        .font_semibold()
+                                        .text_color(p.link)
+                                        .cursor_pointer()
+                                        .hover(|d| d.underline())
+                                        .child(Icon::new(IconName::ChevronDown).size(px(12.)))
+                                        .child("Réduire")
+                                        .on_click(move |_, _, cx| {
+                                            let id = id.clone();
+                                            entity.update(cx, |this, cx| this.toggle_bot_post(id, cx));
+                                        }),
+                                )
+                                .into_any_element()
+                        } else {
+                            v_flex().child(inner).children(more).into_any_element()
+                        }
                     })
                     .when(!post.metadata.reactions.is_empty(), |el| el.child(reaction_row))
                     .children(replies),
@@ -1429,10 +1522,10 @@ impl ChatApp {
     fn render_rich(&self, entity: &Entity<Self>, post: &Post, key: &SharedString, p: &Palette) -> Vec<AnyElement> {
         let p = *p;
         let mut out = Vec::new();
-        let open = |url: String| move |_: &ClickEvent, _: &mut Window, cx: &mut App| cx.open_url(&url);
+        let open = |url: String| move |_: &ClickEvent, _: &mut Window, cx: &mut App| open_link(&url, cx);
         let link_click = |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| {
             if !url.starts_with(markdown::MENTION_SCHEME) {
-                cx.open_url(url);
+                open_link(url, cx);
             }
         };
 
@@ -1922,8 +2015,16 @@ impl ChatApp {
             .children(badge)
             .child(
                 v_flex()
+                    .id("channel-title")
                     .flex_1()
                     .min_w(px(170.))
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, ev: &ClickEvent, window, cx| {
+                        this.open_channel_card(ev.position(), window, cx)
+                    }))
+                    .when(self.side.as_ref().is_some_and(|s| s.kind == PanelKind::Channel), |el| {
+                        el.text_color(p.button_bg)
+                    })
                     .child(
                         h_flex()
                             .gap_1()
@@ -1931,7 +2032,8 @@ impl ChatApp {
                             .text_size(px(16.))
                             .font_bold()
 
-                            .child(div().min_w_0().truncate().child(title))
+                            .child(div().min_w_0().truncate().hover(|s| s.underline()).child(title))
+                            .child(Icon::new(IconName::ChevronDown).size(px(14.)).text_color(p.muted()).flex_none())
                             .children(flags),
                     )
                     .when_some(subtitle, |el, sub| {
@@ -2106,6 +2208,7 @@ impl ChatApp {
         let team_bar = if self.teams.len() >= 2 { TEAM_BAR_WIDTH } else { 0. };
         let layout = h_flex()
             .id("chat-root")
+            .track_focus(&self.root_focus)
             .size_full()
             .bg(p.center_bg)
             .on_drag_move(cx.listener(move |this, ev: &DragMoveEvent<SidebarResize>, _, cx| {
@@ -2337,6 +2440,7 @@ impl ChatApp {
                     .unwrap_or_default(),
             ),
             PanelKind::Mentions => ("Mentions récentes".to_string(), "Toutes équipes".to_string()),
+            PanelKind::Channel => ("À propos".to_string(), String::new()),
             PanelKind::Files => (
                 "Fichiers".to_string(),
                 self.channel_id
@@ -2351,6 +2455,8 @@ impl ChatApp {
             self.render_threads_list(cx)
         } else if side.kind == PanelKind::Files {
             self.render_files_panel(cx)
+        } else if side.kind == PanelKind::Channel {
+            self.render_channel_info(cx).unwrap_or_else(|| div().into_any_element())
         } else {
             match &side.posts {
             None => div().p_5().text_color(p.muted()).child("Chargement…").into_any_element(),
@@ -2368,7 +2474,7 @@ impl ChatApp {
                     PanelKind::Search => "Aucun message ne correspond. Essayez d'autres mots, ou from:nom, in:canal.",
                     PanelKind::Threads => "",
                     PanelKind::Mentions => "Personne ne vous a mentionné récemment.",
-                    PanelKind::Files => "",
+                    PanelKind::Files | PanelKind::Channel => "",
                 })
                 .into_any_element(),
             Some(posts) => v_flex()
@@ -2422,7 +2528,7 @@ impl ChatApp {
                             div().text_size(px(BODY_TEXT)).line_clamp(6).child(
                                 TextView::markdown(
                                     SharedString::from(format!("side-text-{}", post.id)),
-                                    markdown::prepare_with(&post.message, &custom),
+                                    markdown::prepare_for(&post.message, &custom, Some(&post.channel_id)),
                                 )
                                 .image_source(emoji_resolver(self.custom_emojis.clone())),
                             ),
@@ -2648,11 +2754,10 @@ impl ChatApp {
         let is_admin = |id: &String| {
             channel_admins.is_some_and(|a| a.contains(id)) || self.users.get(id).is_some_and(|u| u.is_system_admin())
         };
-        let status = |id: &String| match self.statuses.get(id).map(String::as_str) {
-            Some(s @ ("online" | "away" | "dnd")) => s,
-            _ => "offline",
+        let status = |id: &String| {
+            self.statuses.get(id).map(String::as_str).filter(|s| matches!(*s, "online" | "away" | "dnd")).unwrap_or("offline")
         };
-        let groups: [(&str, Box<dyn Fn(&String) -> bool + '_>); 5] = [
+        let groups: [(&str, MemberFilter<'_>); 5] = [
             ("Administrateurs", Box::new(|id| is_admin(id))),
             ("En ligne", Box::new(|id| !is_admin(id) && status(id) == "online")),
             ("Absent", Box::new(|id| !is_admin(id) && status(id) == "away")),
@@ -3286,7 +3391,7 @@ impl ChatApp {
                 }
             }
         }
-        files.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+        files.sort_by_key(|x| std::cmp::Reverse(x.create_at));
         files
     }
 
@@ -3508,7 +3613,7 @@ impl ChatApp {
                                 .child(div().truncate().text_xs().text_color(p.link).child(l.url.clone()))
                                 .child(div().truncate().text_xs().text_color(p.muted()).child(meta(&l.user_id, l.at))),
                         )
-                        .on_click(move |_, _, cx| cx.open_url(&url))
+                        .on_click(move |_, _, cx| open_link(&url, cx))
                 }))
                 .into_any_element(),
         };
@@ -3811,6 +3916,177 @@ impl ChatApp {
                                 ),
                         ),
                 )
+                .into_any_element(),
+        )
+    }
+
+    /// Panneau du canal : pastille, nom, type, membres, création, description
+    /// et en-tête (modifiables), actions rapides.
+    fn render_channel_info(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let editing = self.channel_editing;
+        let id = self.channel_id.clone()?;
+        let state = self.channels.get(&id)?;
+        let channel = &state.channel;
+        let p = self.palette;
+        let kind = if channel.kind == "P" { "Canal privé" } else { "Canal public" };
+        let members = match self.members.get(&id) {
+            Some((_, total)) => format!("{total} membres"),
+            None => "Membres : chargement…".to_string(),
+        };
+        let since = (channel.create_at > 0).then(|| format!("Créé {}", day_label(channel.create_at).to_lowercase()));
+        let favorite = self.is_favorite(&id);
+        let section = |title: &'static str| div().text_xs().font_semibold().text_color(p.muted()).child(title);
+        let text_or = |text: &str, empty: &'static str| {
+            div()
+                .min_w_0()
+                .text_sm()
+                .when(text.is_empty(), |d| d.italic().text_color(p.muted()))
+                .child(if text.is_empty() { empty.to_string() } else { markdown::plain_text(text) })
+        };
+        let details: AnyElement = if editing {
+            v_flex()
+                .gap_2()
+                .child(section("Description"))
+                .child(Input::new(&self.channel_purpose_input))
+                .child(section("En-tête"))
+                .child(Input::new(&self.channel_header_input))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .justify_end()
+                        .child(Button::new("ch-card-cancel").label("Annuler").ghost().small().on_click(cx.listener(
+                            |this, _, _, cx| {
+                                this.channel_editing = false;
+                                cx.notify();
+                            },
+                        )))
+                        .child(
+                            Button::new("ch-card-save")
+                                .label("Enregistrer")
+                                .primary()
+                                .small()
+                                .on_click(cx.listener(|this, _, _, cx| this.save_channel_card(cx))),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            v_flex()
+                .gap_3()
+                .child(
+                    v_flex().gap_1().child(
+                        h_flex()
+                            .child(div().flex_1().child(section("Description")))
+                            .child(
+                                Button::new("ch-card-edit")
+                                    .icon(Icon::new(IconName::PencilLine))
+                                    .ghost()
+                                    .xsmall()
+                                    .tooltip("Modifier la description et l'en-tête")
+                                    .on_click(cx.listener(|this, _, window, cx| this.edit_channel_card(window, cx))),
+                            ),
+                    )
+                    .child(text_or(&channel.purpose, "Pas encore de description.")),
+                )
+                .child(v_flex().gap_1().child(section("En-tête")).child(text_or(&channel.header, "Pas d'en-tête.")))
+                .into_any_element()
+        };
+        let (fav_id, mute_id, link_id, add_id) = (id.clone(), id.clone(), id.clone(), id.clone());
+        let action = |key: &'static str, icon: IconName, label: &'static str| {
+            v_flex()
+                .id(key)
+                .flex_1()
+                .items_center()
+                .gap_1()
+                .py_2()
+                .rounded(px(8.))
+                .cursor_pointer()
+                .text_xs()
+                .text_color(p.center_color)
+                .hover(|s| s.bg(p.hover()))
+                .child(Icon::new(icon).size(px(17.)).text_color(p.button_bg))
+                .child(label)
+        };
+        Some(
+            v_flex()
+                .id("channel-info")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                        .child(div().h(px(56.)).bg(linear_gradient(
+                            120.,
+                            linear_color_stop(badge_color(&channel.name), 0.),
+                            linear_color_stop(p.sidebar_bg, 1.),
+                        )))
+                        .child(
+                            v_flex()
+                                .px_5()
+                                .pb_4()
+                                .gap_3()
+                                .child(
+                                    div()
+                                        .mt(-px(30.))
+                                        .p(px(4.))
+                                        .rounded(px(14.))
+                                        .bg(p.center_bg)
+                                        .w(px(60.))
+                                        .child(self.channel_badge(channel, 52., p.center_bg)),
+                                )
+                                .child(
+                                    v_flex()
+                                        .gap_0p5()
+                                        .child(div().text_size(px(19.)).font_bold().child(self.channel_title(channel)))
+                                        .child(div().text_sm().text_color(p.muted()).child(format!("{kind} · ~{}", channel.name))),
+                                )
+                                .child(
+                                    h_flex()
+                                        .gap_4()
+                                        .text_sm()
+                                        .child(
+                                            h_flex()
+                                                .gap_1p5()
+                                                .child(Icon::new(IconName::Users).size(px(15.)).text_color(p.muted()))
+                                                .child(members),
+                                        )
+                                        .when_some(since, |el, since| {
+                                            el.child(
+                                                h_flex()
+                                                    .gap_1p5()
+                                                    .child(Icon::new(IconName::Clock).size(px(15.)).text_color(p.muted()))
+                                                    .child(since),
+                                            )
+                                        }),
+                                )
+                                .child(div().pt_3().border_t_1().border_color(p.border()).child(details))
+                                .child(
+                                    h_flex()
+                                        .gap_1()
+                                        .pt_2()
+                                        .border_t_1()
+                                        .border_color(p.border())
+                                        .child(
+                                            action("ch-card-fav", IconName::Star, if favorite { "Retirer des favoris" } else { "Favori" })
+                                                .on_click(cx.listener(move |this, _, _, cx| this.toggle_favorite(fav_id.clone(), cx))),
+                                        )
+                                        .child(
+                                            action(
+                                                "ch-card-mute",
+                                                if state.muted { IconName::Bell } else { IconName::BellOff },
+                                                if state.muted { "Réactiver" } else { "Sourdine" },
+                                            )
+                                            .on_click(cx.listener(move |this, _, _, cx| this.toggle_muted(mute_id.clone(), cx))),
+                                        )
+                                        .child(
+                                            action("ch-card-link", IconName::Link, "Copier le lien")
+                                                .on_click(cx.listener(move |this, _, _, cx| this.copy_channel_link(&link_id, cx))),
+                                        )
+                                        .child(action("ch-card-add", IconName::UserPlus, "Ajouter").on_click(cx.listener(
+                                            move |this, _, window, cx| {
+                                                this.close_channel_card(cx);
+                                                this.open_add_members(add_id.clone(), window, cx)
+                                            },
+                                        ))),
+                                ),
+                        )
                 .into_any_element(),
         )
     }
@@ -4193,7 +4469,20 @@ impl ChatApp {
             (Some(image), None) => div()
                 .id("viewer-image")
                 .size_full()
-                .child(img(image.clone()).size_full().object_fit(ObjectFit::Contain))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child({
+                    // Pixels de l'image ramenés en pixels d'écran : jamais plus grande
+                    // que nature ; réduite seulement si elle dépasse la fenêtre.
+                    let (w, h) = (viewer.file.width as f32, viewer.file.height as f32);
+                    let picture = img(image.clone()).object_fit(ObjectFit::Contain).max_w_full().max_h_full();
+                    if w > 0. && h > 0. {
+                        picture.w(px(w / self.scale)).h(px(h / self.scale))
+                    } else {
+                        picture.size_full()
+                    }
+                })
                 // Un clic sur l'image ne ferme pas la visionneuse.
                 .on_click(|_, _, cx| cx.stop_propagation())
                 .into_any_element(),
@@ -4263,6 +4552,10 @@ impl ChatApp {
 
 impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.scale = window.scale_factor();
+        if self.screen == Screen::Chat && window.focused(cx).is_none() {
+            window.focus(&self.root_focus, cx);
+        }
         self.update_badge();
         self.apply_pending_text(window, cx);
         match self.screen {
@@ -4710,7 +5003,7 @@ mod badge_tests {
 }
 
 /// Hauteur d'un message de bot réduit.
-const BOT_MAX_HEIGHT: f32 = 110.;
+const BOT_MAX_HEIGHT: f32 = 92.;
 
 /// Estimation du nombre de lignes d'un message (texte et pièces jointes des
 /// intégrations), pour savoir s'il vaut la peine de le réduire.
@@ -4728,4 +5021,83 @@ fn bot_post_lines(post: &Post) -> usize {
         }
     }
     lines + post.metadata.files.len() * 3
+}
+
+/// Ouvre un lien d'un message : seulement le web et le courriel. Jamais
+/// `file:`, un chemin local ou un protocole qui lancerait un programme.
+fn open_link(url: &str, cx: &mut App) {
+    if is_safe_link(url) {
+        cx.open_url(url);
+    }
+}
+
+fn is_safe_link(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    ["https://", "http://", "mailto:"].iter().any(|p| lower.starts_with(p))
+}
+
+#[cfg(test)]
+mod link_safety_tests {
+    use super::is_safe_link;
+
+    #[test]
+    fn seuls_web_et_courriel() {
+        assert!(is_safe_link("https://github.com/x"));
+        assert!(is_safe_link("HTTP://exemple.org"));
+        assert!(is_safe_link("mailto:a@b.fr"));
+        assert!(!is_safe_link("file:///C:/Windows/System32/calc.exe"));
+        assert!(!is_safe_link("C:\\Windows\\notepad.exe"));
+        assert!(!is_safe_link("ms-settings:"));
+        assert!(!is_safe_link("javascript:alert(1)"));
+    }
+}
+
+/// Critère d'appartenance à un groupe de la liste des membres.
+type MemberFilter<'a> = Box<dyn Fn(&String) -> bool + 'a>;
+
+/// Résumé d'une notification de bot sur une ligne : chapeau et titre de la
+/// pièce jointe (sinon son texte, sinon le message), et sa couleur.
+fn bot_summary(post: &Post) -> (String, Option<String>) {
+    let first_line = |t: &str| markdown::plain_text(t).lines().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string();
+    if let Some(a) = rich::attachments(post).into_iter().next() {
+        let parts: Vec<String> = [first_line(&a.pretext), first_line(&a.title)].into_iter().filter(|s| !s.is_empty()).collect();
+        let summary = if parts.is_empty() {
+            [first_line(&a.text), first_line(&a.fallback), first_line(&post.message)].into_iter().find(|s| !s.is_empty()).unwrap_or_default()
+        } else {
+            parts.join(" — ")
+        };
+        let color = (!a.color.is_empty()).then(|| a.color.clone());
+        return (summary, color);
+    }
+    // Message Markdown (plugin GitHub) : les deux premières lignes, réunies.
+    let lines: Vec<String> = post
+        .message
+        .lines()
+        .map(|l| markdown::plain_text(l).trim().to_string())
+        .filter(|l| !l.is_empty())
+        .take(2)
+        .collect();
+    (lines.join(" — "), None)
+}
+
+#[cfg(test)]
+mod bot_tests {
+    use super::bot_summary;
+    use crate::api::Post;
+
+    #[test]
+    fn plugin_github_reconnu_et_resume() {
+        let post = Post {
+            message: "#### Corriger l'export\n##### [glpi/glpi#12](https://x) nouvelle pull request\n\nCorps".into(),
+            kind: "custom_git_pr".into(),
+            props: serde_json::json!({ "from_plugin": true }),
+            ..Default::default()
+        };
+        assert!(post.is_bot_post());
+        let (summary, _) = bot_summary(&post);
+        assert!(summary.starts_with("Corriger l'export — "), "{summary}");
+        assert!(summary.contains("glpi/glpi#12"), "{summary}");
+        // Un message ordinaire n'est pas un bot.
+        assert!(!Post { message: "salut".into(), ..Default::default() }.is_bot_post());
+    }
 }

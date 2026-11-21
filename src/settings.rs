@@ -23,8 +23,6 @@ pub struct UiSettings {
     pub recent_searches: Vec<String>,
     /// Barre de mise en forme visible au-dessus de la zone de saisie.
     pub show_formatting: bool,
-    /// Liens automatiques en plus de ceux du serveur (format du plugin Autolink).
-    pub autolinks: Vec<crate::autolink::RuleDef>,
 }
 
 impl Default for UiSettings {
@@ -36,7 +34,6 @@ impl Default for UiSettings {
             show_members: true,
             recent_searches: Vec::new(),
             show_formatting: false,
-            autolinks: Vec::new(),
         }
     }
 }

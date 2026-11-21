@@ -117,11 +117,10 @@ mod imp {
                     if list.Next(&mut item, Some(&mut fetched)).is_err() || fetched == 0 {
                         break;
                     }
-                    if let Ok(s) = item[0].to_string() {
-                        if s != word {
+                    if let Ok(s) = item[0].to_string()
+                        && s != word {
                             out.push(s);
                         }
-                    }
                     CoTaskMemFree(Some(item[0].0 as *const _));
                     if out.len() >= limit {
                         break;

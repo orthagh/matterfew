@@ -99,6 +99,15 @@ impl Demo {
             user("u4", "Lucas", "Moreau"),
             user("u5", "Inès", "Laurent"),
             user("u6", "Nathan", "Simon"),
+            {
+                // Compte du plugin GitHub (bot).
+                let mut bot = user("ugh", "GitHub", "Bot");
+                bot.username = "github".into();
+                bot.first_name = "GitHub".into();
+                bot.last_name = String::new();
+                bot.is_bot = true;
+                bot
+            },
         ];
         let channels = vec![
             channel("general", "O", "town-square", "Général", "Annonces et discussions pour toute l'équipe", now - h),
@@ -150,7 +159,7 @@ impl Demo {
         demo.add("design", "u5", now - 2 * day, "Nouvelle version de la page d'accueil :art: Vos avis ?", &[("heart", &["u1", "u3"])], 4);
         demo.add("design", "u1", now - 26 * h, "J'aime beaucoup la nouvelle typographie. Le contraste du bouton secondaire me semble un peu faible.", &[], 0);
 
-        demo.add("support", "u4", now - 6 * h, "Escalade client : export CSV vide depuis la mise à jour. Ticket **#4821**.", &[], 0);
+        demo.add("support", "u4", now - 6 * h, "Escalade client : export CSV vide depuis la mise à jour. Ticket **#4821**, support !4821.", &[], 0);
         demo.add("support", "u4", now - 5 * h, "@camille.martin tu peux regarder ? C'est lié à ton changement sur les filtres.", &[], 0);
 
         demo.add("veille", "u2", now - 3 * day, "Article intéressant sur GPUI, le framework d'interface de Zed :rocket:", &[("+1", &["u6"])], 0);
@@ -180,6 +189,7 @@ impl Demo {
                 file("f-d4", "tableau-de-bord.png", "image/png", 990_000, 1440, 960),
                 file("f-d5", "bandeau.jpg", "image/jpeg", 300_000, 2400, 800),
                 file("f-d6", "carte.png", "image/png", 520_000, 1200, 1500),
+                file("f-d7", "pastille.png", "image/png", 12_000, 240, 160),
             ],
         );
         demo.add_with_files(
@@ -251,6 +261,45 @@ La migration des recherches enregistrées est automatique.",
                     "footer": "GitHub"
                 }]
             });
+        }
+        demo.add("backend", "u6", now - 79 * m, "", &[], 0);
+        if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 79 * m)) {
+            post.props = serde_json::json!({
+                "from_bot": "true",
+                "override_username": "github",
+                "attachments": [{
+                    "color": "#2da44e",
+                    "pretext": "[glpi-project/glpi] Vérifications réussies sur #18342",
+                    "text": "Toutes les vérifications sont passées (42 tâches).",
+                    "footer": "GitHub Actions"
+                }]
+            });
+        }
+        demo.add("backend", "u6", now - 78 * m, "", &[], 0);
+        if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 78 * m)) {
+            post.props = serde_json::json!({
+                "from_bot": "true",
+                "override_username": "github",
+                "attachments": [{
+                    "color": "#8250df",
+                    "pretext": "[glpi-project/glpi] lea-bernard a approuvé #18342",
+                    "text": "Relu, rien à redire. Merci pour les tests de bout en bout sur l'export.
+On peut fusionner après la passe de traduction.
+Pense à la note de version.",
+                    "footer": "GitHub"
+                }]
+            });
+        }
+        // Plugin GitHub : messages Markdown postés par son bot, sans pièce jointe.
+        for (k, text) in [
+            (77, "#### Corriger l'export des tickets fusionnés\n##### [glpi-project/glpi#18350](https://github.com/glpi-project/glpi/pull/18350) nouvelle pull request de [nathan-simon](https://github.com/nathan-simon)\n\nCorrige la fusion des colonnes calculées dans l'export CSV."),
+            (76, "[glpi-project/glpi] Nouveau commentaire de [lea-bernard](https://github.com/lea-bernard) sur [#18350 Corriger l'export des tickets fusionnés](https://github.com/glpi-project/glpi/pull/18350) :\n> Ajoute un test sur les colonnes vides, sinon parfait."),
+        ] {
+            demo.add("backend", "ugh", now - k * m, text, &[], 0);
+            if let Some(post) = demo.posts.get_mut("backend").and_then(|l| l.iter_mut().find(|p| p.create_at == now - k * m)) {
+                post.props = serde_json::json!({ "from_plugin": "true" });
+                post.kind = "custom_git_pr".into();
+            }
         }
         demo.add("veille", "u2", now - 2 * day, "À lire : https://example.org/gpui-zed", &[], 0);
         if let Some(post) = demo.posts.get_mut("veille").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * day)) {
@@ -599,7 +648,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             }
         }
         Command::PostAction { .. }
-        | Command::ExecuteCommand { .. }
+        | Command::Slash { .. }
         | Command::MarkUnread { .. }
         | Command::UpdateCategories { .. }
         | Command::SetMuted { .. }
@@ -647,11 +696,10 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                     let post = demo.posts.values().flatten().find(|p| &p.id == root)?.clone();
                     let mut participants: Vec<User> = Vec::new();
                     for r in replies {
-                        if let Some(u) = demo.users.iter().find(|u| u.id == r.user_id) {
-                            if !participants.iter().any(|p| p.id == u.id) {
+                        if let Some(u) = demo.users.iter().find(|u| u.id == r.user_id)
+                            && !participants.iter().any(|p| p.id == u.id) {
                                 participants.push(u.clone());
                             }
-                        }
                     }
                     Some(crate::api::UserThread {
                         id: root.clone(),
@@ -664,7 +712,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                     })
                 })
                 .collect();
-            threads.sort_by(|a, b| b.last_reply_at.cmp(&a.last_reply_at));
+            threads.sort_by_key(|x| std::cmp::Reverse(x.last_reply_at));
             send(Event::Threads(threads));
         }
         Command::MarkThreadRead { .. } => {}
@@ -679,6 +727,13 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 team_type: "I".into(),
                 ..Default::default()
             }))
+        }
+        Command::PatchChannel { channel_id, purpose, header } => {
+            if let Some(c) = demo.channels.iter_mut().find(|c| c.id == channel_id) {
+                c.purpose = purpose;
+                c.header = header;
+                send(Event::ChannelUpdated(c.clone()));
+            }
         }
         Command::SearchUsersForChannel { channel_id, term, .. } => {
             // Démo : les canaux privés n'ont que trois membres.
@@ -723,7 +778,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 .filter(|p| match kind {
                     SideKind::Pinned => p.channel_id == channel_id && p.is_pinned,
                     SideKind::Saved => demo.saved.contains(&p.id),
-                    SideKind::Threads | SideKind::Files => false,
+                    SideKind::Threads | SideKind::Files | SideKind::Channel => false,
                     SideKind::Mentions => p.message.contains("@camille.martin"),
                     SideKind::Search => {
                         !terms.is_empty()
@@ -732,7 +787,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 })
                 .cloned()
                 .collect();
-            posts.sort_by(|a, b| b.create_at.cmp(&a.create_at));
+            posts.sort_by_key(|x| std::cmp::Reverse(x.create_at));
             send(Event::SidePosts { kind, posts });
         }
         Command::PinPost { post_id, pin } => {

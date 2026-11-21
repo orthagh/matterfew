@@ -93,14 +93,13 @@ pub fn run_login_window(server_url: &str) -> ! {
                 if !url.starts_with(&server) || on_login_pages || started.elapsed() < Duration::from_secs(1) {
                     return;
                 }
-                if let Ok(cookies) = webview.cookies_for_url(&server) {
-                    if let Some(cookie) = cookies.iter().find(|c| c.name() == "MMAUTHTOKEN") {
+                if let Ok(cookies) = webview.cookies_for_url(&server)
+                    && let Some(cookie) = cookies.iter().find(|c| c.name() == "MMAUTHTOKEN") {
                         let mut out = std::io::stdout();
                         let _ = writeln!(out, "{TOKEN_PREFIX}{}", cookie.value());
                         let _ = out.flush();
                         std::process::exit(0);
                     }
-                }
             }
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => std::process::exit(2),
             _ => {}
