@@ -150,6 +150,21 @@ impl Demo {
         demo.add("general", "u3", now - day - 2 * h + 2 * m, "Le modèle est dans le drive partagé > *Présentations*.", &[], 0);
         demo.add("general", ME, now - 5 * h, "Merci @chloe.durand ! J'ajoute la partie sur les performances.", &[("heart", &["u3"])], 0);
         demo.add("general", "u4", now - 2 * h, "Rappel : la mise en production de la **v2.4** est prévue ce soir.\n\n- gel des fusions à 17h\n- déploiement à 19h\n- vérifications à 19h30", &[("eyes", &["u1", "u2"])], 1);
+        // Réponse éphémère d'une commande « /github subscriptions list ».
+        demo.add(
+            "general",
+            "ugh",
+            now - 2 * m,
+            "##### Subscriptions in this channel
+* glpi-project/doc - pulls,issues,creates,deletes --render-style collapsed
+* glpi-project/glpi - pulls,issues,creates,deletes --render-style collapsed
+* glpi-project/roadmap - pulls,issues --render-style collapsed",
+            &[],
+            0,
+        );
+        if let Some(post) = demo.posts.get_mut("general").and_then(|l| l.iter_mut().find(|p| p.create_at == now - 2 * m)) {
+            post.kind = "system_ephemeral".into();
+        }
         demo.add("general", "u1", now - h - 5 * m, "Ordre du jour de lundi :
 1. point sur la version 12
 2. recette du client GPUI
