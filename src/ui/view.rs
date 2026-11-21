@@ -594,8 +594,7 @@ impl ChatApp {
                         .child(count.to_string()),
                 )
                 .when(unread_inside, |el| el.child(div().flex_none().size(px(7.)).rounded_full().bg(p.sidebar_unread)))
-                // Filet qui prolonge le titre jusqu'au bord.
-                .child(div().flex_1().h(px(1.)).ml_1().bg(p.sidebar_text.opacity(0.10)))
+                .child(div().flex_1())
                 .children(options);
             list = list.child(header);
             for channel_id in &section.channel_ids {
@@ -623,6 +622,7 @@ impl ChatApp {
             .on_drag(SidebarResize, |_, _, _, cx| cx.new(|_| SidebarResize));
 
         let open_team = cx.listener(|this, _, _, cx| this.open_team_card(cx));
+        let goto = cx.listener(|this, _, window, cx| this.open_switcher(window, cx));
         v_flex()
             .relative()
             .w(px(self.settings.sidebar_width))
@@ -666,6 +666,35 @@ impl ChatApp {
                                 .child("DÉMO"),
                         )
                     }),
+            )
+            // Comme le client officiel : un champ qui ouvre le sélecteur (Ctrl+K).
+            .child(
+                div().flex_none().px_3().pt_3().pb_1().child(
+                    h_flex()
+                        .id("goto-channel")
+                        .h(px(32.))
+                        .px_3()
+                        .gap_2()
+                        .rounded(px(8.))
+                        .bg(p.sidebar_text.opacity(0.08))
+                        .hover(|s| s.bg(p.sidebar_text.opacity(0.13)))
+                        .cursor_pointer()
+                        .text_sm()
+                        .text_color(p.sidebar_text.opacity(0.7))
+                        .child(Icon::new(IconName::Search).size(px(14.)))
+                        .child(div().flex_1().truncate().child("Aller à un canal…"))
+                        .child(
+                            div()
+                                .flex_none()
+                                .px_1p5()
+                                .rounded(px(5.))
+                                .border_1()
+                                .border_color(p.sidebar_text.opacity(0.2))
+                                .text_size(px(10.5))
+                                .child("Ctrl K"),
+                        )
+                        .on_click(goto),
+                ),
             )
             .child(list)
             .child(
@@ -1029,8 +1058,14 @@ impl ChatApp {
         });
 
         // Colonne de gauche : avatar, ou heure au survol des messages groupés.
+        let media_only = {
+            let m = post.message.trim();
+            m.is_empty() || (!m.contains(char::is_whitespace) && (m.starts_with("http://") || m.starts_with("https://")))
+        };
         let left = div().w(px(AVATAR)).flex_none().map(|el| {
-            if compact {
+            if compact && (media_only || bot_block) {
+                el
+            } else if compact {
                 el.pt(px(3.))
                     .text_size(px(10.))
                     .text_color(p.muted())
@@ -1044,8 +1079,7 @@ impl ChatApp {
                         .id(key("av"))
                         .cursor_pointer()
                         // Bloc de bot : petit avatar, aligné sur la première ligne.
-                        .when(bot_block, |d| d.pt(px(4.)).pl(px(AVATAR - 22.)))
-                        .child(self.avatar(&post.user_id, if bot_block { 22. } else { AVATAR }, p.center_bg))
+                        .child(self.avatar(&post.user_id, AVATAR, p.center_bg))
                         .on_click(move |ev, window, cx| {
                             let (uid, at) = (uid.clone(), ev.position());
                             entity.update(cx, |this, cx| this.open_profile(uid, at, window, cx));
@@ -1160,15 +1194,28 @@ impl ChatApp {
                                     div()
                                         .flex_1()
                                         .min_w_0()
-                                        .truncate()
+                                        .max_h(px(20.))
+                                        .overflow_hidden()
                                         .text_sm()
-                                        .when(!expanded, |d| d.child(summary)),
+                                        .when(!expanded, |d| {
+                                            d.child(
+                                                TextView::markdown(
+                                                    key("bot-sum"),
+                                                    markdown::prepare_for(&summary, &[], Some(&post.channel_id)),
+                                                )
+                                                .selectable(false)
+                                                .max_lines(1)
+                                                .on_link_click(|url, _, _, cx| open_link(url, cx)),
+                                            )
+                                        }),
                                 )
                                 .child(meta);
                             // Au repos : rien qu'une ligne ; au survol, un fond et une bordure.
                             v_flex()
                                 .id(key("bot-line"))
-                                .px_3()
+                                .ml(-px(10.))
+                                .pl(px(9.))
+                                .pr_3()
                                 .rounded(px(8.))
                                 .border_1()
                                 .border_color(transparent_black())
@@ -1385,8 +1432,6 @@ impl ChatApp {
                 .px_2()
                 .py_1()
                 .gap_1()
-                .border_b_1()
-                .border_color(p.center_color.opacity(0.08))
                 .child(format_button(Format::Bold, IconName::Bold, cx))
                 .child(format_button(Format::Italic, IconName::Italic, cx))
                 .child(format_button(Format::Strike, IconName::Strikethrough, cx))
@@ -1910,9 +1955,13 @@ impl ChatApp {
                 },
                 _ => div()
                     .w(px(22.))
-                    .text_center()
+                    .flex()
+                    .justify_center()
                     .text_color(p.muted())
-                    .child(if item.label.starts_with('~') { "#" } else { "/" })
+                    .child(
+                        Icon::new(if item.label.starts_with('~') { IconName::Hash } else { IconName::SquareTerminal })
+                            .size(px(15.)),
+                    )
                     .into_any_element(),
             };
             h_flex()
@@ -2449,8 +2498,6 @@ impl ChatApp {
                         v_flex()
                             .gap_2()
                             .pt_3()
-                            .border_t_1()
-                            .border_color(p.border())
                             .child(
                                 h_flex()
                                     .gap_2()
@@ -2620,8 +2667,6 @@ impl ChatApp {
                         .px_5()
                         .py_3()
                         .gap_1()
-                        .border_b_1()
-                        .border_color(p.border())
                         .cursor_pointer()
                         .hover(|s| s.bg(p.hover()))
                         .child(
@@ -2767,8 +2812,6 @@ impl ChatApp {
                     .px_5()
                     .py_3()
                     .gap_1()
-                    .border_b_1()
-                    .border_color(p.border())
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover()))
                     .child(
@@ -2917,7 +2960,7 @@ impl ChatApp {
                     )
                     .child(div().flex_none().child(title))
                     .child(div().flex_none().text_size(px(11.)).font_semibold().text_color(p.muted()).child(people.len().to_string()))
-                    .child(div().flex_1().h(px(1.)).ml_1().bg(p.border()))
+                    .child(div().flex_1())
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_member_group(title, cx))),
             );
             if collapsed {
@@ -3027,8 +3070,6 @@ impl ChatApp {
                 .gap_1p5()
                 .px_3()
                 .py_1p5()
-                .border_b_1()
-                .border_color(p.center_color.opacity(0.08))
                 .text_xs()
                 .child(Icon::new(IconName::SpellCheck).size(px(14.)).text_color(p.error))
                 .child(div().text_color(p.muted()).child("Orthographe :"))
@@ -3661,8 +3702,6 @@ impl ChatApp {
                         .gap_3()
                         .px_4()
                         .py_2p5()
-                        .border_b_1()
-                        .border_color(p.border())
                         .hover(|s| s.bg(p.hover()))
                         .child(div().text_size(px(24.)).child(file_icon(&f.extension)))
                         .child(
@@ -3723,8 +3762,6 @@ impl ChatApp {
                         .gap_3()
                         .px_4()
                         .py_2p5()
-                        .border_b_1()
-                        .border_color(p.border())
                         .cursor_pointer()
                         .hover(|s| s.bg(p.hover()))
                         .child(
@@ -4023,8 +4060,6 @@ impl ChatApp {
                                     v_flex()
                                         .gap_2()
                                         .pt_3()
-                                        .border_t_1()
-                                        .border_color(p.border())
                                         .child(
                                             h_flex()
                                                 .gap_2()
@@ -4198,13 +4233,11 @@ impl ChatApp {
                                             )
                                         }),
                                 )
-                                .child(div().pt_3().border_t_1().border_color(p.border()).child(details))
+                                .child(div().pt_3().child(details))
                                 .child(
                                     h_flex()
                                         .gap_1()
                                         .pt_2()
-                                        .border_t_1()
-                                        .border_color(p.border())
                                         .child(
                                             action("ch-card-fav", IconName::Star, if favorite { "Retirer des favoris" } else { "Favori" })
                                                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_favorite(fav_id.clone(), cx))),
@@ -5202,9 +5235,17 @@ type MemberFilter<'a> = Box<dyn Fn(&String) -> bool + 'a>;
 /// Résumé d'une notification de bot sur une ligne : chapeau et titre de la
 /// pièce jointe (sinon son texte, sinon le message), et sa couleur.
 fn bot_summary(post: &Post) -> (String, Option<String>) {
-    let first_line = |t: &str| markdown::plain_text(t).lines().find(|l| !l.trim().is_empty()).unwrap_or_default().trim().to_string();
+    // Markdown d'une ligne : sans titre « ### », citation « > » ni puce, liens gardés.
+    let clean = |l: &str| {
+        let l = l.trim().trim_start_matches('#').trim_start_matches('>').trim();
+        let l = l.strip_prefix("- ").or_else(|| l.strip_prefix("* ")).unwrap_or(l);
+        l.trim().to_string()
+    };
+    let first_line = |t: &str| t.lines().map(clean).find(|l| !l.is_empty()).unwrap_or_default();
     if let Some(a) = rich::attachments(post).into_iter().next() {
-        let parts: Vec<String> = [first_line(&a.pretext), first_line(&a.title)].into_iter().filter(|s| !s.is_empty()).collect();
+        let title = first_line(&a.title);
+        let title = if title.is_empty() || a.title_link.is_empty() { title } else { format!("[{title}]({})", a.title_link) };
+        let parts: Vec<String> = [first_line(&a.pretext), title].into_iter().filter(|s| !s.is_empty()).collect();
         let summary = if parts.is_empty() {
             [first_line(&a.text), first_line(&a.fallback), first_line(&post.message)].into_iter().find(|s| !s.is_empty()).unwrap_or_default()
         } else {
@@ -5214,13 +5255,7 @@ fn bot_summary(post: &Post) -> (String, Option<String>) {
         return (summary, color);
     }
     // Message Markdown (plugin GitHub) : les deux premières lignes, réunies.
-    let lines: Vec<String> = post
-        .message
-        .lines()
-        .map(|l| markdown::plain_text(l).trim().to_string())
-        .filter(|l| !l.is_empty())
-        .take(2)
-        .collect();
+    let lines: Vec<String> = post.message.lines().map(clean).filter(|l| !l.is_empty()).take(2).collect();
     (lines.join(" — "), None)
 }
 
