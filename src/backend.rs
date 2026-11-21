@@ -579,6 +579,11 @@ async fn run(
         let (id, update) = (team.id.clone(), team.last_team_icon_update);
         tokio::spawn(async move {
             if let Ok(bytes) = ctx.client.team_image(&id, update).await {
+                // Réduit ici (filtre de qualité) : affiché en 40 px, net même à 200 %.
+                let bytes =
+                    tokio::task::spawn_blocking(move || crate::thumbs::downscale_png(&bytes, 96).unwrap_or(bytes))
+                        .await
+                        .unwrap_or_default();
                 ctx.emit(Event::TeamIcon { team_id: id, bytes: Arc::new(bytes) }).await;
             }
         });

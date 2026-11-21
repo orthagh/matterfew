@@ -21,6 +21,7 @@ mod sidebar;
 mod spell;
 mod sso;
 mod theme;
+mod thumbs;
 mod ui;
 
 use gpui_kit::*;

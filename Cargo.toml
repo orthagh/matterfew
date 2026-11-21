@@ -38,7 +38,7 @@ wry = "0.57"
 tao = "0.37"
 
 # Icône de l'application (générée au démarrage)
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 raw-window-handle = "0.6"
 chrono-tz = "0.10"
 twemoji-assets = "1.5"

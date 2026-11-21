@@ -10,7 +10,13 @@ version = 2
 # pour nos dépendances directes.
 unmaintained = "workspace"
 yanked = "warn"
-ignore = []
+ignore = [
+  # chrono : utilisée par GPUI lui-même (impossible à retirer de notre côté),
+  # « non maintenue » sans faille connue. Remplacement par jiff à envisager
+  # quand GPUI aura migré.
+  { id = "RUSTSEC-2026-0543", reason = "transitive via GPUI, no known vulnerability" },
+  { id = "RUSTSEC-2026-0555", reason = "depends on chrono; time zones of the profile card" },
+]
 
 [licenses]
 version = 2
