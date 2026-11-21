@@ -33,7 +33,7 @@ emojis = "0.7"
 
 # Mémorisation de la connexion (jeton dans le coffre du système)
 keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
-dirs = "6"
+dirs = "7"
 wry = "0.57"
 tao = "0.37"
 
