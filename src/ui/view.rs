@@ -295,7 +295,11 @@ impl ChatApp {
                                     .line_height(px(15.))
                                     .pb(px(1.))
                                     .font_bold()
-                                    .child(if mentions > 99 { "99+".to_string() } else { mentions.to_string() }),
+                                    .child(centered_digits(
+                                        if mentions > 99 { "99+".to_string() } else { mentions.to_string() },
+                                        10.,
+                                        cx,
+                                    )),
                             )
                         })
                         .when(unread && mentions == 0, |el| {
@@ -417,7 +421,7 @@ impl ChatApp {
                             .font_bold()
                             .bg(p.mention_bg)
                             .text_color(p.mention_color)
-                            .child(state.mentions.to_string()),
+                            .child(centered_digits(state.mentions.to_string(), 11., cx)),
                     )
                 })
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -5782,4 +5786,39 @@ mod expand_tests {
 /// Sens des dégradés : vers le clair en thème sombre, vers le foncé sinon.
 fn depth(p: &Palette, amount: f32) -> f32 {
     if p.center_bg.l < 0.5 { amount } else { -amount }
+}
+
+/// Chiffres d'une pastille, centrés sur leur dessin et non sur leur boîte :
+/// certains glyphes (le « 1 » de Segoe UI…) ont leur encre décalée dans leur
+/// largeur. Le décalage est calculé avec les mesures de la police.
+fn centered_digits(text: String, size: f32, cx: &App) -> Div {
+    let shift = ink_shift(&text, px(size), cx).unwrap_or_default();
+    div().relative().left(shift).child(text)
+}
+
+/// Écart horizontal entre le centre de la boîte d'un texte et le centre de son encre.
+fn ink_shift(text: &str, size: Pixels, cx: &App) -> Option<Pixels> {
+    let system = cx.text_system();
+    let mut font = font(cx.theme().font_family.clone());
+    font.weight = FontWeight::BOLD;
+    let id = system.resolve_font(&font);
+    let (mut x, mut left, mut right) = (px(0.), None, px(0.));
+    for c in text.chars() {
+        let ink = system.typographic_bounds(id, size, c).ok()?;
+        let advance = system.advance(id, size, c).ok()?.width;
+        left.get_or_insert(x + ink.origin.x);
+        right = x + ink.origin.x + ink.size.width;
+        x += advance;
+    }
+    let shift = x / 2. - (left? + right) / 2.;
+    // Au pixel entier : un décalage de moins d'un pixel serait arrondi à rien
+    // à l'affichage. Garde-fou : jamais plus d'un quart de la taille du texte.
+    let shift = if shift > px(0.2) {
+        shift.ceil()
+    } else if shift < px(-0.2) {
+        shift.floor()
+    } else {
+        px(0.)
+    };
+    Some(shift.clamp(-size / 4., size / 4.))
 }
