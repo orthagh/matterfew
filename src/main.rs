@@ -18,6 +18,7 @@ mod editor;
 mod emoji;
 mod fuzzy;
 mod icons;
+mod live_markdown;
 mod locale;
 mod markdown;
 mod migrate;

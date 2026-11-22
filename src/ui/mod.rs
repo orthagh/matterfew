@@ -2565,6 +2565,16 @@ impl ChatApp {
                 after(self, 400, window, cx, |this, _, cx| this.open_notify_dialog("general".into(), cx))
             }
             "fils" => after(self, 600, window, cx, |this, _, cx| this.open_threads_panel(true, cx)),
+            "editeur-riche" => after(self, 500, window, cx, |this, window, cx| {
+                // Sans enregistrer : la démo ne touche pas aux réglages locaux.
+                this.settings.rich_editor = true;
+                let text = t!("demo.rich_draft").to_string();
+                this.composer.update(cx, |s, cx| {
+                    s.set_value(text, window, cx);
+                    s.focus(window, cx);
+                });
+                this.check_spelling(Pane::Channel, cx);
+            }),
             "aide-markdown" => after(self, 500, window, cx, |this, _, cx| this.open_markdown_help(cx)),
             "envoi-fichier" => after(self, 500, window, cx, |this, window, cx| {
                 this.server_config.insert("MaxPostSize".into(), "300".into());
@@ -2751,15 +2761,18 @@ impl ChatApp {
         cx.notify();
     }
 
-    /// Souligne les mots inconnus du correcteur dans une zone de saisie.
+    /// Décorations d'une zone de saisie : mots inconnus du correcteur
+    /// soulignés, et mise en forme visible avec l'éditeur riche (bêta).
     fn check_spelling(&mut self, pane: Pane, cx: &mut Context<Self>) {
-        let Some(checker) = &self.spell else { return };
         let state = self.composer_for(pane);
         let text = state.read(cx).value().to_string();
         // Une commande « / » n'est pas du texte à corriger.
-        let found = if text.trim_start().starts_with('/') { Vec::new() } else { checker.check(&text, 12) };
+        let found = match &self.spell {
+            Some(checker) if !text.trim_start().starts_with('/') => checker.check(&text, 12),
+            _ => Vec::new(),
+        };
         let color = self.palette.error;
-        let decorations = found
+        let mut decorations: Vec<gpui_kit::component::input::TextDecoration> = found
             .iter()
             .map(|m| gpui_kit::component::input::TextDecoration {
                 range: m.range.clone(),
@@ -2769,6 +2782,11 @@ impl ChatApp {
                 },
             })
             .collect();
+        if self.settings.rich_editor {
+            decorations.extend(self.live_markdown_decorations(&text));
+            // La zone de saisie cherche les décorations visibles dans une liste triée.
+            decorations.sort_by_key(|d| (d.range.start, d.range.end));
+        }
         state.update(cx, |s, cx| s.set_decorations(decorations, cx));
         if found.is_empty() {
             self.misspellings.remove(&pane);
@@ -2809,6 +2827,53 @@ impl ChatApp {
             checker.add(&word);
         }
         self.check_spelling(pane, cx);
+    }
+
+    /// Styles de l'éditeur riche pour un texte saisi.
+    fn live_markdown_decorations(&self, text: &str) -> Vec<gpui_kit::component::input::TextDecoration> {
+        use crate::live_markdown::Span;
+        let p = self.palette;
+        let faint = p.center_bg.blend(p.center_color.opacity(0.38));
+        let quote = p.center_bg.blend(p.center_color.opacity(0.62));
+        crate::live_markdown::spans(text)
+            .into_iter()
+            .map(|(range, span)| {
+                let style = match span {
+                    // Couleurs opaques : la transparence d'une couleur de texte n'est pas rendue ici.
+                    Span::Marker => HighlightStyle { color: Some(faint), ..Default::default() },
+                    Span::Bold | Span::Heading => {
+                        HighlightStyle { font_weight: Some(FontWeight::BOLD), ..Default::default() }
+                    }
+                    Span::Italic => HighlightStyle { font_style: Some(FontStyle::Italic), ..Default::default() },
+                    Span::Strike => HighlightStyle {
+                        strikethrough: Some(StrikethroughStyle { thickness: px(1.), color: None }),
+                        ..Default::default()
+                    },
+                    Span::Code => HighlightStyle {
+                        background_color: Some(p.center_color.opacity(0.07)),
+                        color: Some(p.error.opacity(0.9)),
+                        ..Default::default()
+                    },
+                    Span::Link => HighlightStyle {
+                        color: Some(p.link),
+                        underline: Some(UnderlineStyle { color: Some(p.link), thickness: px(1.), wavy: false }),
+                        ..Default::default()
+                    },
+                    Span::Quote => HighlightStyle { color: Some(quote), ..Default::default() },
+                    Span::ListMarker => HighlightStyle {
+                        color: Some(p.button_bg),
+                        font_weight: Some(FontWeight::BOLD),
+                        ..Default::default()
+                    },
+                    Span::Mention => HighlightStyle {
+                        color: Some(p.link),
+                        font_weight: Some(FontWeight::SEMIBOLD),
+                        ..Default::default()
+                    },
+                };
+                gpui_kit::component::input::TextDecoration { range, style }
+            })
+            .collect()
     }
 
     fn toggle_formatting(&mut self, cx: &mut Context<Self>) {

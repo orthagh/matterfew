@@ -39,6 +39,10 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 - Aide à la mise en forme (bouton « ? » de la zone de saisie) : ce qu'on
   écrit et ce qu'on obtient.
 - Panneau de droite agrandi (bouton de son en-tête, Ctrl+Maj+.).
+- Éditeur riche (bêta, Paramètres > Avancé) : la mise en forme s'affiche
+  pendant la saisie (gras, italique, code, liens, titres, citations,
+  listes, mentions), les marques Markdown restent visibles mais
+  estompées ; le message envoyé ne change pas.
 - Coloration syntaxique des blocs de code (environ 200 langages), aux
   couleurs du thème clair ou sombre.
 

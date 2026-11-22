@@ -695,6 +695,24 @@ fn e2e_limites_envoi_aide_et_panneau_large() {
 }
 
 #[test]
+fn e2e_editeur_riche() {
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.settings.rich_editor = true;
+        a.composer.update(cx, |s, cx| s.set_value("un **gras** et `code`", window, cx));
+        a.check_spelling(Pane::Channel, cx);
+    });
+    w.1.read(|a, cx| assert!(a.composer.read(cx).decorations().len() >= 4));
+    w.1.draw();
+    w.1.update(|a, _, cx| {
+        a.settings.rich_editor = false;
+        a.check_spelling(Pane::Channel, cx);
+    });
+    // Sans correcteur (cas des tests) : plus aucune décoration.
+    w.1.read(|a, cx| assert!(a.spell.is_some() || a.composer.read(cx).decorations().is_empty()));
+}
+
+#[test]
 fn e2e_signets_apercu_pdf_et_f6() {
     let mut w = demo_app();
     wait_for(&w, "signets chargés", |a| a.bookmarks.get("general").is_some_and(|b| b.len() == 3));

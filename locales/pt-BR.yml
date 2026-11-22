@@ -101,6 +101,7 @@ team:
   created: "Criada %{day}"
   edit_description: "Editar descrição"
 demo:
+  rich_draft: "## Versão 0.3\n\n**Feito**: as _palavras-chave_ destacadas e a janela de `configurações`.\n> Obrigado @nathan.simon pela revisão!\n\n- [notas](https://example.org/notes)\n- ~~exportação antiga~~ removida"
   long_draft: "Resumo desta manhã: a correção da exportação CSV foi mesclada, o índice dos tickets está em produção e o CI voltou ao verde. Falta antes de sexta: verificar as consultas lentas da busca, atualizar as notas de versão e pedir ao suporte que teste a nova versão."
   team_research: "Pesquisa & inovação"
   team_research_description: "Protótipos, observação tecnológica e cadernos de laboratório."
@@ -704,6 +705,8 @@ a11y:
   messages: "Mensagens"
   members: "Membros"
 settings:
+  rich_editor: "Editor avançado (beta)"
+  rich_editor_hint: "A formatação aparece enquanto você digita; a mensagem continua em Markdown. Somente neste computador."
   menu: "Configurações…"
   title: "Configurações"
   server_hint: "Salvas no servidor: valem também para o aplicativo web."

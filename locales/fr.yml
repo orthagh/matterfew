@@ -101,6 +101,7 @@ team:
   created: "Créée %{day}"
   edit_description: "Modifier la description"
 demo:
+  rich_draft: "## Version 0.3\n\n**Fait** : les _mots-clés_ surlignés et la fenêtre `paramètres`.\n> Merci @nathan.simon pour la relecture !\n\n- [notes](https://example.org/notes)\n- ~~ancien export~~ retiré"
   long_draft: "Point de ce matin : la correction de l’export CSV est fusionnée, l’index sur les tickets est en production et la CI est de nouveau verte. Reste avant vendredi : vérifier les requêtes lentes de la recherche, mettre à jour les notes de version et faire tester la nouvelle version au support."
   team_research: "Recherche & innovation"
   team_research_description: "Prototypes, veille technologique et carnets de labo."
@@ -704,6 +705,8 @@ a11y:
   messages: "Messages"
   members: "Membres"
 settings:
+  rich_editor: "Éditeur riche (bêta)"
+  rich_editor_hint: "La mise en forme s’affiche pendant la saisie ; le message reste en Markdown. Sur cet ordinateur seulement."
   menu: "Paramètres…"
   title: "Paramètres"
   server_hint: "Enregistrés sur le serveur : ils valent aussi pour l’application web."

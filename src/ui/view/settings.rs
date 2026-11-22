@@ -48,6 +48,7 @@ pub(crate) struct SettingsDraft {
     pub ctrl_enter: bool,
     pub code_block_ctrl_enter: bool,
     pub show_formatting: bool,
+    pub rich_editor: bool,
 }
 
 /// Nombres de messages directs proposés (10000 = tous), comme le client web.
@@ -163,6 +164,7 @@ impl ChatApp {
             ctrl_enter: self.send_on_ctrl_enter,
             code_block_ctrl_enter: self.code_block_ctrl_enter,
             show_formatting: self.settings.show_formatting,
+            rich_editor: self.settings.rich_editor,
         })));
         cx.notify();
     }
@@ -270,9 +272,15 @@ impl ChatApp {
         }
 
         // Réglages de cette application.
-        if self.settings.show_formatting != d.show_formatting {
+        if self.settings.show_formatting != d.show_formatting || self.settings.rich_editor != d.rich_editor {
+            let rich_changed = self.settings.rich_editor != d.rich_editor;
             self.settings.show_formatting = d.show_formatting;
+            self.settings.rich_editor = d.rich_editor;
             self.settings.save();
+            if rich_changed {
+                self.check_spelling(Pane::Channel, cx);
+                self.check_spelling(Pane::Thread, cx);
+            }
         }
         self.flash(t!("settings.saved").to_string(), cx);
         cx.notify();
@@ -709,6 +717,14 @@ impl ChatApp {
                 Some(t!("settings.local_hint").into()),
                 d.show_formatting,
                 |d, v| d.show_formatting = v,
+                cx,
+            ))
+            .child(self.settings_toggle(
+                "settings-rich-editor",
+                t!("settings.rich_editor").into(),
+                Some(t!("settings.rich_editor_hint").into()),
+                d.rich_editor,
+                |d, v| d.rich_editor = v,
                 cx,
             ))
             .into_any_element()

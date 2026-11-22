@@ -55,7 +55,7 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | ~~Progression des envois de fichiers~~ | ~~`C/file_upload`, `create_post.fileProcessing`~~ | ~~Barre de progression par fichier, annulable ; limite de nombre et de taille annoncée~~ | ~~Partiel : libellé « envoi en cours », pas de pourcentage ni d'annulation~~ | ~~S~~ | ~~★~~ |
 | Ctrl+U joindre un fichier | `shortcuts.files.upload` | Ouvre le sélecteur | Absent | S | ★ |
 | ~~Aide Markdown~~ | ~~`advanced_text_editor.help_link`, `C/help`~~ | ~~Lien vers l'aide de mise en forme~~ | ~~Absent~~ | ~~S~~ | ~~★~~ |
-| Éditeur riche (bêta), IA « Réécrire » | `C/advanced_text_editor/wysiwyg_editor`, `texteditor.rewrite.*` | WYSIWYG ; réécriture par l'agent IA (plugin Agents) | Absent — non prioritaire | L | ★ |
+| Éditeur riche (bêta), IA « Réécrire » | `C/advanced_text_editor/wysiwyg_editor`, `texteditor.rewrite.*` | WYSIWYG ; réécriture par l'agent IA (plugin Agents) | Partiel : ~~éditeur riche (bêta)~~ fait autrement — Markdown mis en forme pendant la saisie (Paramètres > Avancé) ; pas de « Réécrire » (IA) | L | ★ |
 
 ## 3. Fils, panneau droit
 
