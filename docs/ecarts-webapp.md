@@ -90,7 +90,7 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
 | ~~Statut personnalisé~~ | ~~`C/custom_status`, `custom_status.*`, `C/post_view/post_header_custom_status`~~ | ~~Emoji + texte, suggestions (« En réunion »…), récents, expiration (30 min → date libre) ; affiché à côté du nom dans les messages, la carte de profil, les membres (`PUT /users/me/status/custom`)~~ | ~~Absent (ni réglage ni affichage)~~ | ~~M~~ | ~~★★★~~ |
-| « Ne pas déranger » avec durée | `userAccountMenu.dndSubMenu.*`, `C/dnd_custom_time_picker_modal` | 30 min, 1 h, 2 h, demain, personnalisé (`dnd_end_time`) | Partiel : statut sans échéance | S | ★★ |
+| ~~« Ne pas déranger » avec durée~~ | ~~`userAccountMenu.dndSubMenu.*`, `C/dnd_custom_time_picker_modal`~~ | ~~30 min, 1 h, 2 h, demain, personnalisé (`dnd_end_time`)~~ | ~~Partiel : statut sans échéance~~ | ~~S~~ | ~~★★~~ |
 | ~~Paramètres de notification~~ | ~~`C/user_settings/notifications`, `user.settings.notifications.*`~~ | ~~Bureau (tout/mentions/rien, fils suivis), sons, e-mail, mots-clés qui notifient / surlignent, réponses, suivi auto sur @channel~~ | ~~Absent (préférences lues mais non modifiables)~~ | ~~M~~ | ~~★★~~ |
 | ~~Réponse automatique (absence)~~ | ~~`user.settings.notifications.autoResponder*`~~ | ~~Message envoyé automatiquement en MP~~ | ~~Absent~~ | ~~S~~ | ~~★~~ |
 | ~~Sons de notification~~ | ~~`user.settings.notifications.desktopNotificationSound.*`~~ | ~~Choix du son (Bing, Crackle…)~~ | ~~Absent (son Windows par défaut)~~ | ~~S~~ | ~~★~~ |

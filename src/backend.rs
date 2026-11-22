@@ -328,6 +328,8 @@ pub enum Command {
     },
     SetStatus {
         status: String,
+        /// Fin de « Ne pas déranger » (secondes Unix), 0 sans échéance.
+        dnd_end_time: i64,
     },
     /// Commande « / » envoyée depuis la zone de saisie.
     Slash {
@@ -536,6 +538,8 @@ pub enum Event {
         bytes: Arc<Vec<u8>>,
     },
     Statuses(Vec<(String, String)>),
+    /// Fin de son propre « Ne pas déranger » (secondes Unix), 0 sans échéance.
+    DndEnd(i64),
     Channels {
         team_id: String,
         channels: Vec<Channel>,
@@ -747,7 +751,17 @@ async fn run(
             }
         });
     }
+    let my_id = me.id.clone();
     ctx.emit(Event::Ready { me, teams, config, prefs }).await;
+    // Échéance de « Ne pas déranger » (absente des événements de statut).
+    {
+        let ctx = ctx.clone();
+        tokio::spawn(async move {
+            if let Ok(s) = ctx.client.status(&my_id).await {
+                ctx.emit(Event::DndEnd(if s.status == "dnd" { s.dnd_end_time } else { 0 })).await;
+            }
+        });
+    }
     // Liens automatiques du plugin Autolink : la configuration n'est lisible
     // que par un administrateur ; sinon, rien (les règles de ui.json restent).
     if let Ok(config) = ctx.client.admin_config().await {
@@ -1209,7 +1223,10 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         }
         Command::LeaveChannel { channel_id } => client.leave_channel(&channel_id, &ctx.me_id).await?,
         Command::MarkChannelsRead { channel_ids } => client.mark_channels_read(&channel_ids).await?,
-        Command::SetStatus { status } => client.set_status(&ctx.me_id, &status).await?,
+        Command::SetStatus { status, dnd_end_time } => {
+            client.set_status(&ctx.me_id, &status, dnd_end_time).await?;
+            ctx.emit(Event::DndEnd(if status == "dnd" { dnd_end_time } else { 0 })).await;
+        }
         Command::Slash { channel_id, team_id, root_id, command } => {
             client.execute_command(&channel_id, &team_id, &root_id, &command).await?;
         }

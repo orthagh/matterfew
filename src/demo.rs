@@ -934,7 +934,11 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         | Command::SetMuted { .. }
         | Command::LeaveChannel { .. }
         | Command::MarkChannelsRead { .. } => {}
-        Command::SetStatus { status } => send(Event::Statuses(vec![(ME.into(), status)])),
+        Command::SetStatus { status, dnd_end_time } => {
+            let end = if status == "dnd" { dnd_end_time } else { 0 };
+            send(Event::Statuses(vec![(ME.into(), status)]));
+            send(Event::DndEnd(end));
+        }
         Command::LoadChannelFiles { channel_id, .. } => {
             // Démo : fichiers des messages connus du canal.
             let files = demo

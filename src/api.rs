@@ -397,6 +397,9 @@ pub struct UserStatus {
     pub user_id: String,
     /// "online", "away", "dnd" ou "offline".
     pub status: String,
+    /// Fin de « Ne pas déranger » (secondes Unix), 0 sans échéance.
+    #[serde(default)]
+    pub dnd_end_time: i64,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -1283,15 +1286,24 @@ impl Client {
         self.send_json(reqwest::Method::POST, "/channels/members/me/mark_read", Some(channel_ids)).await
     }
 
+    /// Statut d'une personne, avec la fin de « Ne pas déranger ».
+    pub async fn status(&self, user_id: &str) -> Result<UserStatus> {
+        self.get(&format!("/users/{user_id}/status")).await
+    }
+
     /// Préférences de notification du compte (la carte complète).
     pub async fn set_notify_props(&self, user_id: &str, props: &HashMap<String, String>) -> Result<User> {
         let body = serde_json::json!({ "notify_props": props });
         self.put(&format!("/users/{user_id}/patch"), &body).await
     }
 
-    /// Statut : "online", "away", "dnd" ou "offline".
-    pub async fn set_status(&self, user_id: &str, status: &str) -> Result<()> {
-        let body = serde_json::json!({ "user_id": user_id, "status": status });
+    /// Statut : "online", "away", "dnd" ou "offline" ; « Ne pas déranger »
+    /// peut avoir une fin (`dnd_end_time`, secondes Unix, 0 sinon).
+    pub async fn set_status(&self, user_id: &str, status: &str, dnd_end_time: i64) -> Result<()> {
+        let mut body = serde_json::json!({ "user_id": user_id, "status": status });
+        if dnd_end_time > 0 {
+            body["dnd_end_time"] = dnd_end_time.into();
+        }
         self.send_json(reqwest::Method::PUT, &format!("/users/{user_id}/status"), Some(&body)).await
     }
 

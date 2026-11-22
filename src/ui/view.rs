@@ -36,6 +36,7 @@ pub(super) mod bookmarks;
 pub(super) mod dialogs;
 pub(super) mod manage;
 pub(super) mod messaging;
+pub(super) mod presence;
 pub(super) mod settings;
 
 /// Réactions proposées dans la barre d'actions d'un message.
@@ -657,7 +658,7 @@ impl ChatApp {
 
         let me_id = self.me_id().to_string();
         let me_name = self.me.as_ref().map(User::display_name).unwrap_or_default();
-        let status = if self.connected { self.status_label(&me_id) } else { t!("sidebar.reconnecting").into() };
+        let status = if self.connected { self.my_status_line() } else { t!("sidebar.reconnecting").into() };
         let account_menu = self.account_menu(cx);
 
         let resize_handle = div()
@@ -816,6 +817,7 @@ impl ChatApp {
                             .child(match self.status_line(&me_id, 13.).filter(|_| self.connected) {
                                 Some(line) => line.text_xs().text_color(p.sidebar_text.opacity(0.8)).into_any_element(),
                                 None => div()
+                                    .truncate()
                                     .text_xs()
                                     .text_color(if self.connected { p.sidebar_text.opacity(0.64) } else { p.away })
                                     .child(status)
@@ -916,6 +918,7 @@ impl ChatApp {
     fn account_menu(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
         let entity = cx.entity();
         let current = self.status_of(self.me_id()).to_string();
+        let dnd_line = self.my_status_line();
         let p = self.palette;
         Button::new("account-menu")
             .icon(Icon::new(IconName::EllipsisVertical).text_color(p.sidebar_text))
@@ -923,7 +926,7 @@ impl ChatApp {
             .small()
             .accessibility_label(t!("account.tooltip"))
             .tooltip(t!("account.tooltip"))
-            .dropdown_menu(move |menu, _, _| {
+            .dropdown_menu(move |menu, window, cx| {
                 let status = |label: &str, value: &'static str, icon: IconName| {
                     let entity = entity.clone();
                     let color = match value {
@@ -942,7 +945,30 @@ impl ChatApp {
                     .label(t!("account.status"))
                     .item(status(&t!("status.online"), "online", IconName::CircleCheck))
                     .item(status(&t!("status.away"), "away", IconName::Moon))
-                    .item(status(&t!("status.dnd"), "dnd", IconName::CircleMinus))
+                    .submenu_with_icon(
+                        Some(Icon::new(IconName::CircleMinus).text_color(p.dnd)),
+                        if current == "dnd" { dnd_line.clone() } else { t!("status.dnd").into() },
+                        window,
+                        cx,
+                        {
+                            let entity = entity.clone();
+                            move |menu, _, _| {
+                                let menu = presence::DND_CHOICES.iter().fold(menu.min_w(px(200.)), |menu, choice| {
+                                    let entity = entity.clone();
+                                    menu.item(PopupMenuItem::new(presence::dnd_choice_label(choice)).on_click(
+                                        move |_, _, cx| {
+                                            let end = presence::dnd_end(choice, chrono::Local::now());
+                                            entity.update(cx, |this, cx| this.set_status_until("dnd", end, cx))
+                                        },
+                                    ))
+                                });
+                                let entity = entity.clone();
+                                menu.separator().item(PopupMenuItem::new(t!("dnd.custom")).on_click(
+                                    move |_, window, cx| entity.update(cx, |this, cx| this.open_dnd_dialog(window, cx)),
+                                ))
+                            }
+                        },
+                    )
                     .item(status(&t!("status.offline"), "offline", IconName::Circle))
                     .separator()
                     .item({

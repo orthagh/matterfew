@@ -402,6 +402,8 @@ pub struct ChatApp {
     /// Largeur de la fenêtre (mise en page étroite).
     viewport_w: f32,
     viewport_h: f32,
+    /// Fin de son « Ne pas déranger » (secondes Unix), 0 sans échéance.
+    dnd_end: i64,
     /// Mots-clés qui valent une mention (en minuscules).
     mention_keywords: Vec<String>,
     /// Tiroir flottant ouvert en mise en page étroite.
@@ -742,6 +744,7 @@ impl ChatApp {
             collapsed_member_groups: HashSet::new(),
             viewport_w: 1200.,
             viewport_h: 800.,
+            dnd_end: 0,
             mention_keywords: Vec::new(),
             drawer: None,
             root_focus: cx.focus_handle(),
@@ -2049,10 +2052,7 @@ impl ChatApp {
     }
 
     fn set_status(&mut self, status: &str, cx: &mut Context<Self>) {
-        let me = self.me_id().to_string();
-        self.statuses.insert(me, status.to_string());
-        self.send(Command::SetStatus { status: status.to_string() });
-        cx.notify();
+        self.set_status_until(status, 0, cx);
     }
 
     // ------------------------------------------------------------------
@@ -2459,6 +2459,11 @@ impl ChatApp {
                 }
             }),
             "raccourcis" => after(self, 500, window, cx, |this, _, cx| this.open_shortcuts(cx)),
+            "ne-pas-deranger" => after(self, 500, window, cx, |this, window, cx| {
+                let end = view::presence::dnd_end("two_hours", chrono::Local::now());
+                this.set_status_until("dnd", end, cx);
+                this.open_dnd_dialog(window, cx);
+            }),
             "parametres" => after(self, 500, window, cx, |this, window, cx| this.open_settings(window, cx)),
             "mots-cles" => {
                 self.select_channel("backend".into(), cx);
@@ -3316,7 +3321,14 @@ impl ChatApp {
                     self.avatars.insert(user_id, Arc::new(Image::from_bytes(format, bytes.to_vec())));
                 }
             }
-            Event::Statuses(list) => self.statuses.extend(list),
+            Event::Statuses(list) => {
+                // Fin de « Ne pas déranger » : le serveur rétablit le statut précédent.
+                if list.iter().any(|(id, s)| id == self.me_id() && s != "dnd") {
+                    self.dnd_end = 0;
+                }
+                self.statuses.extend(list);
+            }
+            Event::DndEnd(end) => self.dnd_end = end,
             Event::Channels { team_id, channels, members } => {
                 if self.team_id.as_deref() != Some(&team_id) {
                     return;

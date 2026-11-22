@@ -564,6 +564,37 @@ fn e2e_parametres_notifications_et_barre_laterale() {
 }
 
 #[test]
+fn e2e_ne_pas_deranger_avec_duree() {
+    let mut w = demo_app();
+    // Une heure : statut et échéance.
+    w.1.update(|a, _, cx| {
+        let end = super::view::presence::dnd_end("one_hour", chrono::Local::now());
+        a.set_status_until("dnd", end, cx);
+    });
+    wait_for(&w, "ne pas déranger", |a| a.statuses.get(a.me_id()).map(String::as_str) == Some("dnd") && a.dnd_end > 0);
+    w.1.read(|a, _| assert!(a.my_status_line().contains('·'), "{}", a.my_status_line()));
+    // Date choisie : demain 8 h.
+    w.1.update(|a, window, cx| {
+        a.open_dnd_dialog(window, cx);
+        if let Some(Dialog::DndCustom { day }) = a.dialog.as_mut() {
+            *day = 1;
+        }
+        a.dialog_input.update(cx, |s, cx| s.set_value("8h", window, cx));
+    });
+    w.1.draw();
+    w.1.update(|a, _, cx| a.save_dnd_custom(cx));
+    wait_for(&w, "échéance demain", |a| {
+        a.dialog.is_none()
+            && chrono::TimeZone::timestamp_opt(&chrono::Local, a.dnd_end, 0)
+                .single()
+                .is_some_and(|t| chrono::Timelike::hour(&t) == 8)
+    });
+    // Retour en ligne : plus d'échéance.
+    w.1.update(|a, _, cx| a.set_status_until("online", 0, cx));
+    wait_for(&w, "en ligne", |a| a.statuses.get(a.me_id()).map(String::as_str) == Some("online") && a.dnd_end == 0);
+}
+
+#[test]
 fn e2e_signets_apercu_pdf_et_f6() {
     let mut w = demo_app();
     wait_for(&w, "signets chargés", |a| a.bookmarks.get("general").is_some_and(|b| b.len() == 3));

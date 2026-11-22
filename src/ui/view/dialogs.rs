@@ -32,6 +32,10 @@ pub(crate) enum Dialog {
         confirm_delete: bool,
     },
     Shortcuts,
+    /// « Ne pas déranger » jusqu'à une date (jours à partir d'aujourd'hui).
+    DndCustom {
+        day: i64,
+    },
     Settings(Box<super::settings::SettingsDraft>),
     Bookmark {
         channel_id: String,
@@ -269,6 +273,7 @@ impl ChatApp {
             }
             Dialog::Shortcuts => self.render_shortcuts(cx),
             Dialog::Settings(d) => self.render_settings(d, cx),
+            Dialog::DndCustom { day } => self.render_dnd_dialog(*day, cx),
             Dialog::Bookmark { .. } => self.render_bookmark_dialog(cx),
             Dialog::ConfirmNotify { pane, count, mention } => self.render_confirm_notify(*pane, *count, mention, cx),
         })
