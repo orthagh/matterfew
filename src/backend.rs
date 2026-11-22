@@ -212,6 +212,21 @@ pub enum Command {
         team_id: String,
         description: String,
     },
+    /// Équipes ouvertes que l'on peut rejoindre.
+    LoadJoinableTeams,
+    JoinTeam {
+        team_id: String,
+    },
+    LeaveTeam {
+        team_id: String,
+    },
+    /// Paramètres d'une équipe : nom, description, ouverte à tous.
+    SaveTeamSettings {
+        team_id: String,
+        display_name: String,
+        description: String,
+        open: bool,
+    },
     PatchChannel {
         channel_id: String,
         purpose: String,
@@ -540,6 +555,10 @@ pub enum Event {
     Statuses(Vec<(String, String)>),
     /// Fin de son propre « Ne pas déranger » (secondes Unix), 0 sans échéance.
     DndEnd(i64),
+    /// Équipes visibles (ouvertes), pour « Rejoindre une autre équipe ».
+    JoinableTeams(Vec<Team>),
+    /// Équipe rejointe.
+    TeamJoined(Team),
     Channels {
         team_id: String,
         channels: Vec<Channel>,
@@ -1136,6 +1155,25 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             let ((total, active), admin) =
                 tokio::try_join!(client.team_stats(&team_id), client.is_team_admin(&team_id))?;
             ctx.emit(Event::TeamInfo { team_id, total, active, admin: admin || ctx.me_admin }).await;
+        }
+        Command::LoadJoinableTeams => {
+            let teams = client.listed_teams().await?;
+            ctx.emit(Event::JoinableTeams(teams.into_iter().filter(|t| t.delete_at == 0).collect())).await;
+        }
+        Command::JoinTeam { team_id } => {
+            client.join_team(&team_id, &ctx.me_id).await?;
+            let team = client.team(&team_id).await?;
+            ctx.emit(Event::TeamJoined(team)).await;
+        }
+        Command::LeaveTeam { team_id } => client.leave_team(&team_id, &ctx.me_id).await?,
+        Command::SaveTeamSettings { team_id, display_name, description, open } => {
+            let fields = serde_json::json!({
+                "display_name": display_name,
+                "description": description,
+                "allow_open_invite": open,
+            });
+            let team = client.patch_team(&team_id, &fields).await?;
+            ctx.emit(Event::TeamUpdated(team)).await;
         }
         Command::SaveTeamDescription { team_id, description } => {
             let team = client.patch_team_description(&team_id, &description).await?;

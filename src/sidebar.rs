@@ -87,6 +87,10 @@ pub struct Input<'a, F: Fn(&Channel) -> String> {
     /// Canal resté dans « Non lus » tant qu'on ne l'a pas quitté
     /// (comme le client web, pour qu'il ne saute pas sous le curseur).
     pub sticky_unread: Option<&'a str>,
+    /// Filtre « Non lus seulement » (Ctrl+Maj+U).
+    pub unread_only: bool,
+    /// Conversations directes fermées (masquées sauf non lues ou ouvertes).
+    pub closed: &'a HashSet<String>,
     pub title: F,
 }
 
@@ -135,6 +139,15 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
             }
         }
         members.retain(|c| !in_unreads.contains(&c.channel.id));
+        members.retain(|c| !input.closed.contains(&c.channel.id) || c.shows_unread() || is_current(&c.channel.id));
+        if input.unread_only {
+            members.retain(|c| {
+                is_unread(&c.channel.id) || is_current(&c.channel.id) || input.sticky_unread == Some(&c.channel.id)
+            });
+            if members.is_empty() {
+                continue;
+            }
+        }
 
         sort_members(&mut members, &category.sorting, &input.title);
 
@@ -279,14 +292,51 @@ mod tests {
         prefs: &SidebarPrefs,
         current: Option<&str>,
     ) -> Vec<Section> {
+        run_with(channels, categories, prefs, current, false, &HashSet::new())
+    }
+
+    fn run_with(
+        channels: &HashMap<String, ChannelState>,
+        categories: &[SidebarCategory],
+        prefs: &SidebarPrefs,
+        current: Option<&str>,
+        unread_only: bool,
+        closed: &HashSet<String>,
+    ) -> Vec<Section> {
         build(&Input {
             channels,
             categories,
             prefs,
             current,
             sticky_unread: None,
+            unread_only,
+            closed,
             title: |c: &Channel| c.display_name.clone(),
         })
+    }
+
+    #[test]
+    fn filtre_non_lus_et_conversations_fermees() {
+        let channels: HashMap<_, _> = [
+            state(channel("a", "O", "alpha", 1), true, 0, false),
+            state(channel("b", "O", "beta", 2), false, 0, false),
+            state(channel("d1", "D", "lea", 3), false, 0, false),
+            state(channel("d2", "D", "hugo", 4), true, 1, false),
+            state(channel("d3", "D", "ines", 5), false, 0, false),
+        ]
+        .into();
+        let cats = [
+            category("c", "channels", "alpha", &["a", "b"]),
+            category("m", "direct_messages", "alpha", &["d1", "d2", "d3"]),
+        ];
+        let prefs = SidebarPrefs::default();
+        // Fermées : d1 disparaît, d2 (non lue) et d3 (ouverte) restent.
+        let closed: HashSet<String> = ["d1", "d2", "d3"].iter().map(|s| s.to_string()).collect();
+        let s = run_with(&channels, &cats, &prefs, Some("d3"), false, &closed);
+        assert_eq!(s[1].channel_ids, ["d2", "d3"]);
+        // Non lus seulement : les sections sans non lus disparaissent.
+        let s = run_with(&channels, &cats, &prefs, None, true, &HashSet::new());
+        assert_eq!(s.iter().map(|x| x.channel_ids.clone()).collect::<Vec<_>>(), vec![vec!["a"], vec!["d2"]]);
     }
 
     #[test]

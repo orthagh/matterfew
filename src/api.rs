@@ -172,6 +172,12 @@ pub struct Team {
     /// Date de mise à jour du logo de l'équipe (0 : pas de logo).
     #[serde(default)]
     pub last_team_icon_update: i64,
+    /// Équipe que tout membre du serveur peut rejoindre.
+    #[serde(default)]
+    pub allow_open_invite: bool,
+    /// Équipe supprimée (0 sinon).
+    #[serde(default)]
+    pub delete_at: i64,
 }
 
 /// Non-lus d'une équipe (pour les pastilles de la barre des équipes).
@@ -1061,6 +1067,30 @@ impl Client {
     pub async fn delete_category(&self, team_id: &str, category_id: &str) -> Result<()> {
         let path = format!("/users/me/teams/{team_id}/channels/categories/{category_id}");
         self.send_json::<()>(reqwest::Method::DELETE, &path, None).await
+    }
+
+    /// Équipes que l'on peut voir (pour un utilisateur : les équipes ouvertes).
+    pub async fn listed_teams(&self) -> Result<Vec<Team>> {
+        self.get_query("/teams", &[("per_page", "200")]).await
+    }
+
+    pub async fn team(&self, team_id: &str) -> Result<Team> {
+        self.get(&format!("/teams/{team_id}")).await
+    }
+
+    pub async fn join_team(&self, team_id: &str, user_id: &str) -> Result<()> {
+        let body = serde_json::json!({ "team_id": team_id, "user_id": user_id });
+        let _: serde_json::Value = self.post(&format!("/teams/{team_id}/members"), &body).await?;
+        Ok(())
+    }
+
+    pub async fn leave_team(&self, team_id: &str, user_id: &str) -> Result<()> {
+        self.send_json::<()>(reqwest::Method::DELETE, &format!("/teams/{team_id}/members/{user_id}"), None).await
+    }
+
+    /// Nom, description et ouverture d'une équipe.
+    pub async fn patch_team(&self, team_id: &str, fields: &serde_json::Value) -> Result<Team> {
+        self.put(&format!("/teams/{team_id}/patch"), fields).await
     }
 
     pub async fn patch_team_description(&self, team_id: &str, description: &str) -> Result<Team> {

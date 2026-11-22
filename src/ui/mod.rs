@@ -404,6 +404,8 @@ pub struct ChatApp {
     viewport_h: f32,
     /// Fin de son « Ne pas déranger » (secondes Unix), 0 sans échéance.
     dnd_end: i64,
+    /// Filtre « Non lus seulement » de la barre latérale.
+    unread_filter: bool,
     /// Mots-clés qui valent une mention (en minuscules).
     mention_keywords: Vec<String>,
     /// Tiroir flottant ouvert en mise en page étroite.
@@ -745,6 +747,7 @@ impl ChatApp {
             viewport_w: 1200.,
             viewport_h: 800.,
             dnd_end: 0,
+            unread_filter: false,
             mention_keywords: Vec::new(),
             drawer: None,
             root_focus: cx.focus_handle(),
@@ -1155,6 +1158,8 @@ impl ChatApp {
         if self.channel_id.as_deref() == Some(&channel_id) {
             return;
         }
+        // Une conversation fermée qu'on rouvre revient dans la barre latérale.
+        self.set_dm_visible(&channel_id, true);
         // Historique (Alt+← / Alt+→).
         if let Some(prev) = self.channel_id.clone()
             && !std::mem::take(&mut self.nav_jumping)
@@ -2464,6 +2469,8 @@ impl ChatApp {
                 this.set_status_until("dnd", end, cx);
                 this.open_dnd_dialog(window, cx);
             }),
+            "non-lus" => after(self, 400, window, cx, |this, _, cx| this.toggle_unread_filter(cx)),
+            "equipes" => after(self, 500, window, cx, |this, _, cx| this.open_join_team(cx)),
             "parametres" => after(self, 500, window, cx, |this, window, cx| this.open_settings(window, cx)),
             "mots-cles" => {
                 self.select_channel("backend".into(), cx);
@@ -3169,6 +3176,13 @@ impl ChatApp {
             Event::TeamUpdated(team) => {
                 if let Some(t) = self.teams.iter_mut().find(|t| t.id == team.id) {
                     t.description = team.description;
+                    if !team.display_name.is_empty() {
+                        t.display_name = team.display_name;
+                    }
+                    t.allow_open_invite = team.allow_open_invite;
+                    if !team.team_type.is_empty() {
+                        t.team_type = team.team_type;
+                    }
                 }
                 if self.team_card == Some(true) {
                     self.team_card = Some(false);
@@ -3329,6 +3343,8 @@ impl ChatApp {
                 self.statuses.extend(list);
             }
             Event::DndEnd(end) => self.dnd_end = end,
+            Event::JoinableTeams(teams) => self.on_joinable_teams(teams),
+            Event::TeamJoined(team) => self.on_team_joined(team, cx),
             Event::Channels { team_id, channels, members } => {
                 if self.team_id.as_deref() != Some(&team_id) {
                     return;
@@ -3644,6 +3660,10 @@ impl ChatApp {
             self.send(Command::MarkRead { channel_id: post.channel_id.clone() });
         }
 
+        // Nouveau message dans une conversation fermée : elle revient.
+        if !from_me && matches!(channel_type, "D" | "G") {
+            self.set_dm_visible(&post.channel_id, true);
+        }
         let state = self.channels.get(&post.channel_id);
         let me = self.me.as_ref();
         let notify = crate::notify_rules::should_notify(&crate::notify_rules::Input {

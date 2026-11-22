@@ -1,6 +1,8 @@
 app:
   window_title: "Matterfew"
 sidebar:
+  unread_only: "Unread channels only"
+  show_all: "Show all channels"
   unreads: "Unreads"
   favorites: "Favorites"
   channels: "Channels"
@@ -99,6 +101,10 @@ team:
   created: "Created %{day}"
   edit_description: "Edit description"
 demo:
+  team_research: "Research & innovation"
+  team_research_description: "Prototypes, technology watch and lab notes."
+  team_community: "GLPI community"
+  team_community_description: "Contributors, translators and partners."
   bookmarks:
     roadmap: "Roadmap"
     wiki: "Team wiki"
@@ -398,6 +404,7 @@ panels:
   saved_empty: "No saved messages. Save one from its “⋯” menu."
   mentions_empty: "Nobody has mentioned you recently."
 channel_menu:
+  close_dm: "Close conversation"
   settings: "Channel settings…"
   notifications: "Notification preferences…"
   mark_read: "Mark as read"
@@ -637,6 +644,7 @@ category_dialog:
   delete: "Delete"
   confirm_delete: "Its %{count} channels go back to Channels. The channels themselves are kept."
 shortcuts:
+  unread_filter: "Unread channels only / all channels"
   settings: "Settings"
   cycle_focus: "Next input area (messages, thread, search)"
   history: "Back / forward in the channel history"
@@ -770,3 +778,21 @@ dnd:
     fri: "Fri"
     sat: "Sat"
     sun: "Sun"
+teams:
+  settings: "Team settings…"
+  settings_title: "Team settings"
+  join: "Join another team…"
+  join_title: "Join a team"
+  join_button: "Join"
+  joining: "Joining…"
+  none: "No other team to join."
+  none_hint: "Teams that need an invitation do not appear here: ask one of their administrators."
+  leave: "Leave the team…"
+  leave_title: "Leave the team"
+  leave_button: "Leave"
+  leave_confirm: "Leave %{team}? You leave all its channels; you can join again only if the team is open or someone invites you."
+  name: "Name"
+  name_placeholder: "Team name"
+  name_invalid: "Enter a name of at least 2 characters."
+  open: "Open to everyone"
+  open_hint: "Anyone on the server can find and join it."

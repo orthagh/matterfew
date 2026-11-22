@@ -71,19 +71,19 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 |---|---|---|---|---|---|
 | ~~Parcourir les canaux~~ | ~~`C/browse_channels`, `more_channels.*`~~ | ~~Liste des canaux publics, archivés, privés « découvrables » ; filtres, masquer ceux rejoints, « Rejoindre », demande d'adhésion~~ | ~~Absent (seule la création existe)~~ | ~~M~~ | ~~★★★~~ |
 | ~~Nouveau message direct / de groupe~~ | ~~`C/more_direct_channels`, `shortcuts.nav.direct_messages_menu` (Ctrl+Maj+K)~~ | ~~« + » de la catégorie Messages directs : choisir 1 à 7 personnes~~ | ~~Partiel : message direct depuis la carte de profil, pas de groupe~~ | ~~M~~ | ~~★★★~~ |
-| Fermer une conversation directe | `sidebar_left.sidebar_channel_menu.leaveConversation` | Retire le MP de la barre latérale | Absent | S | ★★ |
+| ~~Fermer une conversation directe~~ | ~~`sidebar_left.sidebar_channel_menu.leaveConversation`~~ | ~~Retire le MP de la barre latérale~~ | ~~Absent~~ | ~~S~~ | ~~★★~~ |
 | ~~Préférences de notification du canal~~ | ~~`C/channel_notifications_modal`, `channel_notifications.*`~~ | ~~Bureau/mobile : tout, mentions, rien ; réponses de fils ; suivre tous les fils du canal ; ignorer @channel ; son ; réinitialiser (`PUT /channels/{c}/members/{u}/notify_props`)~~ | ~~Partiel : sourdine seulement (les réglages existants sont lus)~~ | ~~M~~ | ~~★★★~~ |
 | ~~Paramètres du canal~~ | ~~`C/channel_settings_modal`, `channel_settings.tab.*`~~ | ~~Renommer, changer l'URL, convertir en privé, archiver / désarchiver~~ | ~~Partiel : description et en-tête modifiables~~ | ~~M~~ | ~~★★~~ |
 | ~~Canaux archivés~~ | ~~`C/center_message_lock`, `C/unarchive_channel_modal`~~ | ~~Lecture seule avec bandeau, recherche dans les archivés~~ | ~~Absent (non géré)~~ | ~~S~~ | ~~★~~ |
 | ~~Gestion des membres~~ | ~~`C/channel_members_rhs`, `channel_members_rhs.action_bar.manage_button`~~ | ~~« Gérer » : retirer, nommer administrateur~~ | ~~Partiel : liste et ajout seulement~~ | ~~S~~ | ~~★★~~ |
 | Menu de canal complet | `sidebar_left.sidebar_channel_menu.*` | « Déplacer vers… » (catégorie existante ou nouvelle), « Marquer comme non lu » | Partiel : marquer lu, favori, sourdine, lien, quitter ; déplacement par glisser-déposer seulement | S | ★★ |
 | ~~Gestion des catégories~~ | ~~`sidebar_left.sidebar_category_menu.*`~~ | ~~Renommer, supprimer une catégorie~~ | ~~Absent (créer, trier, sourdine, marquer lu existent)~~ | ~~S~~ | ~~★★~~ |
-| Filtre « Non lus seulement » | `sidebar_left.channel_filter.*`, Ctrl+Maj+U | Bascule non lus / tous dans la barre latérale | Partiel : section « Non lus » si la préférence est active | S | ★ |
+| ~~Filtre « Non lus seulement »~~ | ~~`sidebar_left.channel_filter.*`, Ctrl+Maj+U~~ | ~~Bascule non lus / tous dans la barre latérale~~ | ~~Partiel : section « Non lus » si la préférence est active~~ | ~~S~~ | ~~★~~ |
 | Convertir un MP de groupe en canal | `C/convert_gm_to_channel_modal` | Transforme une conversation de groupe en canal privé | Absent | M | ★ |
 | ~~Signets de canal~~ | ~~`C/channel_bookmarks`, `channel_bookmarks.*`~~ | ~~Barre de liens/fichiers sous l'en-tête (ajout, ordre, emoji)~~ | ~~Absent (pas même l'affichage)~~ | ~~M~~ | ~~★★~~ |
 | Bannière de canal | `C/channel_banner` | Texte coloré en haut du canal (Entreprise) | Absent | S | ★ |
 | ~~Liens internes dans l'application~~ | ~~`C/permalink_view`, `C/inline_entity_link`~~ | ~~Un lien `…/équipe/pl/id` ou `…/channels/nom` s'ouvre dans le client (canal, fil, message en surbrillance)~~ | ~~Absent : `open_link` envoie tout au navigateur~~ | ~~S~~ | ~~★★★~~ |
-| Équipes | `navbar_dropdown.join`, `navbar_dropdown.leave`, `C/team_settings_modal` | Rejoindre une autre équipe, quitter, paramètres de l'équipe | Partiel : description seulement | M | ★ |
+| ~~Équipes~~ | ~~`navbar_dropdown.join`, `navbar_dropdown.leave`, `C/team_settings_modal`~~ | ~~Rejoindre une autre équipe, quitter, paramètres de l'équipe~~ | ~~Partiel : description seulement~~ | ~~M~~ | ~~★~~ |
 
 ## 5. Statut et notifications
 

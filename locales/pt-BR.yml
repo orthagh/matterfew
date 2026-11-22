@@ -1,6 +1,8 @@
 app:
   window_title: "Matterfew"
 sidebar:
+  unread_only: "Somente canais não lidos"
+  show_all: "Mostrar todos os canais"
   unreads: "Não lidas"
   favorites: "Favoritos"
   channels: "Canais"
@@ -99,6 +101,10 @@ team:
   created: "Criada %{day}"
   edit_description: "Editar descrição"
 demo:
+  team_research: "Pesquisa & inovação"
+  team_research_description: "Protótipos, observação tecnológica e cadernos de laboratório."
+  team_community: "Comunidade GLPI"
+  team_community_description: "Colaboradores, tradutores e parceiros."
   bookmarks:
     roadmap: "Roteiro"
     wiki: "Wiki da equipe"
@@ -398,6 +404,7 @@ panels:
   saved_empty: "Nenhuma mensagem salva. Salve uma pelo menu “⋯” dela."
   mentions_empty: "Ninguém mencionou você recentemente."
 channel_menu:
+  close_dm: "Fechar conversa"
   settings: "Configurações do canal…"
   notifications: "Preferências de notificação…"
   mark_read: "Marcar como lida"
@@ -637,6 +644,7 @@ category_dialog:
   delete: "Excluir"
   confirm_delete: "Os %{count} canais voltam para Canais. Os canais em si são mantidos."
 shortcuts:
+  unread_filter: "Somente não lidos / todos os canais"
   settings: "Configurações"
   cycle_focus: "Próxima área de digitação (mensagens, tópico, busca)"
   history: "Voltar / avançar no histórico de canais"
@@ -770,3 +778,21 @@ dnd:
     fri: "sex."
     sat: "sáb."
     sun: "dom."
+teams:
+  settings: "Configurações da equipe…"
+  settings_title: "Configurações da equipe"
+  join: "Entrar em outra equipe…"
+  join_title: "Entrar em uma equipe"
+  join_button: "Entrar"
+  joining: "Entrando…"
+  none: "Nenhuma outra equipe para entrar."
+  none_hint: "Equipes que exigem convite não aparecem aqui: peça a um de seus administradores."
+  leave: "Sair da equipe…"
+  leave_title: "Sair da equipe"
+  leave_button: "Sair"
+  leave_confirm: "Sair de %{team}? Você sai também de todos os canais; só poderá voltar se a equipe for aberta ou se alguém convidar você."
+  name: "Nome"
+  name_placeholder: "Nome da equipe"
+  name_invalid: "Informe um nome com pelo menos 2 caracteres."
+  open: "Aberta a todos"
+  open_hint: "Qualquer pessoa do servidor pode encontrá-la e entrar."

@@ -120,7 +120,10 @@ gpui_kit::assets::icon_assets!(
         Monitor,
         PanelLeft,
         SlidersHorizontal,
-        Volume2
+        Volume2,
+        ListFilter,
+        LogIn,
+        MessageSquareX
     ]
 );
 

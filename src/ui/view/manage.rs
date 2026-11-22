@@ -526,6 +526,7 @@ impl ChatApp {
                     ("Ctrl Shift M", t!("shortcuts.mentions").into()),
                     ("Ctrl Shift L", t!("shortcuts.focus").into()),
                     ("Ctrl Shift A", t!("shortcuts.settings").into()),
+                    ("Ctrl Shift U", t!("shortcuts.unread_filter").into()),
                     ("Shift Esc", t!("shortcuts.mark_all_read").into()),
                     ("Esc", t!("shortcuts.close").into()),
                     ("F6", t!("shortcuts.cycle_focus").into()),
@@ -615,6 +616,88 @@ impl ChatApp {
                 .child(div().flex_1().child(t!("offline.banner")))
                 .into_any_element(),
         )
+    }
+}
+
+// ---------------------------------------------------------------------
+// Barre latérale : conversations fermées, filtre « Non lus seulement »
+// ---------------------------------------------------------------------
+
+impl ChatApp {
+    /// Préférence d'affichage d'une conversation directe ou de groupe.
+    fn dm_pref(channel: &Channel, me: &str) -> Option<(&'static str, String)> {
+        if channel.is_direct() {
+            Some(("direct_channel_show", channel.direct_partner(me).unwrap_or_else(|| me.to_string())))
+        } else if channel.is_group() {
+            Some(("group_channel_show", channel.id.clone()))
+        } else {
+            None
+        }
+    }
+
+    /// Conversations fermées (préférence `*_channel_show` à « false »).
+    pub(crate) fn closed_dms(&self) -> std::collections::HashSet<String> {
+        let hidden: std::collections::HashSet<(&str, &str)> = self
+            .raw_prefs
+            .iter()
+            .filter(|p| {
+                p.value == "false" && matches!(p.category.as_str(), "direct_channel_show" | "group_channel_show")
+            })
+            .map(|p| (p.category.as_str(), p.name.as_str()))
+            .collect();
+        if hidden.is_empty() {
+            return Default::default();
+        }
+        let me = self.me_id();
+        self.channels
+            .values()
+            .filter(|s| Self::dm_pref(&s.channel, me).is_some_and(|(cat, name)| hidden.contains(&(cat, name.as_str()))))
+            .map(|s| s.channel.id.clone())
+            .collect()
+    }
+
+    /// Montre ou masque une conversation directe dans la barre latérale.
+    pub(crate) fn set_dm_visible(&mut self, channel_id: &str, visible: bool) {
+        let me = self.me_id().to_string();
+        let Some((category, name)) = self.channels.get(channel_id).and_then(|s| Self::dm_pref(&s.channel, &me)) else {
+            return;
+        };
+        let value = visible.to_string();
+        let current = self.raw_prefs.iter().find(|p| p.category == category && p.name == name).map(|p| p.value.clone());
+        // Visible par défaut : rien à écrire tant qu'elle n'a pas été fermée.
+        if current.as_deref() == Some(value.as_str()) || (visible && current.is_none()) {
+            return;
+        }
+        let pref = crate::api::Preference { user_id: me, category: category.into(), name, value };
+        match self.raw_prefs.iter_mut().find(|p| p.category == pref.category && p.name == pref.name) {
+            Some(p) => p.value = pref.value.clone(),
+            None => self.raw_prefs.push(pref.clone()),
+        }
+        self.send(Command::SavePreferences(vec![pref]));
+    }
+
+    /// « Fermer la conversation » : elle quitte la barre latérale et revient
+    /// au prochain message (ou en la rouvrant par Ctrl+K).
+    pub(crate) fn close_dm(&mut self, channel_id: String, cx: &mut Context<Self>) {
+        self.set_dm_visible(&channel_id, false);
+        if self.channel_id.as_deref() == Some(channel_id.as_str()) {
+            let next = self
+                .channels
+                .values()
+                .find(|c| c.channel.name == "town-square")
+                .or_else(|| self.channels.values().find(|c| !c.channel.is_direct() && !c.channel.is_group()))
+                .map(|c| c.channel.id.clone());
+            if let Some(next) = next {
+                self.select_channel(next, cx);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Ctrl+Maj+U : seulement les canaux non lus dans la barre latérale.
+    pub(crate) fn toggle_unread_filter(&mut self, cx: &mut Context<Self>) {
+        self.unread_filter = !self.unread_filter;
+        cx.notify();
     }
 }
 

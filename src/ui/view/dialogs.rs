@@ -37,6 +37,18 @@ pub(crate) enum Dialog {
         day: i64,
     },
     Settings(Box<super::settings::SettingsDraft>),
+    /// Rejoindre une équipe ouverte (`None` : liste en chargement).
+    JoinTeam {
+        teams: Option<Vec<crate::api::Team>>,
+        joining: Option<String>,
+    },
+    LeaveTeam {
+        team_id: String,
+    },
+    TeamSettings {
+        team_id: String,
+        open: bool,
+    },
     Bookmark {
         channel_id: String,
     },
@@ -273,6 +285,9 @@ impl ChatApp {
             }
             Dialog::Shortcuts => self.render_shortcuts(cx),
             Dialog::Settings(d) => self.render_settings(d, cx),
+            Dialog::JoinTeam { teams, joining } => self.render_join_team(teams.as_ref(), joining.as_deref(), cx),
+            Dialog::LeaveTeam { team_id } => self.render_leave_team(team_id, cx),
+            Dialog::TeamSettings { open, .. } => self.render_team_settings(*open, cx),
             Dialog::DndCustom { day } => self.render_dnd_dialog(*day, cx),
             Dialog::Bookmark { .. } => self.render_bookmark_dialog(cx),
             Dialog::ConfirmNotify { pane, count, mention } => self.render_confirm_notify(*pane, *count, mention, cx),

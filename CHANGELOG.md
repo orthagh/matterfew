@@ -24,6 +24,13 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 - « Ne pas déranger » avec une durée (30 min, 1 h, 2 h, jusqu'à demain
   9 h, ou date et heure choisies), dans le menu du compte ; l'échéance
   s'affiche sous votre nom.
+- Filtre « Non lus seulement » dans la barre latérale (bouton à côté de
+  « Aller à un canal », Ctrl+Maj+U).
+- « Fermer la conversation » sur un message direct ou de groupe : il
+  quitte la barre latérale et revient au prochain message.
+- Équipes : rejoindre une autre équipe ouverte, quitter une équipe,
+  paramètres de l'équipe (nom, description, ouverte à tous) depuis la
+  carte d'équipe.
 - Coloration syntaxique des blocs de code (environ 200 langages), aux
   couleurs du thème clair ou sombre.
 

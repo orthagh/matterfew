@@ -547,6 +547,7 @@ pub fn start() -> Backend {
                         description: t!("demo.team_description").into(),
                         team_type: "I".into(),
                         create_at: now_ms() - 400 * 24 * 3_600_000,
+                        ..Default::default()
                     },
                     Team {
                         id: "t2".into(),
@@ -1071,6 +1072,46 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             }
         }
         Command::LoadTeamInfo { team_id } => send(Event::TeamInfo { team_id, total: 7, active: 5, admin: true }),
+        Command::LoadJoinableTeams => {
+            let team = |id: &str, name: &str, key: &str, desc: &str| Team {
+                id: id.into(),
+                name: name.into(),
+                display_name: t!(key).into(),
+                description: t!(desc).into(),
+                team_type: "O".into(),
+                allow_open_invite: true,
+                ..Default::default()
+            };
+            send(Event::JoinableTeams(vec![
+                team("t3", "recherche", "demo.team_research", "demo.team_research_description"),
+                team("t4", "communaute", "demo.team_community", "demo.team_community_description"),
+                team("t2", "clients", "demo.team_clients", "demo.team_research_description"),
+            ]));
+        }
+        Command::JoinTeam { team_id } => {
+            let (name, key) = if team_id == "t3" {
+                ("recherche", "demo.team_research")
+            } else {
+                ("communaute", "demo.team_community")
+            };
+            send(Event::TeamJoined(Team {
+                id: team_id,
+                name: name.into(),
+                display_name: t!(key).into(),
+                team_type: "O".into(),
+                allow_open_invite: true,
+                ..Default::default()
+            }));
+        }
+        Command::LeaveTeam { .. } => {}
+        Command::SaveTeamSettings { team_id, display_name, description, open } => send(Event::TeamUpdated(Team {
+            id: team_id,
+            display_name,
+            description,
+            allow_open_invite: open,
+            team_type: if open { "O" } else { "I" }.into(),
+            ..Default::default()
+        })),
         Command::SaveTeamDescription { team_id, description } => send(Event::TeamUpdated(Team {
             id: team_id,
             name: "demo".into(),

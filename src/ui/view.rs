@@ -38,6 +38,7 @@ pub(super) mod manage;
 pub(super) mod messaging;
 pub(super) mod presence;
 pub(super) mod settings;
+pub(super) mod teams;
 
 /// Réactions proposées dans la barre d'actions d'un message.
 const QUICK_REACTIONS: [&str; 3] = ["+1", "heart", "joy"];
@@ -360,6 +361,8 @@ impl ChatApp {
             prefs: &self.prefs,
             current: self.channel_id.as_deref(),
             sticky_unread: self.sticky_unread.as_deref(),
+            unread_only: self.unread_filter,
+            closed: &self.closed_dms(),
             title: |c| self.channel_title(c),
         })
     }
@@ -553,6 +556,12 @@ impl ChatApp {
                 menu = menu
                     .separator()
                     .item(act(&t!("channel_menu.leave"), IconName::LogOut, |this, id, cx| this.leave_channel(id, cx)));
+            } else {
+                menu = menu.separator().item(act(
+                    &t!("channel_menu.close_dm"),
+                    IconName::MessageSquareX,
+                    |this, id, cx| this.close_dm(id, cx),
+                ));
             }
             menu
         }
@@ -765,32 +774,71 @@ impl ChatApp {
             )
             // Comme le client officiel : un champ qui ouvre le sélecteur (Ctrl+K).
             .child(
-                div().flex_none().px_3().pt_3().pb_1().child(
-                    h_flex()
-                        .id("goto-channel")
-                        .h(px(32.))
-                        .px_3()
-                        .gap_2()
-                        .rounded(px(8.))
-                        .bg(p.sidebar_text.opacity(0.08))
-                        .hover(|s| s.bg(p.sidebar_text.opacity(0.13)))
-                        .cursor_pointer()
-                        .text_sm()
-                        .text_color(p.sidebar_text.opacity(0.7))
-                        .child(Icon::new(IconName::Search).size(px(14.)))
-                        .child(div().flex_1().truncate().child(t!("sidebar.goto_channel")))
-                        .child(
-                            div()
-                                .flex_none()
-                                .px_1p5()
-                                .rounded(px(5.))
-                                .border_1()
-                                .border_color(p.sidebar_text.opacity(0.2))
-                                .text_size(px(10.5))
-                                .child("Ctrl K"),
-                        )
-                        .on_click(goto),
-                ),
+                h_flex()
+                    .flex_none()
+                    .px_3()
+                    .pt_3()
+                    .pb_1()
+                    .gap_1p5()
+                    .child(
+                        h_flex()
+                            .id("goto-channel")
+                            .flex_1()
+                            .min_w_0()
+                            .h(px(32.))
+                            .px_3()
+                            .gap_2()
+                            .rounded(px(8.))
+                            .bg(p.sidebar_text.opacity(0.08))
+                            .hover(|s| s.bg(p.sidebar_text.opacity(0.13)))
+                            .cursor_pointer()
+                            .text_sm()
+                            .text_color(p.sidebar_text.opacity(0.7))
+                            .child(Icon::new(IconName::Search).size(px(14.)))
+                            .child(div().flex_1().truncate().child(t!("sidebar.goto_channel")))
+                            // Raccourci affiché si la place le permet (à côté du filtre).
+                            .when(self.settings.sidebar_width >= 300., |el| {
+                                el.child(
+                                    div()
+                                        .flex_none()
+                                        .px_1p5()
+                                        .rounded(px(5.))
+                                        .border_1()
+                                        .border_color(p.sidebar_text.opacity(0.2))
+                                        .text_size(px(10.5))
+                                        .child("Ctrl K"),
+                                )
+                            })
+                            .on_click(goto),
+                    )
+                    .child({
+                        let on = self.unread_filter;
+                        let label = if on { t!("sidebar.show_all") } else { t!("sidebar.unread_only") };
+                        div()
+                            .id("unread-filter")
+                            .flex_none()
+                            .size(px(32.))
+                            .rounded(px(8.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .role(Role::Button)
+                            .aria_label(SharedString::from(label.to_string()))
+                            .aria_selected(on)
+                            .bg(if on { p.sidebar_text.opacity(0.22) } else { p.sidebar_text.opacity(0.08) })
+                            .hover(|s| s.bg(p.sidebar_text.opacity(0.16)))
+                            .child(Icon::new(IconName::ListFilter).size(px(16.)).text_color(if on {
+                                p.sidebar_text
+                            } else {
+                                p.sidebar_text.opacity(0.7)
+                            }))
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(format!("{label} (Ctrl+Shift+U)"))
+                                    .build(window, cx)
+                            })
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_unread_filter(cx)))
+                    }),
             )
             .child(list)
             .child(
@@ -2807,6 +2855,11 @@ impl ChatApp {
                     cx.stop_propagation();
                     return;
                 }
+                if ctrl && shift && !alt && k.key == "u" {
+                    this.toggle_unread_filter(cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if ctrl && shift && !alt && k.key == "m" {
                     this.show_mentions(cx);
                     cx.stop_propagation();
@@ -4598,7 +4651,8 @@ impl ChatApp {
                                         )
                                         .child(description),
                                 ),
-                        ),
+                        )
+                        .child(self.render_team_actions(&team.id, admin, cx)),
                 )
                 .into_any_element(),
         )

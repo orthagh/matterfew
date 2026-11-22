@@ -595,6 +595,66 @@ fn e2e_ne_pas_deranger_avec_duree() {
 }
 
 #[test]
+fn e2e_non_lus_seulement_et_conversation_fermee() {
+    let mut w = demo_app();
+    let all = w.1.read(|a, _| a.sidebar_sections().iter().map(|s| s.channel_ids.len()).sum::<usize>());
+    w.1.simulate_keystroke("ctrl-shift-u");
+    w.1.read(|a, _| {
+        assert!(a.unread_filter);
+        let ids: Vec<String> = a.sidebar_sections().into_iter().flat_map(|s| s.channel_ids).collect();
+        assert!(ids.len() < all, "{} sur {all}", ids.len());
+        assert!(ids.iter().all(|id| a.channels[id].shows_unread() || a.channel_id.as_deref() == Some(id.as_str())));
+    });
+    w.1.draw();
+    w.1.simulate_keystroke("ctrl-shift-u");
+    // Fermer une conversation lue : elle quitte la barre latérale, puis revient à l'ouverture.
+    let dm = w.1.read(|a, _| {
+        a.channels.values().find(|s| s.channel.is_direct() && !s.shows_unread()).map(|s| s.channel.id.clone()).unwrap()
+    });
+    w.1.update(|a, _, cx| a.close_dm(dm.clone(), cx));
+    let listed = |a: &ChatApp, id: &str| a.sidebar_sections().iter().any(|s| s.channel_ids.iter().any(|c| c == id));
+    w.1.read(|a, _| assert!(!listed(a, &dm)));
+    w.1.update(|a, _, cx| a.select_channel(dm.clone(), cx));
+    w.1.read(|a, _| assert!(listed(a, &dm)));
+}
+
+#[test]
+fn e2e_rejoindre_et_quitter_une_equipe() {
+    let mut w = demo_app();
+    w.1.update(|a, _, cx| a.open_join_team(cx));
+    wait_for(
+        &w,
+        "équipes ouvertes",
+        |a| matches!(&a.dialog, Some(Dialog::JoinTeam { teams: Some(t), .. }) if t.len() == 2),
+    );
+    w.1.draw();
+    w.1.update(|a, _, cx| a.join_team("t3".into(), cx));
+    wait_for(&w, "équipe rejointe", |a| {
+        a.dialog.is_none() && a.team_id.as_deref() == Some("t3") && a.teams.len() == 3
+    });
+    w.1.update(|a, _, cx| a.confirm_leave_team("t3".into(), cx));
+    w.1.draw();
+    w.1.update(|a, _, cx| a.leave_team("t3".into(), cx));
+    w.1.read(|a, _| {
+        assert_eq!(a.teams.len(), 2);
+        assert_ne!(a.team_id.as_deref(), Some("t3"));
+    });
+    // Paramètres de l'équipe : nom et ouverture.
+    w.1.update(|a, window, cx| {
+        a.open_team_settings("t1".into(), window, cx);
+        a.dialog_input.update(cx, |s, cx| s.set_value("Équipe produit", window, cx));
+        if let Some(Dialog::TeamSettings { open, .. }) = a.dialog.as_mut() {
+            *open = true;
+        }
+    });
+    w.1.draw();
+    w.1.update(|a, _, cx| a.save_team_settings(cx));
+    wait_for(&w, "équipe renommée", |a| {
+        a.teams.iter().any(|t| t.id == "t1" && t.display_name == "Équipe produit" && t.team_type == "O")
+    });
+}
+
+#[test]
 fn e2e_signets_apercu_pdf_et_f6() {
     let mut w = demo_app();
     wait_for(&w, "signets chargés", |a| a.bookmarks.get("general").is_some_and(|b| b.len() == 3));

@@ -1,6 +1,8 @@
 app:
   window_title: "Matterfew"
 sidebar:
+  unread_only: "Canaux non lus seulement"
+  show_all: "Afficher tous les canaux"
   unreads: "Non lus"
   favorites: "Favoris"
   channels: "Canaux"
@@ -99,6 +101,10 @@ team:
   created: "Créée %{day}"
   edit_description: "Modifier la description"
 demo:
+  team_research: "Recherche & innovation"
+  team_research_description: "Prototypes, veille technologique et carnets de labo."
+  team_community: "Communauté GLPI"
+  team_community_description: "Contributeurs, traducteurs et partenaires."
   bookmarks:
     roadmap: "Feuille de route"
     wiki: "Wiki de l’équipe"
@@ -398,6 +404,7 @@ panels:
   saved_empty: "Aucun message enregistré. Enregistrez-en un depuis son menu « ⋯ »."
   mentions_empty: "Personne ne vous a mentionné récemment."
 channel_menu:
+  close_dm: "Fermer la conversation"
   settings: "Paramètres du canal…"
   notifications: "Préférences de notification…"
   mark_read: "Marquer comme lu"
@@ -637,6 +644,7 @@ category_dialog:
   delete: "Supprimer"
   confirm_delete: "Ses %{count} canaux reviennent dans « Canaux ». Les canaux eux-mêmes sont conservés."
 shortcuts:
+  unread_filter: "Non lus seulement / tous les canaux"
   settings: "Paramètres"
   cycle_focus: "Zone de saisie suivante (messages, fil, recherche)"
   history: "Canal précédent / suivant dans l’historique"
@@ -770,3 +778,21 @@ dnd:
     fri: "ven."
     sat: "sam."
     sun: "dim."
+teams:
+  settings: "Paramètres de l’équipe…"
+  settings_title: "Paramètres de l’équipe"
+  join: "Rejoindre une autre équipe…"
+  join_title: "Rejoindre une équipe"
+  join_button: "Rejoindre"
+  joining: "Adhésion…"
+  none: "Aucune autre équipe à rejoindre."
+  none_hint: "Les équipes sur invitation n’apparaissent pas ici : demandez à l’un de leurs administrateurs."
+  leave: "Quitter l’équipe…"
+  leave_title: "Quitter l’équipe"
+  leave_button: "Quitter"
+  leave_confirm: "Quitter %{team} ? Vous quittez aussi tous ses canaux ; vous ne pourrez revenir que si l’équipe est ouverte ou qu’on vous invite."
+  name: "Nom"
+  name_placeholder: "Nom de l’équipe"
+  name_invalid: "Indiquez un nom d’au moins 2 caractères."
+  open: "Ouverte à tous"
+  open_hint: "Tout le monde sur le serveur peut la trouver et la rejoindre."
