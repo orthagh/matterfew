@@ -1251,7 +1251,7 @@ impl ChatApp {
 
     /// Entrée « Fils » en haut de la barre latérale, avec sa pastille.
     pub(crate) fn render_threads_entry(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.crt {
+        if !self.threads_available() {
             return None;
         }
         let p = self.palette;

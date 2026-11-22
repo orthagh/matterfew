@@ -38,6 +38,8 @@ pub(super) mod dialogs;
 const QUICK_REACTIONS: [&str; 3] = ["+1", "heart", "joy"];
 
 const TEAM_BAR_WIDTH: f32 = 64.;
+/// Pastille des mentions d'une autre équipe : bleu franc, lisible sur tous les thèmes.
+const TEAM_BADGE_BLUE: Hsla = Hsla { h: 0.6, s: 0.85, l: 0.52, a: 1. };
 const THREAD_WIDTH: f32 = 440.;
 const AVATAR: f32 = 32.;
 const BODY_TEXT: f32 = 14.5;
@@ -291,8 +293,8 @@ impl ChatApp {
                                     .rounded_full()
                                     .border_2()
                                     .border_color(tb)
-                                    .bg(p.mention_bg)
-                                    .text_color(p.mention_color)
+                                    .bg(TEAM_BADGE_BLUE)
+                                    .text_color(white())
                                     .text_size(px(10.))
                                     .line_height(px(15.))
                                     .pb(px(1.))
@@ -637,10 +639,11 @@ impl ChatApp {
         let create_button = {
             let entity = cx.entity();
             Button::new("sidebar-create")
-                .icon(Icon::new(IconName::Plus).size(px(18.)))
-                .rounded(px(16.))
+                .icon(Icon::new(IconName::Plus).size(px(18.)).text_color(p.sidebar_header_text))
+                .rounded(px(8.))
                 .with_size(px(32.))
-                .primary()
+                .ghost()
+                .bg(p.sidebar_header_text.opacity(0.1))
                 .tooltip(t!("sidebar.create_tooltip"))
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                     let item = |label: &str, icon: IconName, kind: super::CreateKind| {
@@ -860,8 +863,14 @@ impl ChatApp {
             .dropdown_menu(move |menu, _, _| {
                 let status = |label: &str, value: &'static str, icon: IconName| {
                     let entity = entity.clone();
+                    let color = match value {
+                        "online" => p.online,
+                        "away" => p.away,
+                        "dnd" => p.dnd,
+                        _ => p.muted(),
+                    };
                     PopupMenuItem::new(label.to_string())
-                        .icon(Icon::new(icon))
+                        .icon(Icon::new(icon).text_color(color))
                         .checked(current == value)
                         .on_click(move |_, _, cx| entity.update(cx, |this, cx| this.set_status(value, cx)))
                 };
@@ -3869,10 +3878,17 @@ impl ChatApp {
     fn render_files_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = self.palette;
         let entity = cx.entity();
-        let files = self.channel_file_list();
+        // Filtre : nom du fichier, adresse ou titre du lien.
+        let needle = crate::fuzzy::fold(self.files_filter.read(cx).value().trim());
+        let keep = |text: &str| needle.is_empty() || crate::fuzzy::fold(text).contains(&needle);
+        let files: Vec<FileInfo> = self.channel_file_list().into_iter().filter(|f| keep(&f.name)).collect();
         let (media, documents): (Vec<FileInfo>, Vec<FileInfo>) =
             files.into_iter().partition(|f| f.is_image() || f.is_video());
-        let links = self.channel_links();
+        let links: Vec<ChannelLink> = self
+            .channel_links()
+            .into_iter()
+            .filter(|l| keep(&format!("{} {}", l.url, l.title.as_deref().unwrap_or_default())))
+            .collect();
         let loaded = self.channel_id.as_ref().is_some_and(|id| self.channel_files.contains_key(id));
 
         let tab = |t: FilesTab, label: SharedString, count: usize, cx: &mut Context<Self>| {
@@ -3901,6 +3917,12 @@ impl ChatApp {
             .child(tab(FilesTab::Media, t!("files.tab_media").into(), media.len(), cx))
             .child(tab(FilesTab::Documents, t!("panels.files").into(), documents.len(), cx))
             .child(tab(FilesTab::Links, t!("files.tab_links").into(), links.len(), cx));
+        let search = div().px_4().py_2().border_b_1().border_color(p.border()).child(
+            Input::new(&self.files_filter)
+                .small()
+                .prefix(Icon::new(IconName::Search).size(px(13.)).text_color(p.muted()))
+                .cleanable(true),
+        );
 
         let empty = |text: SharedString| div().p_5().text_color(p.muted()).child(text).into_any_element();
         let meta = |user_id: &str, at: i64| format!("{} · {}", self.user_name(user_id), day_label_inline(at));
@@ -4052,7 +4074,7 @@ impl ChatApp {
                 }))
                 .into_any_element(),
         };
-        v_flex().flex_1().min_h_0().child(tabs).child(body).into_any_element()
+        v_flex().flex_1().min_h_0().child(tabs).child(search).child(body).into_any_element()
     }
 
     /// Pastille colorée d'un canal (lettres de son nom), cadenas si privé.

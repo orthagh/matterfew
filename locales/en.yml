@@ -68,6 +68,7 @@ tray:
   open: "Open"
   quit: "Quit"
 files:
+  search_placeholder: "Filter by name or address"
   default_name: "file"
   downloading: "Downloading %{name}…"
   executable_revealed: "Executable file: shown in File Explorer instead of being run."

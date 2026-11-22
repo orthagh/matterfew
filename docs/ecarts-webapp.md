@@ -22,9 +22,9 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 
 | Fonction | Où dans la webapp | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
-| Rappel « Me le rappeler » | `C/dot_menu/post_reminder_submenu.tsx`, `C/post_reminder_custom_time_picker_modal`, `post_info.post_reminder.*` | Sous-menu 30 min / 1 h / 2 h / demain / personnalisé ; le bot système renvoie le message à l'heure dite (`POST /users/{id}/posts/{post}/reminder`) | Absent | S | ★★★ |
+| ~~Rappel « Me le rappeler »~~ | ~~`C/dot_menu/post_reminder_submenu.tsx`, `C/post_reminder_custom_time_picker_modal`, `post_info.post_reminder.*`~~ | ~~Sous-menu 30 min / 1 h / 2 h / demain / personnalisé ; le bot système renvoie le message à l'heure dite (`POST /users/{id}/posts/{post}/reminder`)~~ | ~~Absent~~ | ~~S~~ | ~~★★★~~ |
 | Transférer un message | `C/forward_post_modal`, `forward_post_modal.*` | Choix d'un canal ou d'une personne, commentaire facultatif, aperçu ; avertit si la source est privée | Absent | M | ★★ |
-| Suivre / ne plus suivre le fil | `threading.threadMenu.follow*`, `C/threading/common` | Bouton dans l'en-tête du fil et menu « ⋯ » (`PUT/DELETE /users/{u}/teams/{t}/threads/{id}/following`) | Absent (le backend connaît seulement l'état « suivi » pour les notifications) | S | ★★★ |
+| ~~Suivre / ne plus suivre le fil~~ | ~~`threading.threadMenu.follow*`, `C/threading/common`~~ | ~~Bouton dans l'en-tête du fil et menu « ⋯ » (`PUT/DELETE /users/{u}/teams/{t}/threads/{id}/following`)~~ | ~~Absent (le backend connaît seulement l'état « suivi » pour les notifications)~~ | ~~S~~ | ~~★★★~~ |
 | Historique des modifications | `C/post_edit_history`, `post_info.edit.*`, `search_header.title_edit.history` | Clic sur « (modifié) » : versions précédentes dans le panneau droit, restauration possible (`GET /posts/{id}/edit_history`) | Partiel : libellé « (modifié) » seulement | M | ★★ |
 | Priorité Important / Urgent | `C/post_priority`, `C/advanced_text_editor/priority_labels`, `post_priority.*` | Sélecteur dans la barre de mise en forme ; étiquette colorée sur le message (`metadata.priority`) | Absent (ni envoi ni affichage des étiquettes reçues) | M | ★★ |
 | Demande d'accusé de lecture | `C/post_view/acknowledgements`, `post_priority.button.acknowledge` | Bouton « Accuser réception », liste de qui a accusé (`POST /users/{u}/posts/{p}/ack`) | Absent | M | ★★ |
@@ -40,8 +40,8 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
-| Coller une image du presse-papiers | `file_upload.pasted` | Ctrl+V d'une capture : fichier « Image Pasted at … » joint | Absent (noté dans FONCTIONNALITES) | S | ★★★ |
-| ↑ pour modifier son dernier message | `shortcuts.msgs.edit` | Dans une saisie vide | Absent | S | ★★★ |
+| ~~Coller une image du presse-papiers~~ | ~~`file_upload.pasted`~~ | ~~Ctrl+V d'une capture : fichier « Image Pasted at … » joint~~ | ~~Absent (noté dans FONCTIONNALITES)~~ | ~~S~~ | ~~★★★~~ |
+| ~~↑ pour modifier son dernier message~~ | ~~`shortcuts.msgs.edit`~~ | ~~Dans une saisie vide~~ | ~~Absent~~ | ~~S~~ | ~~★★★~~ |
 | Maj+↑ répondre au dernier message | `shortcuts.msgs.reply` | Ouvre le fil du dernier message | Absent | S | ★ |
 | Envoyer avec Ctrl+Entrée | `user.settings.advance.sendTitle`, préférence `advanced_settings.send_on_ctrl_enter` | Entrée = nouvelle ligne ; Ctrl+Entrée envoie (tous messages ou seulement blocs de code) | Absent (préférence serveur ignorée) | S | ★★ |
 | Messages programmés (« Envoyer plus tard ») | `C/advanced_text_editor/send_button`, `C/drafts/scheduled_post_list`, `C/edit_scheduled_post`, `scheduled_post.*` | Menu du bouton d'envoi : demain 9 h, lundi, date libre ; onglet « Programmés » (modifier, replanifier, envoyer maintenant) ; indicateur dans le canal (`/posts/schedule`, serveur ≥ 10.3) | Absent | M | ★★ |
@@ -61,7 +61,7 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
-| Vue « Fils » globale | `C/threading/global_threads`, `threading.filters.unreads`, `threading.threadList.markRead` | Tous les fils suivis de l'équipe, onglet « Non lus », « Tout marquer comme lu », entrée en haut de la barre latérale avec pastille | Partiel : fils suivis du canal affiché seulement | M | ★★★ |
+| ~~Vue « Fils » globale~~ | ~~`C/threading/global_threads`, `threading.filters.unreads`, `threading.threadList.markRead`~~ | ~~Tous les fils suivis de l'équipe, onglet « Non lus », « Tout marquer comme lu », entrée en haut de la barre latérale avec pastille~~ | ~~Partiel : fils suivis du canal affiché seulement~~ | ~~M~~ | ~~★★★~~ |
 | Fil dans une fenêtre séparée | `C/thread_popout`, `C/rhs_popout` | Détacher un fil ou le panneau droit | Absent | M | ★ |
 | Agrandir le panneau droit | `shortcuts.nav.expand_sidebar` (Ctrl+Maj+.) | Panneau droit en grand | Absent | S | ★ |
 
@@ -69,10 +69,10 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
-| Parcourir les canaux | `C/browse_channels`, `more_channels.*` | Liste des canaux publics, archivés, privés « découvrables » ; filtres, masquer ceux rejoints, « Rejoindre », demande d'adhésion | Absent (seule la création existe) | M | ★★★ |
-| Nouveau message direct / de groupe | `C/more_direct_channels`, `shortcuts.nav.direct_messages_menu` (Ctrl+Maj+K) | « + » de la catégorie Messages directs : choisir 1 à 7 personnes | Partiel : message direct depuis la carte de profil, pas de groupe | M | ★★★ |
+| ~~Parcourir les canaux~~ | ~~`C/browse_channels`, `more_channels.*`~~ | ~~Liste des canaux publics, archivés, privés « découvrables » ; filtres, masquer ceux rejoints, « Rejoindre », demande d'adhésion~~ | ~~Absent (seule la création existe)~~ | ~~M~~ | ~~★★★~~ |
+| ~~Nouveau message direct / de groupe~~ | ~~`C/more_direct_channels`, `shortcuts.nav.direct_messages_menu` (Ctrl+Maj+K)~~ | ~~« + » de la catégorie Messages directs : choisir 1 à 7 personnes~~ | ~~Partiel : message direct depuis la carte de profil, pas de groupe~~ | ~~M~~ | ~~★★★~~ |
 | Fermer une conversation directe | `sidebar_left.sidebar_channel_menu.leaveConversation` | Retire le MP de la barre latérale | Absent | S | ★★ |
-| Préférences de notification du canal | `C/channel_notifications_modal`, `channel_notifications.*` | Bureau/mobile : tout, mentions, rien ; réponses de fils ; suivre tous les fils du canal ; ignorer @channel ; son ; réinitialiser (`PUT /channels/{c}/members/{u}/notify_props`) | Partiel : sourdine seulement (les réglages existants sont lus) | M | ★★★ |
+| ~~Préférences de notification du canal~~ | ~~`C/channel_notifications_modal`, `channel_notifications.*`~~ | ~~Bureau/mobile : tout, mentions, rien ; réponses de fils ; suivre tous les fils du canal ; ignorer @channel ; son ; réinitialiser (`PUT /channels/{c}/members/{u}/notify_props`)~~ | ~~Partiel : sourdine seulement (les réglages existants sont lus)~~ | ~~M~~ | ~~★★★~~ |
 | Paramètres du canal | `C/channel_settings_modal`, `channel_settings.tab.*` | Renommer, changer l'URL, convertir en privé, archiver / désarchiver | Partiel : description et en-tête modifiables | M | ★★ |
 | Canaux archivés | `C/center_message_lock`, `C/unarchive_channel_modal` | Lecture seule avec bandeau, recherche dans les archivés | Absent (non géré) | S | ★ |
 | Gestion des membres | `C/channel_members_rhs`, `channel_members_rhs.action_bar.manage_button` | « Gérer » : retirer, nommer administrateur | Partiel : liste et ajout seulement | S | ★★ |
@@ -82,14 +82,14 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | Convertir un MP de groupe en canal | `C/convert_gm_to_channel_modal` | Transforme une conversation de groupe en canal privé | Absent | M | ★ |
 | Signets de canal | `C/channel_bookmarks`, `channel_bookmarks.*` | Barre de liens/fichiers sous l'en-tête (ajout, ordre, emoji) | Absent (pas même l'affichage) | M | ★★ |
 | Bannière de canal | `C/channel_banner` | Texte coloré en haut du canal (Entreprise) | Absent | S | ★ |
-| Liens internes dans l'application | `C/permalink_view`, `C/inline_entity_link` | Un lien `…/équipe/pl/id` ou `…/channels/nom` s'ouvre dans le client (canal, fil, message en surbrillance) | Absent : `open_link` envoie tout au navigateur | S | ★★★ |
+| ~~Liens internes dans l'application~~ | ~~`C/permalink_view`, `C/inline_entity_link`~~ | ~~Un lien `…/équipe/pl/id` ou `…/channels/nom` s'ouvre dans le client (canal, fil, message en surbrillance)~~ | ~~Absent : `open_link` envoie tout au navigateur~~ | ~~S~~ | ~~★★★~~ |
 | Équipes | `navbar_dropdown.join`, `navbar_dropdown.leave`, `C/team_settings_modal` | Rejoindre une autre équipe, quitter, paramètres de l'équipe | Partiel : description seulement | M | ★ |
 
 ## 5. Statut et notifications
 
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
-| Statut personnalisé | `C/custom_status`, `custom_status.*`, `C/post_view/post_header_custom_status` | Emoji + texte, suggestions (« En réunion »…), récents, expiration (30 min → date libre) ; affiché à côté du nom dans les messages, la carte de profil, les membres (`PUT /users/me/status/custom`) | Absent (ni réglage ni affichage) | M | ★★★ |
+| ~~Statut personnalisé~~ | ~~`C/custom_status`, `custom_status.*`, `C/post_view/post_header_custom_status`~~ | ~~Emoji + texte, suggestions (« En réunion »…), récents, expiration (30 min → date libre) ; affiché à côté du nom dans les messages, la carte de profil, les membres (`PUT /users/me/status/custom`)~~ | ~~Absent (ni réglage ni affichage)~~ | ~~M~~ | ~~★★★~~ |
 | « Ne pas déranger » avec durée | `userAccountMenu.dndSubMenu.*`, `C/dnd_custom_time_picker_modal` | 30 min, 1 h, 2 h, demain, personnalisé (`dnd_end_time`) | Partiel : statut sans échéance | S | ★★ |
 | Paramètres de notification | `C/user_settings/notifications`, `user.settings.notifications.*` | Bureau (tout/mentions/rien, fils suivis), sons, e-mail, mots-clés qui notifient / surlignent, réponses, suivi auto sur @channel | Absent (préférences lues mais non modifiables) | M | ★★ |
 | Réponse automatique (absence) | `user.settings.notifications.autoResponder*` | Message envoyé automatiquement en MP | Absent | S | ★ |
@@ -158,8 +158,8 @@ Chez nous : Ctrl+K, Ctrl+F, Échap, mise en forme (Ctrl+B/I/Maj+X/Alt+K/Alt+C),
 
 | Raccourci | Effet | Effort | Valeur |
 |---|---|---|---|
-| Alt+↑ / Alt+↓ | Canal précédent / suivant | S | ★★ |
-| Alt+Maj+↑ / ↓ | Canal non lu précédent / suivant | S | ★★★ |
+| ~~Alt+↑ / Alt+↓~~ | ~~Canal précédent / suivant~~ | ~~S~~ | ~~★★~~ |
+| ~~Alt+Maj+↑ / ↓~~ | ~~Canal non lu précédent / suivant~~ | ~~S~~ | ~~★★★~~ |
 | Alt+← / Alt+→ | Historique de navigation | S | ★★ |
 | Ctrl+Maj+M | Mentions récentes | S | ★ |
 | Ctrl+Maj+L | Focus dans la zone de saisie | S | ★ |
@@ -209,17 +209,17 @@ Classement : valeur pour un utilisateur venant du client officiel, puis effort.
 
 | # | Fonction | Valeur | Effort | Remarque |
 |---|---|---|---|---|
-| ✅ 1 | Liens internes ouverts dans l'application (permaliens, `~canal`) | ★★★ | S | Aujourd'hui tout part dans le navigateur ; réutilise « ouvrir le canal et le fil » de la recherche |
-| ✅ 2 | Coller une image (Ctrl+V) | ★★★ | S | Upload déjà en place |
-| ✅ 3 | ↑ pour modifier son dernier message | ★★★ | S | Édition dans la zone de saisie déjà en place |
-| ✅ 4 | Alt+↑/↓ et Alt+Maj+↑/↓ (canaux, canaux non lus) | ★★★ | S | Ordre déjà calculé par `sidebar.rs` |
-| ✅ 5 | Suivre / ne plus suivre un fil | ★★★ | S | Deux appels REST |
-| ✅ 6 | Rappel « Me le rappeler » | ★★★ | S | Un appel REST + sous-menu |
-| ✅ 7 | Préférences de notification par canal | ★★★ | M | `notify_rules.rs` lit déjà ces propriétés |
-| ✅ 8 | Parcourir et rejoindre les canaux (publics, archivés) | ★★★ | M | |
-| ✅ 9 | Nouveau message direct / de groupe (Ctrl+Maj+K) | ★★★ | M | |
-| ✅ 10 | Statut personnalisé (affichage puis réglage) + « Ne pas déranger » avec durée | ★★★ | M | Statut fait ; « Ne pas déranger » avec durée reste à faire (★★) |
-| ✅ 11 | Vue « Fils » globale (équipe, non lus, tout marquer lu) | ★★★ | M | Panneau par canal existant à généraliser |
+| ✅ 1 | ~~Liens internes ouverts dans l'application (permaliens, `~canal`)~~ | ~~★★★~~ | ~~S~~ | ~~Aujourd'hui tout part dans le navigateur ; réutilise « ouvrir le canal et le fil » de la recherche~~ |
+| ✅ 2 | ~~Coller une image (Ctrl+V)~~ | ~~★★★~~ | ~~S~~ | ~~Upload déjà en place~~ |
+| ✅ 3 | ~~↑ pour modifier son dernier message~~ | ~~★★★~~ | ~~S~~ | ~~Édition dans la zone de saisie déjà en place~~ |
+| ✅ 4 | ~~Alt+↑/↓ et Alt+Maj+↑/↓ (canaux, canaux non lus)~~ | ~~★★★~~ | ~~S~~ | ~~Ordre déjà calculé par `sidebar.rs`~~ |
+| ✅ 5 | ~~Suivre / ne plus suivre un fil~~ | ~~★★★~~ | ~~S~~ | ~~Deux appels REST~~ |
+| ✅ 6 | ~~Rappel « Me le rappeler »~~ | ~~★★★~~ | ~~S~~ | ~~Un appel REST + sous-menu~~ |
+| ✅ 7 | ~~Préférences de notification par canal~~ | ~~★★★~~ | ~~M~~ | ~~`notify_rules.rs` lit déjà ces propriétés~~ |
+| ✅ 8 | ~~Parcourir et rejoindre les canaux (publics, archivés)~~ | ~~★★★~~ | ~~M~~ | |
+| ✅ 9 | ~~Nouveau message direct / de groupe (Ctrl+Maj+K)~~ | ~~★★★~~ | ~~M~~ | |
+| ✅ 10 | ~~Statut personnalisé (affichage puis réglage) + « Ne pas déranger » avec durée~~ | ~~★★★~~ | ~~M~~ | ~~Statut fait ; « Ne pas déranger » avec durée reste à faire (★★)~~ |
+| ✅ 11 | ~~Vue « Fils » globale (équipe, non lus, tout marquer lu)~~ | ~~★★★~~ | ~~M~~ | ~~Panneau par canal existant à généraliser~~ |
 | 12 | Envoi avec Ctrl+Entrée (préférence serveur) | ★★ | S | |
 | 13 | Qui a réagi + emojis récents (réactions rapides et sélecteur) | ★★ | S | |
 | 14 | Priorité, étiquettes Important/Urgent et accusés de lecture | ★★ | M | Afficher les étiquettes reçues d'abord (S) |

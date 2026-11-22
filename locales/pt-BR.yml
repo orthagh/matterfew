@@ -68,6 +68,7 @@ tray:
   open: "Abrir"
   quit: "Sair"
 files:
+  search_placeholder: "Filtrar por nome ou endereço"
   default_name: "arquivo"
   downloading: "Baixando %{name}…"
   executable_revealed: "Arquivo executável: exibido no Explorador de Arquivos em vez de ser executado."

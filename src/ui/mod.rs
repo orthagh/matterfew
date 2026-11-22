@@ -352,6 +352,8 @@ pub struct ChatApp {
     /// notifications d'un canal ; et son champ de saisie.
     dialog: Option<view::dialogs::Dialog>,
     dialog_input: Entity<InputState>,
+    /// Filtre du panneau des fichiers du canal (nom, adresse).
+    files_filter: Entity<InputState>,
     search_input: Entity<InputState>,
     /// Sélecteur de canaux (Ctrl+K) ouvert, avec la ligne choisie.
     switcher: Option<usize>,
@@ -471,6 +473,8 @@ impl ChatApp {
         let member_search_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("members.search_placeholder").to_string()));
         let dialog_input = cx.new(|cx| InputState::new(window, cx));
+        let files_filter =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("files.search_placeholder").to_string()));
         let switcher_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("switcher.placeholder").to_string()));
         let emoji_search =
@@ -511,6 +515,11 @@ impl ChatApp {
         let settings = UiSettings::load();
         crate::autolink::set_rules(&crate::autolink::load_local());
         let subscriptions = vec![
+            cx.subscribe_in(&files_filter, window, |_, _, ev: &InputEvent, _, cx| {
+                if let InputEvent::Change = ev {
+                    cx.notify();
+                }
+            }),
             cx.subscribe_in(&dialog_input, window, |this, _, ev: &InputEvent, _, cx| {
                 if let InputEvent::Change = ev {
                     this.dialog_input_changed(cx);
@@ -661,6 +670,7 @@ impl ChatApp {
             threads_unread: false,
             dialog: None,
             dialog_input,
+            files_filter,
             expanded_bots: HashSet::new(),
             spell: crate::spell::Checker::new(),
             misspellings: HashMap::new(),
@@ -1075,7 +1085,7 @@ impl ChatApp {
         self.profile = None;
         // Fils suivis : pour leur pastille dans la barre latérale.
         self.threads = None;
-        if self.crt {
+        if self.threads_available() {
             self.send(Command::LoadThreads { team_id: team_id.clone() });
         }
         self.dialog = None;
@@ -1309,7 +1319,7 @@ impl ChatApp {
     /// messages du canal affiché modifiés depuis le plus récent connu, fil ouvert.
     fn resync(&mut self) {
         if let Some(team_id) = self.team_id.clone() {
-            if self.crt {
+            if self.threads_available() {
                 self.send(Command::LoadThreads { team_id: team_id.clone() });
             }
             self.send(Command::LoadTeam { team_id });
@@ -2340,6 +2350,14 @@ impl ChatApp {
             "etroit-canaux" => after(self, 400, window, cx, |this, _, cx| this.toggle_drawer(Drawer::Channels, cx)),
             "etroit-membres" => after(self, 400, window, cx, |this, _, cx| this.toggle_drawer(Drawer::Members, cx)),
             "autolink" => self.select_channel("support".into(), cx),
+            "fichiers" => {
+                self.select_channel("general".into(), cx);
+                after(self, 600, window, cx, |this, window, cx| {
+                    this.show_files(cx);
+                    this.set_files_tab(FilesTab::Documents, cx);
+                    this.files_filter.update(cx, |s, cx| s.set_value("rapport", window, cx));
+                })
+            }
             "panneau-canal" => after(self, 400, window, cx, |this, window, cx| {
                 this.open_channel_card(point(px(600.), px(40.)), window, cx)
             }),
@@ -3530,6 +3548,10 @@ impl ChatApp {
     // Aides
     // ------------------------------------------------------------------
 
+    pub(crate) fn threads_available(&self) -> bool {
+        threads_supported(&self.server_config)
+    }
+
     fn me_id(&self) -> &str {
         self.me.as_ref().map(|u| u.id.as_str()).unwrap_or_default()
     }
@@ -3620,6 +3642,12 @@ fn in_background<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> a
 /// Fils réduits (« Collapsed Reply Threads ») actifs ? Même règle que le
 /// client web : autorisés par le serveur, et activés par l'utilisateur ou
 /// imposés / activés par défaut par le serveur.
+/// Le serveur gère les fils suivis (même si l'utilisateur a désactivé les
+/// fils réduits pour lui-même).
+fn threads_supported(config: &HashMap<String, String>) -> bool {
+    config.get("CollapsedThreads").map(String::as_str) != Some("disabled")
+}
+
 fn collapsed_threads_enabled(config: &HashMap<String, String>, prefs: &[Preference]) -> bool {
     let server = config.get("CollapsedThreads").map(String::as_str).unwrap_or("default_on");
     if server == "disabled" {

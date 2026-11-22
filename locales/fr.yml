@@ -68,6 +68,7 @@ tray:
   open: "Ouvrir"
   quit: "Quitter"
 files:
+  search_placeholder: "Filtrer par nom ou adresse"
   default_name: "fichier"
   downloading: "Téléchargement de %{name}…"
   executable_revealed: "Fichier exécutable : montré dans l'Explorateur plutôt que lancé."
