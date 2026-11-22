@@ -80,7 +80,7 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | ~~Gestion des catégories~~ | ~~`sidebar_left.sidebar_category_menu.*`~~ | ~~Renommer, supprimer une catégorie~~ | ~~Absent (créer, trier, sourdine, marquer lu existent)~~ | ~~S~~ | ~~★★~~ |
 | Filtre « Non lus seulement » | `sidebar_left.channel_filter.*`, Ctrl+Maj+U | Bascule non lus / tous dans la barre latérale | Partiel : section « Non lus » si la préférence est active | S | ★ |
 | Convertir un MP de groupe en canal | `C/convert_gm_to_channel_modal` | Transforme une conversation de groupe en canal privé | Absent | M | ★ |
-| Signets de canal | `C/channel_bookmarks`, `channel_bookmarks.*` | Barre de liens/fichiers sous l'en-tête (ajout, ordre, emoji) | Absent (pas même l'affichage) | M | ★★ |
+| ~~Signets de canal~~ | ~~`C/channel_bookmarks`, `channel_bookmarks.*`~~ | ~~Barre de liens/fichiers sous l'en-tête (ajout, ordre, emoji)~~ | ~~Absent (pas même l'affichage)~~ | ~~M~~ | ~~★★~~ |
 | Bannière de canal | `C/channel_banner` | Texte coloré en haut du canal (Entreprise) | Absent | S | ★ |
 | ~~Liens internes dans l'application~~ | ~~`C/permalink_view`, `C/inline_entity_link`~~ | ~~Un lien `…/équipe/pl/id` ou `…/channels/nom` s'ouvre dans le client (canal, fil, message en surbrillance)~~ | ~~Absent : `open_link` envoie tout au navigateur~~ | ~~S~~ | ~~★★★~~ |
 | Équipes | `navbar_dropdown.join`, `navbar_dropdown.leave`, `C/team_settings_modal` | Rejoindre une autre équipe, quitter, paramètres de l'équipe | Partiel : description seulement | M | ★ |
@@ -120,7 +120,7 @@ Aucun écran de paramètres dans matterfew : les préférences serveur sont lues
 
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
-| Aperçu PDF | `C/pdf_preview.tsx`, `C/file_preview_modal` | PDF lu dans la visionneuse | Absent (ouvrir/télécharger) | M | ★★ |
+| ~~Aperçu PDF~~ | ~~`C/pdf_preview.tsx`, `C/file_preview_modal`~~ | ~~PDF lu dans la visionneuse~~ | ~~Absent (ouvrir/télécharger)~~ | ~~M~~ | ~~★★~~ |
 | Aperçu de code / texte | `C/code_preview.tsx` | Fichiers source affichés avec coloration | Absent | S | ★ |
 | Lecteur vidéo / audio | `C/audio_video_preview`, `C/youtube_video` | Lecture intégrée ; vidéos YouTube intégrées | Absent (vidéo listée dans les médias, ouverte à l'extérieur) | L | ★ |
 | Visionneuse : fichier suivant, lien public | `file_preview_modal_main_nav.*`, `file_preview_modal_main_actions.*` | Flèches « n sur N », « Copier le lien public » | Partiel : une image à la fois | S | ★★ |
@@ -185,7 +185,7 @@ Chez nous : Ctrl+K, Ctrl+F, Échap, mise en forme (Ctrl+B/I/Maj+X/Alt+K/Alt+C),
 |---|---|---|---|---|---|
 | ~~Bandeau hors ligne~~ | ~~`announcement_bar.warn.no_internet_connection`~~ | ~~Bandeau visible en haut de l'écran~~ | ~~Partiel : « Reconnexion… » à la place du statut dans la barre latérale~~ | ~~S~~ | ~~★★~~ |
 | ~~Toasts du fil de messages~~ | ~~`C/toast_wrapper`, `postlist.toast.*`~~ | ~~« N nouveaux messages », « Aller aux non lus », « Vous consultez l'historique »~~ | ~~Partiel : « Revenir au présent »~~ | ~~S~~ | ~~★~~ |
-| Accessibilité | `accessibility.sections.*`, `C/a11y` (régions, F6) | Lecteur d'écran, navigation par régions | Absent / limité par GPUI | L | ★★ |
+| ~~Accessibilité~~ | ~~`accessibility.sections.*`, `C/a11y` (régions, F6)~~ | ~~Lecteur d'écran, navigation par régions~~ | ~~Absent / limité par GPUI~~ | ~~L~~ | ~~★★~~ |
 | Traductions | `webapp/channels/src/i18n/*.json` | ≈ 20 langues | Partiel : fr, en, pt-BR | M | ★ |
 
 ## 13. À mentionner seulement (plugins, éditions payantes, récent)

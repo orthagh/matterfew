@@ -32,6 +32,9 @@ pub(crate) enum Dialog {
         confirm_delete: bool,
     },
     Shortcuts,
+    Bookmark {
+        channel_id: String,
+    },
     /// @channel / @all / @here dans un canal de `count` personnes.
     ConfirmNotify {
         pane: Pane,
@@ -264,12 +267,13 @@ impl ChatApp {
                 self.render_category_dialog(category_id, *confirm_delete, cx)
             }
             Dialog::Shortcuts => self.render_shortcuts(cx),
+            Dialog::Bookmark { .. } => self.render_bookmark_dialog(cx),
             Dialog::ConfirmNotify { pane, count, mention } => self.render_confirm_notify(*pane, *count, mention, cx),
         })
     }
 
     /// Emoji par nom Mattermost (ou emoji personnalisé du serveur).
-    fn named_emoji(&self, name: &str, size: f32) -> AnyElement {
+    pub(crate) fn named_emoji(&self, name: &str, size: f32) -> AnyElement {
         match self.custom_emojis.get(name) {
             Some(image) => img(image.clone()).size(px(size)).into_any_element(),
             None => emoji_face(&emoji::lookup(name), size),

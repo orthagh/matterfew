@@ -138,6 +138,22 @@ pub enum Command {
         team_id: String,
         category_id: String,
     },
+    LoadBookmarks {
+        channel_id: String,
+    },
+    /// Pages d'un PDF joint, rendues en images (aperçu).
+    LoadPdf {
+        file_id: String,
+    },
+    AddBookmark {
+        channel_id: String,
+        title: String,
+        url: String,
+    },
+    DeleteBookmark {
+        channel_id: String,
+        bookmark_id: String,
+    },
     LoadTeamUnreads,
     /// Aperçu d'une image jointe.
     LoadPreview {
@@ -412,6 +428,19 @@ pub enum Event {
     Sent {
         pending_id: String,
     },
+    Bookmarks {
+        channel_id: String,
+        bookmarks: Vec<crate::api::Bookmark>,
+    },
+    /// Pages PNG d'un PDF et nombre total de pages, ou l'erreur.
+    PdfPages {
+        file_id: String,
+        result: Result<PdfPages, String>,
+    },
+    /// Signets d'un canal modifiés ailleurs : à recharger.
+    BookmarksChanged {
+        channel_id: String,
+    },
     SendFailed {
         pending_id: String,
         error: String,
@@ -565,6 +594,9 @@ impl Event {
         Event::Error { message: format!("{err:#}"), expired }
     }
 }
+
+/// Pages PNG d'un PDF et nombre total de pages.
+pub type PdfPages = (Vec<Arc<Vec<u8>>>, u32);
 
 pub struct Backend {
     pub commands: async_channel::Sender<Command>,
@@ -831,6 +863,32 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::RemoveChannelMember { channel_id, user_id } => {
             client.leave_channel(&channel_id, &user_id).await?;
             ctx.emit(Event::MembersChanged { channel_id }).await;
+        }
+        Command::LoadPdf { file_id } => {
+            let result = match client.file_content(&file_id).await {
+                Ok(bytes) => tokio::task::spawn_blocking(move || crate::pdf::render_pages(&bytes, 1400))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r.map_err(|e| format!("{e:#}")))
+                    .map(|(pages, total)| (pages.into_iter().map(Arc::new).collect(), total)),
+                Err(err) => Err(format!("{err:#}")),
+            };
+            ctx.emit(Event::PdfPages { file_id, result }).await;
+        }
+        // Signets désactivés ou serveur trop ancien : simplement aucun signet.
+        Command::LoadBookmarks { channel_id } => {
+            let bookmarks = client.bookmarks(&channel_id).await.unwrap_or_default();
+            ctx.emit(Event::Bookmarks { channel_id, bookmarks }).await;
+        }
+        Command::AddBookmark { channel_id, title, url } => {
+            client.add_bookmark(&channel_id, &title, &url).await?;
+            let bookmarks = client.bookmarks(&channel_id).await?;
+            ctx.emit(Event::Bookmarks { channel_id, bookmarks }).await;
+        }
+        Command::DeleteBookmark { channel_id, bookmark_id } => {
+            client.delete_bookmark(&channel_id, &bookmark_id).await?;
+            let bookmarks = client.bookmarks(&channel_id).await?;
+            ctx.emit(Event::Bookmarks { channel_id, bookmarks }).await;
         }
         Command::DeleteCategory { team_id, category_id } => {
             client.delete_category(&team_id, &category_id).await?;
@@ -1409,6 +1467,13 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
             let thread_id = str_field(&data, "/thread_id");
             let following = data.get("state").and_then(Value::as_bool).unwrap_or(false);
             (!thread_id.is_empty()).then_some(Event::ThreadFollow { thread_id, following })
+        }
+        "channel_bookmark_created"
+        | "channel_bookmark_updated"
+        | "channel_bookmark_deleted"
+        | "channel_bookmark_sorted" => {
+            let channel_id = str_field(&value, "/broadcast/channel_id");
+            (!channel_id.is_empty()).then_some(Event::BookmarksChanged { channel_id })
         }
         "channel_member_updated" => nested::<ChannelMember>(&data, "channelMember").map(Event::MemberUpdated),
         _ => None,

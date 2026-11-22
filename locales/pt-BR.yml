@@ -99,6 +99,9 @@ team:
   created: "Criada %{day}"
   edit_description: "Editar descrição"
 demo:
+  bookmarks:
+    roadmap: "Roteiro"
+    wiki: "Wiki da equipe"
   browse:
     ux_purpose: "Pesquisa com usuários, entrevistas e testes de usabilidade"
     hackathon_purpose: "Ideias e equipes para o próximo hackathon"
@@ -331,6 +334,7 @@ composer:
   upload_failed: "falhou: %{error}"
   uploading: "enviando…"
 clipboard:
+  link: "Link"
   copied: "%{what} copiado para a área de transferência."
   message_link: "Link da mensagem"
   message_text: "Texto da mensagem"
@@ -357,6 +361,7 @@ post_menu:
   copy_text: "Copiar texto"
   edit: "Editar"
 viewer:
+  pdf_more: "Mais %{count} páginas: baixe o arquivo para lê-las."
   unsupported_format: "Formato de imagem não suportado."
   close: "Fechar (Esc)"
 notifications:
@@ -632,6 +637,7 @@ category_dialog:
   delete: "Excluir"
   confirm_delete: "Os %{count} canais voltam para Canais. Os canais em si são mantidos."
 shortcuts:
+  cycle_focus: "Próxima área de digitação (mensagens, tópico, busca)"
   history: "Voltar / avançar no histórico de canais"
   teams: "Equipe anterior / seguinte"
   title: "Atalhos de teclado"
@@ -662,3 +668,20 @@ keys:
   enter: "Enter"
 offline:
   banner: "Conexão com o servidor perdida. Reconectando…"
+bookmarks:
+  add: "Adicionar um favorito"
+  url: "Link"
+  title: "Título (opcional)"
+  url_placeholder: "https://…"
+  title_placeholder: "Exibido na barra de favoritos"
+  invalid: "Informe um endereço web (http ou https)."
+  copy: "Copiar link"
+  delete: "Excluir favorito"
+a11y:
+  mentions:
+    one: "1 menção"
+    other: "%{count} menções"
+  unread: "não lido"
+  channels: "Canais"
+  messages: "Mensagens"
+  members: "Membros"

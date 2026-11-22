@@ -32,6 +32,7 @@ use crate::theme::Palette;
 use crate::{emoji, markdown};
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
 
+pub(super) mod bookmarks;
 pub(super) mod dialogs;
 pub(super) mod manage;
 pub(super) mod messaging;
@@ -269,6 +270,13 @@ impl ChatApp {
                     };
                     let tile = div()
                         .id(SharedString::from(format!("team-{}", team.id)))
+                        .role(Role::Tab)
+                        .aria_selected(active)
+                        .aria_label(if mentions > 0 {
+                            format!("{}, {}", team.display_name, a11y_mentions(mentions))
+                        } else {
+                            team.display_name.clone()
+                        })
                         .flex_none()
                         .relative()
                         .size(px(44.))
@@ -380,10 +388,20 @@ impl ChatApp {
 
         let draft = !selected && self.has_draft(channel_id);
         let menu = self.channel_menu(channel_id, state.muted, false, cx);
+        // Lecteur d'écran : nom, mentions, non lu.
+        let mut spoken = self.channel_title(channel);
+        if state.mentions > 0 {
+            spoken = format!("{spoken}, {}", a11y_mentions(state.mentions));
+        } else if unread {
+            spoken = format!("{spoken}, {}", t!("a11y.unread"));
+        }
         let id = channel_id.to_string();
         Some(
             h_flex()
                 .id(SharedString::from(format!("ch-{channel_id}")))
+                .role(Role::Link)
+                .aria_label(spoken)
+                .aria_selected(selected)
                 // Ne jamais rétrécir : avec beaucoup de canaux, la liste défile.
                 .flex_none()
                 .h(px(33.))
@@ -508,6 +526,10 @@ impl ChatApp {
                     this.copy_channel_link(&id, cx)
                 }));
             if !direct {
+                let (eb, bid) = (entity.clone(), id.clone());
+                menu = menu.item(PopupMenuItem::new(t!("bookmarks.add")).icon(Icon::new(IconName::Bookmark)).on_click(
+                    move |_, window, cx| eb.update(cx, |this, cx| this.open_bookmark_dialog(bid.clone(), window, cx)),
+                ));
                 let (e, cid) = (entity.clone(), id.clone());
                 menu = menu.item(
                     PopupMenuItem::new(t!("channel_menu.settings")).icon(Icon::new(IconName::Settings)).on_click(
@@ -545,6 +567,8 @@ impl ChatApp {
 
         let mut list = v_flex()
             .id("channel-list")
+            .role(Role::Navigation)
+            .aria_label(t!("a11y.channels"))
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
@@ -614,6 +638,7 @@ impl ChatApp {
                             .icon(Icon::new(IconName::Plus).text_color(p.sidebar_text))
                             .ghost()
                             .xsmall()
+                            .accessibility_label(t!("direct.tooltip"))
                             .tooltip(t!("direct.tooltip"))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 cx.stop_propagation();
@@ -654,6 +679,7 @@ impl ChatApp {
                 .with_size(px(32.))
                 .ghost()
                 .bg(p.sidebar_header_text.opacity(0.1))
+                .accessibility_label(t!("sidebar.create_tooltip"))
                 .tooltip(t!("sidebar.create_tooltip"))
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                     let item = |label: &str, icon: IconName, kind: super::CreateKind| {
@@ -894,6 +920,7 @@ impl ChatApp {
             .icon(Icon::new(IconName::EllipsisVertical).text_color(p.sidebar_text))
             .ghost()
             .small()
+            .accessibility_label(t!("account.tooltip"))
             .tooltip(t!("account.tooltip"))
             .dropdown_menu(move |menu, _, _| {
                 let status = |label: &str, value: &'static str, icon: IconName| {
@@ -1238,7 +1265,20 @@ impl ChatApp {
             }
         });
 
+        // Lecteur d'écran : « Auteur, 14:32 : texte ».
+        let spoken: String = format!(
+            "{}, {} : {}",
+            self.user_name(&post.user_id),
+            format_time(post.create_at),
+            markdown::plain_text(&post.message)
+        )
+        .chars()
+        .take(400)
+        .collect();
         let row = h_flex()
+            .id(SharedString::from(format!("{prefix}-post-{}", post.id)))
+            .role(Role::Article)
+            .aria_label(spoken)
             .group(group)
             .relative()
             .items_start()
@@ -1521,6 +1561,7 @@ impl ChatApp {
                     .icon(Icon::new(IconName::FaceSlightlySmilingPlus).size(px(16.)))
                     .xsmall()
                     .ghost()
+                    .accessibility_label(t!("post.add_reaction"))
                     .tooltip(t!("post.add_reaction"))
                     .on_click(move |_, window, cx| {
                         entity.update(cx, |this, cx| {
@@ -1537,6 +1578,7 @@ impl ChatApp {
                     .icon(Icon::new(IconName::Reply).size(px(16.)))
                     .xsmall()
                     .ghost()
+                    .accessibility_label(t!("post.reply_in_thread"))
                     .tooltip(t!("post.reply_in_thread"))
                     .on_click(move |_, window, cx| {
                         entity.update(cx, |this, cx| this.open_thread(pid.clone(), window, cx))
@@ -1557,6 +1599,7 @@ impl ChatApp {
                 .icon(Icon::new(IconName::Ellipsis).size(px(16.)))
                 .xsmall()
                 .ghost()
+                .accessibility_label(t!("post.more_actions"))
                 .tooltip(t!("post.more_actions"))
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
                     let item =
@@ -1802,6 +1845,7 @@ impl ChatApp {
                                         .icon(Icon::new(IconName::X))
                                         .xsmall()
                                         .ghost()
+                                        .accessibility_label(t!("composer.cancel_edit"))
                                         .tooltip(t!("composer.cancel_edit"))
                                         .on_click(cx.listener(|this, _, window, cx| this.cancel_edit(window, cx))),
                                 ),
@@ -2103,10 +2147,11 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::ExternalLink))
                                 .small()
                                 .ghost()
+                                .accessibility_label(t!("common.open"))
                                 .tooltip(t!("common.open"))
-                                .on_click(move |_, _, cx| {
+                                .on_click(move |_, window, cx| {
                                     let file = f1.clone();
-                                    e1.update(cx, |this, cx| this.download(file, true, cx));
+                                    e1.update(cx, |this, cx| this.open_file(file, window, cx));
                                 }),
                         )
                         .child(
@@ -2114,6 +2159,7 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::Download))
                                 .small()
                                 .ghost()
+                                .accessibility_label(t!("common.download"))
                                 .tooltip(t!("common.download"))
                                 .on_click(move |_, _, cx| {
                                     let file = f2.clone();
@@ -2281,7 +2327,13 @@ impl ChatApp {
         let actions = self.channel_id.clone().zip(state).map(|(channel_id, state)| {
             let side = self.side.as_ref().map(|s| s.kind.clone());
             let icon_button = |id: &'static str, icon: IconName, on: bool, tip: SharedString| {
-                Button::new(id).icon(Icon::new(icon)).ghost().small().toggled(on).tooltip(tip)
+                Button::new(id)
+                    .icon(Icon::new(icon))
+                    .ghost()
+                    .small()
+                    .toggled(on)
+                    .accessibility_label(tip.clone())
+                    .tooltip(tip)
             };
             h_flex()
                 .gap_1()
@@ -2329,6 +2381,7 @@ impl ChatApp {
                         .icon(Icon::new(IconName::Ellipsis))
                         .ghost()
                         .small()
+                        .accessibility_label(t!("header.more_tooltip"))
                         .tooltip(t!("header.more_tooltip"))
                         .dropdown_menu_with_anchor(
                             Anchor::TopRight,
@@ -2375,6 +2428,7 @@ impl ChatApp {
                         .icon(Icon::new(IconName::Menu))
                         .ghost()
                         .small()
+                        .accessibility_label(t!("sidebar.channels"))
                         .tooltip(t!("sidebar.channels"))
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_drawer(super::Drawer::Channels, cx))),
                 )
@@ -2468,6 +2522,9 @@ impl ChatApp {
             let entity = entity.clone();
             let toast = self.render_unread_toast(cx);
             div()
+                .id("messages-region")
+                .role(Role::Main)
+                .aria_label(t!("a11y.messages"))
                 .relative()
                 .flex_1()
                 .min_h_0()
@@ -2521,6 +2578,7 @@ impl ChatApp {
                 this.add_files(Pane::Channel, paths.paths().to_vec(), cx);
             }))
             .child(self.render_channel_header(cx))
+            .children(self.render_bookmarks_bar(cx))
             .children(self.render_offline_banner())
             .children(error_banner)
             .children(info_banner)
@@ -2692,6 +2750,12 @@ impl ChatApp {
                 }
                 if alt && ctrl && (k.key == "up" || k.key == "down") {
                     this.cycle_team(k.key == "down", cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                // F6 : passe d'une zone de saisie à l'autre (messages, fil, recherche).
+                if k.key == "f6" && !ctrl && !alt {
+                    this.cycle_focus(shift, window, cx);
                     cx.stop_propagation();
                     return;
                 }
@@ -3529,6 +3593,7 @@ impl ChatApp {
                         .ghost()
                         .small()
                         .toggled(self.search_open)
+                        .accessibility_label(t!("search.tooltip"))
                         .tooltip(t!("search.tooltip"))
                         .on_click(cx.listener(|this, _, window, cx| this.open_search(window, cx))),
                 )
@@ -4108,10 +4173,11 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::ExternalLink))
                                 .ghost()
                                 .small()
+                                .accessibility_label(t!("common.open"))
                                 .tooltip(t!("common.open"))
-                                .on_click(move |_, _, cx| {
+                                .on_click(move |_, window, cx| {
                                     let file = f1.clone();
-                                    e1.update(cx, |this, cx| this.download(file, true, cx));
+                                    e1.update(cx, |this, cx| this.open_file(file, window, cx));
                                 }),
                         )
                         .child(
@@ -4119,6 +4185,7 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::Download))
                                 .ghost()
                                 .small()
+                                .accessibility_label(t!("common.download"))
                                 .tooltip(t!("common.download"))
                                 .on_click(move |_, _, cx| {
                                     let file = f2.clone();
@@ -4297,9 +4364,7 @@ impl ChatApp {
             )
             .on_click(move |_, window, cx| {
                 let file = f.clone();
-                entity.update(cx, |this, cx| {
-                    if file.is_image() { this.open_image(file, window, cx) } else { this.download(file, true, cx) }
-                });
+                entity.update(cx, |this, cx| this.open_file(file, window, cx));
             })
             .into_any_element()
     }
@@ -4392,6 +4457,7 @@ impl ChatApp {
                             .icon(Icon::new(IconName::PencilLine))
                             .ghost()
                             .xsmall()
+                            .accessibility_label(t!("team.edit_description"))
                             .tooltip(t!("team.edit_description"))
                             .on_click(cx.listener(|this, _, window, cx| this.edit_team_description(window, cx))),
                     )
@@ -4558,6 +4624,7 @@ impl ChatApp {
                                     .icon(Icon::new(IconName::PencilLine))
                                     .ghost()
                                     .xsmall()
+                                    .accessibility_label(t!("channel_card.edit"))
                                     .tooltip(t!("channel_card.edit"))
                                     .on_click(cx.listener(|this, _, window, cx| this.edit_channel_card(window, cx))),
                             ),
@@ -5240,6 +5307,36 @@ impl ChatApp {
         };
 
         let content: AnyElement = match (&viewer.image, &viewer.error) {
+            (_, None) if viewer.pdf.as_ref().is_some_and(|(pages, _)| !pages.is_empty()) => {
+                let (pages, total) = viewer.pdf.as_ref().expect("pages");
+                let more = (*total as usize).saturating_sub(pages.len());
+                v_flex()
+                    .id("pdf-pages")
+                    .size_full()
+                    .overflow_y_scroll()
+                    .items_center()
+                    .gap_4()
+                    .pb_6()
+                    .children(pages.iter().enumerate().map(|(i, page)| {
+                        // Format A4 supposé ; « contain » garde les proportions des autres formats.
+                        div()
+                            .id(SharedString::from(format!("pdf-page-{i}")))
+                            .flex_none()
+                            .w(px(820.))
+                            .h(px(1160.))
+                            .max_w_full()
+                            .bg(white())
+                            .shadow_lg()
+                            .child(img(page.clone()).size_full().object_fit(ObjectFit::Contain))
+                    }))
+                    .when(more > 0, |el| {
+                        el.child(
+                            div().text_sm().text_color(light.opacity(0.7)).child(t!("viewer.pdf_more", count = more)),
+                        )
+                    })
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .into_any_element()
+            }
             (_, Some(err)) => div().text_color(light.opacity(0.8)).child(err.clone()).into_any_element(),
             (Some(image), None) => div()
                 .id("viewer-image")
@@ -5345,6 +5442,11 @@ impl Render for ChatApp {
 // ----------------------------------------------------------------------
 // Dates
 // ----------------------------------------------------------------------
+
+/// « 1 mention », « 3 mentions » (lecteur d'écran).
+fn a11y_mentions(count: i64) -> String {
+    if count == 1 { t!("a11y.mentions.one").to_string() } else { t!("a11y.mentions.other", count = count).to_string() }
+}
 
 fn local(ms: i64) -> Option<chrono::DateTime<chrono::Local>> {
     use chrono::TimeZone;

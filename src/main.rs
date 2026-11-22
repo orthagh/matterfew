@@ -23,6 +23,7 @@ mod markdown;
 mod migrate;
 mod notify;
 mod notify_rules;
+mod pdf;
 mod rich;
 mod settings;
 mod sidebar;

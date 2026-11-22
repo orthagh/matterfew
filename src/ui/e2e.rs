@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use gpui_kit::{TestApp, TestAppWindow, point, px};
+use gpui_kit::{Focusable as _, TestApp, TestAppWindow, point, px};
 
 use super::{ChatApp, Launch, Pane, Screen};
 
@@ -526,4 +526,38 @@ fn e2e_historique_des_canaux() {
     wait_for(&w, "retour à général", |a| a.channel_id.as_deref() == Some("general"));
     w.1.simulate_keystroke("alt-right");
     wait_for(&w, "avance à design", |a| a.channel_id.as_deref() == Some("design"));
+}
+
+#[test]
+fn e2e_signets_apercu_pdf_et_f6() {
+    let mut w = demo_app();
+    wait_for(&w, "signets chargés", |a| a.bookmarks.get("general").is_some_and(|b| b.len() == 3));
+    w.1.draw();
+    // Ajout d'un lien (adresse sans schéma : https ajouté).
+    w.1.update(|a, window, cx| {
+        a.open_bookmark_dialog("general".into(), window, cx);
+        a.dialog_input.update(cx, |s, cx| s.set_value("example.org/agenda", window, cx));
+        a.save_bookmark(cx);
+    });
+    wait_for(&w, "signet ajouté", |a| {
+        a.bookmarks.get("general").is_some_and(|b| b.iter().any(|b| b.link_url == "https://example.org/agenda"))
+    });
+    // Aperçu d'un PDF joint.
+    let pdf = w.1.read(|a, _| {
+        a.posts.iter().flat_map(|v| v.post.metadata.files.iter()).find(|f| f.extension == "pdf").cloned().unwrap()
+    });
+    w.1.update(|a, window, cx| a.open_file(pdf, window, cx));
+    if crate::pdf::SUPPORTED {
+        wait_for(&w, "pages rendues", |a| {
+            a.viewer.as_ref().and_then(|v| v.pdf.as_ref()).is_some_and(|(pages, total)| pages.len() == 2 && *total == 2)
+        });
+        w.1.draw();
+        w.1.update(|a, _, cx| a.close_viewer(cx));
+    }
+    // F6 : de la zone de saisie à la recherche, puis retour.
+    w.1.update(|a, window, cx| a.composer.update(cx, |s, cx| s.focus(window, cx)));
+    w.1.simulate_keystroke("f6");
+    w.1.update(|a, window, cx| assert!(a.search_input.read(cx).focus_handle(cx).is_focused(window)));
+    w.1.simulate_keystroke("f6");
+    w.1.update(|a, window, cx| assert!(a.composer.read(cx).focus_handle(cx).is_focused(window)));
 }

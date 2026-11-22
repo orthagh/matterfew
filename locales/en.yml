@@ -99,6 +99,9 @@ team:
   created: "Created %{day}"
   edit_description: "Edit description"
 demo:
+  bookmarks:
+    roadmap: "Roadmap"
+    wiki: "Team wiki"
   browse:
     ux_purpose: "User research, interviews and usability tests"
     hackathon_purpose: "Ideas and teams for the next hackathon"
@@ -331,6 +334,7 @@ composer:
   upload_failed: "failed: %{error}"
   uploading: "uploading…"
 clipboard:
+  link: "Link"
   copied: "%{what} copied to clipboard."
   message_link: "Message link"
   message_text: "Message text"
@@ -357,6 +361,7 @@ post_menu:
   copy_text: "Copy text"
   edit: "Edit"
 viewer:
+  pdf_more: "%{count} more pages: download the file to read them."
   unsupported_format: "Unsupported image format."
   close: "Close (Esc)"
 notifications:
@@ -632,6 +637,7 @@ category_dialog:
   delete: "Delete"
   confirm_delete: "Its %{count} channels go back to Channels. The channels themselves are kept."
 shortcuts:
+  cycle_focus: "Next input area (messages, thread, search)"
   history: "Back / forward in the channel history"
   teams: "Previous / next team"
   title: "Keyboard shortcuts"
@@ -662,3 +668,20 @@ keys:
   enter: "Enter"
 offline:
   banner: "Connection to the server lost. Reconnecting…"
+bookmarks:
+  add: "Add a bookmark"
+  url: "Link"
+  title: "Title (optional)"
+  url_placeholder: "https://…"
+  title_placeholder: "Shown in the bookmarks bar"
+  invalid: "Enter a web address (http or https)."
+  copy: "Copy link"
+  delete: "Delete bookmark"
+a11y:
+  mentions:
+    one: "1 mention"
+    other: "%{count} mentions"
+  unread: "unread"
+  channels: "Channels"
+  messages: "Messages"
+  members: "Members"

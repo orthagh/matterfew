@@ -732,6 +732,55 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             posts.extend(demo.replies.get(&root_id).cloned().unwrap_or_default());
             send(Event::Thread { root_id, posts });
         }
+        Command::LoadBookmarks { channel_id } => {
+            let bookmarks = if channel_id == "general" {
+                vec![
+                    crate::api::Bookmark {
+                        id: "bm1".into(),
+                        display_name: t!("demo.bookmarks.roadmap").into(),
+                        kind: "link".into(),
+                        link_url: "https://example.org/roadmap".into(),
+                        emoji: "dart".into(),
+                        ..Default::default()
+                    },
+                    crate::api::Bookmark {
+                        id: "bm2".into(),
+                        display_name: t!("demo.bookmarks.wiki").into(),
+                        kind: "link".into(),
+                        link_url: "https://example.org/wiki".into(),
+                        emoji: "books".into(),
+                        ..Default::default()
+                    },
+                    crate::api::Bookmark {
+                        id: "bm3".into(),
+                        display_name: "rapport-performances.pdf".into(),
+                        kind: "file".into(),
+                        file: demo
+                            .posts
+                            .values()
+                            .flatten()
+                            .flat_map(|p| p.metadata.files.iter())
+                            .find(|f| f.extension == "pdf")
+                            .cloned(),
+                        ..Default::default()
+                    },
+                ]
+            } else {
+                Vec::new()
+            };
+            send(Event::Bookmarks { channel_id, bookmarks });
+        }
+        Command::AddBookmark { channel_id, title, url } => send(Event::Bookmarks {
+            channel_id,
+            bookmarks: vec![crate::api::Bookmark {
+                id: "new".into(),
+                display_name: title,
+                kind: "link".into(),
+                link_url: url,
+                ..Default::default()
+            }],
+        }),
+        Command::DeleteBookmark { channel_id, .. } => send(Event::Bookmarks { channel_id, bookmarks: Vec::new() }),
         Command::SavePreferences(_)
         | Command::SetChannelAdmin { .. }
         | Command::RemoveChannelMember { .. }
@@ -828,6 +877,12 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 .unwrap_or((480, 270));
             let bytes = bmp(w, h, 0x1c58d9 ^ (seed & 0x3f3f3f), 0xffbc1f ^ (seed & 0x1f1f00));
             send(Event::FilePreview { file_id, bytes: Arc::new(bytes) });
+        }
+        Command::LoadPdf { file_id } => {
+            let result = crate::pdf::render_pages(&demo_pdf(), 1400)
+                .map(|(pages, total)| (pages.into_iter().map(Arc::new).collect(), total))
+                .map_err(|e| format!("{e:#}"));
+            send(Event::PdfPages { file_id, result });
         }
         Command::LoadFullImage { file_id } => {
             let bytes = bmp(1600, 900, 0x1c58d9, 0xffbc1f);
@@ -1238,6 +1293,90 @@ fn bmp(width: u32, height: u32, from: u32, to: u32) -> Vec<u8> {
 /// Préférences de la démo. `--theme fichier.json` applique un thème
 /// Mattermost (le JSON copié depuis Paramètres › Affichage › Thème ›
 /// « Copier le thème » du client web) pour vérifier le rendu avec ses couleurs.
+/// Petit PDF de deux pages (texte et barres), écrit à la main pour la démo.
+fn demo_pdf() -> Vec<u8> {
+    let pages = [
+        "BT /F1 28 Tf 60 760 Td (Performances - T3) Tj ET
+         BT /F1 13 Tf 60 730 Td (Temps de reponse median par service, en millisecondes.) Tj ET
+         0.11 0.35 0.85 rg 60 520 60 150 re f 150 520 60 120 re f 240 520 60 170 re f 330 520 60 90 re f
+         BT /F1 11 Tf 0 0 0 rg 62 500 Td (API) Tj 88 0 Td (Web) Tj 90 0 Td (Recherche) Tj 92 0 Td (Fichiers) Tj ET",
+        "BT /F1 22 Tf 60 760 Td (Mesures brutes) Tj ET
+         BT /F1 12 Tf 60 720 Td 16 TL (Lundi      182 ms) Tj T* (Mardi      176 ms) Tj T* (Mercredi   201 ms) Tj T* (Jeudi      168 ms) Tj T* (Vendredi   159 ms) Tj ET",
+    ];
+    let mut objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        format!(
+            "<< /Type /Pages /Kids [{}] /Count {} >>",
+            (0..pages.len()).map(|i| format!("{} 0 R", 4 + i * 2)).collect::<Vec<_>>().join(" "),
+            pages.len()
+        ),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),
+    ];
+    for (i, content) in pages.iter().enumerate() {
+        objects.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents {} 0 R >>",
+            5 + i * 2
+        ));
+        objects.push(format!(
+            "<< /Length {} >>
+stream
+{content}
+endstream",
+            content.len()
+        ));
+    }
+    let mut out = b"%PDF-1.4
+"
+    .to_vec();
+    let mut offsets = Vec::new();
+    for (i, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(
+            format!(
+                "{} 0 obj
+{body}
+endobj
+",
+                i + 1
+            )
+            .as_bytes(),
+        );
+    }
+    let xref = out.len();
+    out.extend_from_slice(
+        format!(
+            "xref
+0 {}
+0000000000 65535 f 
+",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    for o in offsets {
+        out.extend_from_slice(
+            format!(
+                "{o:010} 00000 n 
+"
+            )
+            .as_bytes(),
+        );
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer
+<< /Size {} /Root 1 0 R >>
+startxref
+{xref}
+%%EOF
+",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    out
+}
+
 fn demo_preferences() -> Vec<Preference> {
     let mut prefs = vec![Preference {
         user_id: String::new(),
@@ -1259,6 +1398,14 @@ fn demo_preferences() -> Vec<Preference> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn pdf_de_demo_rendu_par_windows() {
+        let (pages, total) = crate::pdf::render_pages(&super::demo_pdf(), 600).expect("rendu");
+        assert_eq!((pages.len(), total), (2, 2));
+        assert!(pages.iter().all(|p| p.starts_with(&[0x89, b'P', b'N', b'G'])));
+    }
+
     /// Les traductions du contenu de la démo gardent ce qui ne se traduit
     /// pas : mentions, hashtags, code, références et liens.
     #[test]

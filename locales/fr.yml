@@ -99,6 +99,9 @@ team:
   created: "Créée %{day}"
   edit_description: "Modifier la description"
 demo:
+  bookmarks:
+    roadmap: "Feuille de route"
+    wiki: "Wiki de l’équipe"
   browse:
     ux_purpose: "Recherche utilisateur, entretiens et tests d’utilisabilité"
     hackathon_purpose: "Idées et équipes pour le prochain hackathon"
@@ -331,6 +334,7 @@ composer:
   upload_failed: "échec : %{error}"
   uploading: "envoi…"
 clipboard:
+  link: "Lien"
   copied: "%{what} copié dans le presse-papiers."
   message_link: "Lien du message"
   message_text: "Texte du message"
@@ -357,6 +361,7 @@ post_menu:
   copy_text: "Copier le texte"
   edit: "Modifier"
 viewer:
+  pdf_more: "Encore %{count} pages : téléchargez le fichier pour les lire."
   unsupported_format: "Format d'image non pris en charge."
   close: "Fermer (Échap)"
 notifications:
@@ -632,6 +637,7 @@ category_dialog:
   delete: "Supprimer"
   confirm_delete: "Ses %{count} canaux reviennent dans « Canaux ». Les canaux eux-mêmes sont conservés."
 shortcuts:
+  cycle_focus: "Zone de saisie suivante (messages, fil, recherche)"
   history: "Canal précédent / suivant dans l’historique"
   teams: "Équipe précédente / suivante"
   title: "Raccourcis clavier"
@@ -662,3 +668,20 @@ keys:
   enter: "Entrée"
 offline:
   banner: "Connexion au serveur perdue. Reconnexion en cours…"
+bookmarks:
+  add: "Ajouter un signet"
+  url: "Lien"
+  title: "Titre (facultatif)"
+  url_placeholder: "https://…"
+  title_placeholder: "Affiché dans la barre des signets"
+  invalid: "Indiquez une adresse web (http ou https)."
+  copy: "Copier le lien"
+  delete: "Supprimer le signet"
+a11y:
+  mentions:
+    one: "1 mention"
+    other: "%{count} mentions"
+  unread: "non lu"
+  channels: "Canaux"
+  messages: "Messages"
+  members: "Membres"

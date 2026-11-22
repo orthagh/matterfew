@@ -188,6 +188,7 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::Pencil))
                                 .small()
                                 .ghost()
+                                .accessibility_label(t!("outgoing.edit"))
                                 .tooltip(t!("outgoing.edit"))
                                 .on_click(cx.listener(move |this, _, window, cx| this.edit_failed(&edit, window, cx))),
                         )
@@ -196,6 +197,7 @@ impl ChatApp {
                                 .icon(Icon::new(IconName::Trash))
                                 .small()
                                 .ghost()
+                                .accessibility_label(t!("outgoing.discard"))
                                 .tooltip(t!("outgoing.discard"))
                                 .on_click(cx.listener(move |this, _, _, cx| this.discard_failed(&drop, cx))),
                         )

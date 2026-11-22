@@ -64,6 +64,8 @@ windows = { version = "0.62", features = [
     "Win32_Globalization",
     "UI_Notifications",
     "Data_Xml_Dom",
+    "Data_Pdf",
+    "Storage_Streams",
     "Foundation",
 ] }
 

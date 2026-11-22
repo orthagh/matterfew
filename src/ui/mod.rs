@@ -55,6 +55,8 @@ struct Viewer {
     file: FileInfo,
     image: Option<Arc<Image>>,
     error: Option<String>,
+    /// PDF : pages rendues (vide pendant le rendu) et nombre total de pages.
+    pdf: Option<(Vec<Arc<Image>>, u32)>,
 }
 
 /// Marqueur du glisser de la poignée de redimensionnement.
@@ -367,6 +369,8 @@ pub struct ChatApp {
     recent_emojis: Vec<String>,
     /// Messages arrivés pendant que la liste est remontée.
     unseen_new: usize,
+    /// Signets de chaque canal ouvert.
+    bookmarks: HashMap<String, Vec<crate::api::Bookmark>>,
     /// Historique des canaux ouverts (Alt+← / Alt+→).
     nav_back: Vec<String>,
     nav_forward: Vec<String>,
@@ -699,6 +703,7 @@ impl ChatApp {
             notify_confirmed: false,
             recent_emojis: Vec::new(),
             unseen_new: 0,
+            bookmarks: HashMap::new(),
             nav_back: Vec::new(),
             nav_forward: Vec::new(),
             nav_jumping: false,
@@ -1206,6 +1211,7 @@ impl ChatApp {
             self.load_channel_files(&channel_id);
         }
         self.send(Command::LoadChannel { channel_id: channel_id.clone() });
+        self.ensure_bookmarks(&channel_id);
         if self.settings.show_members && !self.members.contains_key(&channel_id) {
             self.send(Command::LoadMembers { channel_id: channel_id.clone() });
         }
@@ -1440,11 +1446,19 @@ impl ChatApp {
     }
 
     /// Ouvre une image jointe dans la visionneuse intégrée.
+    /// Ouvre un PDF joint dans la visionneuse : ses pages rendues en images.
+    fn open_pdf(&mut self, file: FileInfo, window: &mut Window, cx: &mut Context<Self>) {
+        self.send(Command::LoadPdf { file_id: file.id.clone() });
+        self.viewer = Some(Viewer { file, image: None, error: None, pdf: Some((Vec::new(), 0)) });
+        window.focus(&self.viewer_focus, cx);
+        cx.notify();
+    }
+
     fn open_image(&mut self, file: FileInfo, window: &mut Window, cx: &mut Context<Self>) {
         // L'aperçu s'affiche en attendant l'image complète.
         let image = self.previews.get(&file.id).cloned();
         self.send(Command::LoadFullImage { file_id: file.id.clone() });
-        self.viewer = Some(Viewer { file, image, error: None });
+        self.viewer = Some(Viewer { file, image, error: None, pdf: None });
         window.focus(&self.viewer_focus, cx);
         cx.notify();
     }
@@ -2443,6 +2457,17 @@ impl ChatApp {
                 this.connected = false;
                 cx.notify();
             }),
+            "pdf" => after(self, 600, window, cx, |this, window, cx| {
+                let file = this
+                    .posts
+                    .iter()
+                    .flat_map(|v| v.post.metadata.files.iter())
+                    .find(|f| f.extension == "pdf")
+                    .cloned();
+                if let Some(file) = file {
+                    this.open_file(file, window, cx);
+                }
+            }),
             "mp-dnd" => self.send(Command::OpenDirect { user_id: "u3".into() }),
             "fichiers" => {
                 self.select_channel("general".into(), cx);
@@ -3132,6 +3157,12 @@ impl ChatApp {
                     self.send(Command::LoadMembers { channel_id });
                 }
             }
+            Event::Bookmarks { channel_id, bookmarks } => self.on_bookmarks(channel_id, bookmarks),
+            Event::BookmarksChanged { channel_id } => {
+                if self.bookmarks.remove(&channel_id).is_some() {
+                    self.ensure_bookmarks(&channel_id);
+                }
+            }
             Event::Sent { pending_id } => self.on_send_result(&pending_id, None),
             Event::SendFailed { pending_id, error } => self.on_send_result(&pending_id, Some(error)),
             Event::ThreadUpdated { team_id, thread } => self.on_thread_updated(team_id, thread),
@@ -3203,6 +3234,20 @@ impl ChatApp {
                     self.external_images.insert(url, Arc::new(Image::from_bytes(format, bytes.to_vec())));
                     self.scroller.update(cx, |s, cx| s.remeasure(cx));
                     self.thread_scroller.update(cx, |s, cx| s.remeasure(cx));
+                }
+            }
+            Event::PdfPages { file_id, result } => {
+                if let Some(viewer) = self.viewer.as_mut().filter(|v| v.file.id == file_id) {
+                    match result {
+                        Ok((pages, total)) => {
+                            let images = pages
+                                .into_iter()
+                                .map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png.to_vec())))
+                                .collect();
+                            viewer.pdf = Some((images, total));
+                        }
+                        Err(err) => viewer.error = Some(err),
+                    }
                 }
             }
             Event::FullImage { file_id, result } => {

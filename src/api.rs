@@ -407,6 +407,26 @@ pub struct CustomEmoji {
     pub name: String,
 }
 
+/// Signet d'un canal : lien ou fichier affiché sous l'en-tête.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct Bookmark {
+    pub id: String,
+    #[serde(default)]
+    pub display_name: String,
+    /// "link" ou "file".
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    #[serde(default)]
+    pub link_url: String,
+    #[serde(default)]
+    pub emoji: String,
+    #[serde(default)]
+    pub sort_order: i64,
+    /// Fichier joint (signet de type « file »).
+    #[serde(default)]
+    pub file: Option<FileInfo>,
+}
+
 /// Fil suivi par l'utilisateur (vue « Fils de discussion »).
 #[derive(Debug, Clone, Deserialize)]
 pub struct UserThread {
@@ -974,6 +994,23 @@ impl Client {
     /// Modifie des champs d'un canal (nom affiché, nom dans les liens…).
     pub async fn patch_channel_fields(&self, channel_id: &str, fields: &serde_json::Value) -> Result<Channel> {
         self.put(&format!("/channels/{channel_id}/patch"), fields).await
+    }
+
+    /// Signets d'un canal (serveur ≥ 9.5).
+    pub async fn bookmarks(&self, channel_id: &str) -> Result<Vec<Bookmark>> {
+        let mut list: Vec<Bookmark> = self.get(&format!("/channels/{channel_id}/bookmarks")).await?;
+        list.sort_by_key(|b| b.sort_order);
+        Ok(list)
+    }
+
+    pub async fn add_bookmark(&self, channel_id: &str, title: &str, url: &str) -> Result<Bookmark> {
+        let body = serde_json::json!({ "display_name": title, "link_url": url, "type": "link" });
+        self.post(&format!("/channels/{channel_id}/bookmarks"), &body).await
+    }
+
+    pub async fn delete_bookmark(&self, channel_id: &str, bookmark_id: &str) -> Result<()> {
+        let path = format!("/channels/{channel_id}/bookmarks/{bookmark_id}");
+        self.send_json::<()>(reqwest::Method::DELETE, &path, None).await
     }
 
     /// Canal public converti en privé (irréversible sans administrateur système).

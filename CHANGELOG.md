@@ -62,6 +62,13 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
   Maj+Échap tout marquer comme lu, Ctrl+Maj+M mentions, Ctrl+Maj+L zone de
   saisie, Alt+←/→ historique des canaux, Ctrl+Alt+↑/↓ équipe.
 - Bandeau en haut de l'écran quand la connexion au serveur est perdue.
+- Signets de canal : barre de liens et de fichiers sous l'en-tête, ajout
+  d'un lien, suppression (clic droit), mise à jour en direct.
+- Aperçu des PDF dans la visionneuse (Windows : pages rendues par le
+  système ; ailleurs, ouverture avec l'application par défaut).
+- Accessibilité : boutons à icône nommés, canaux, équipes et messages lus
+  par les lecteurs d'écran, zones de l'écran annoncées, F6 pour passer
+  d'une zone de saisie à l'autre.
 
 ## [0.1.0] - 2026-11-21
 

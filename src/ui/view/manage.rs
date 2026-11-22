@@ -473,6 +473,24 @@ impl ChatApp {
         self.select_team(id, cx);
     }
 
+    /// F6 / Maj+F6 : zone de saisie suivante ou précédente.
+    pub(crate) fn cycle_focus(&mut self, back: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let mut zones: Vec<FocusHandle> = vec![self.composer.read(cx).focus_handle(cx)];
+        if self.thread.is_some() {
+            zones.push(self.thread_composer.read(cx).focus_handle(cx));
+        }
+        zones.push(self.search_input.read(cx).focus_handle(cx));
+        let n = zones.len();
+        let current = zones.iter().position(|z| z.is_focused(window));
+        let next = match (current, back) {
+            (Some(i), false) => (i + 1) % n,
+            (Some(i), true) => (i + n - 1) % n,
+            (None, _) => 0,
+        };
+        window.focus(&zones[next], cx);
+        cx.notify();
+    }
+
     /// Maj+↑ dans la zone de saisie vide : répondre au dernier message.
     pub(crate) fn reply_to_last(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if !self.composer.read(cx).value().is_empty() {
@@ -509,6 +527,7 @@ impl ChatApp {
                     ("Ctrl Shift L", t!("shortcuts.focus").into()),
                     ("Shift Esc", t!("shortcuts.mark_all_read").into()),
                     ("Esc", t!("shortcuts.close").into()),
+                    ("F6", t!("shortcuts.cycle_focus").into()),
                 ],
             ),
             (
