@@ -360,6 +360,10 @@ pub enum Command {
         open: bool,
     },
     /// Envoie un fichier local ; `local_id` identifie la pièce jointe en attente.
+    /// Arrête un envoi de fichier en cours.
+    CancelUpload {
+        local_id: u64,
+    },
     Upload {
         local_id: u64,
         channel_id: String,
@@ -539,6 +543,11 @@ pub enum Event {
         path: PathBuf,
         open: bool,
     },
+    /// Octets d'un fichier déjà envoyés.
+    UploadProgress {
+        local_id: u64,
+        sent: u64,
+    },
     Uploaded {
         local_id: u64,
         file: FileInfo,
@@ -668,6 +677,8 @@ struct Ctx {
     me_admin: bool,
     /// Équipes de l'utilisateur (recherche des mentions dans toutes).
     team_ids: Vec<String>,
+    /// Envois de fichiers en cours, annulables.
+    uploads: Arc<std::sync::Mutex<HashMap<u64, tokio::task::AbortHandle>>>,
 }
 
 impl Ctx {
@@ -753,6 +764,7 @@ async fn run(
         me_username: me.username.clone(),
         me_admin: me.is_system_admin(),
         team_ids: teams.iter().map(|t| t.id.clone()).collect(),
+        uploads: Arc::default(),
     };
     ctx.ensure_users([me.id.clone()]).await;
     // Logos des équipes, en arrière-plan.
@@ -1281,10 +1293,43 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             tokio::fs::write(&path, bytes).await?;
             ctx.emit(Event::Downloaded { path, open }).await;
         }
-        Command::Upload { local_id, channel_id, path } => match client.upload_file(&channel_id, &path).await {
-            Ok(file) => ctx.emit(Event::Uploaded { local_id, file }).await,
-            Err(err) => ctx.emit(Event::UploadFailed { local_id, error: format!("{err:#}") }).await,
-        },
+        Command::Upload { local_id, channel_id, path } => {
+            let sent = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let task = {
+                let (client, sent) = (client.clone(), sent.clone());
+                tokio::spawn(async move { client.upload_file(&channel_id, &path, sent).await })
+            };
+            ctx.uploads.lock().unwrap_or_else(|e| e.into_inner()).insert(local_id, task.abort_handle());
+            // Progression, quatre fois par seconde.
+            let ticker = {
+                let ctx = ctx.clone();
+                tokio::spawn(async move {
+                    let mut last = 0;
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                        let now = sent.load(Ordering::Relaxed);
+                        if now != last {
+                            last = now;
+                            ctx.emit(Event::UploadProgress { local_id, sent: now }).await;
+                        }
+                    }
+                })
+            };
+            let result = task.await;
+            ticker.abort();
+            ctx.uploads.lock().unwrap_or_else(|e| e.into_inner()).remove(&local_id);
+            match result {
+                Ok(Ok(file)) => ctx.emit(Event::Uploaded { local_id, file }).await,
+                Ok(Err(err)) => ctx.emit(Event::UploadFailed { local_id, error: format!("{err:#}") }).await,
+                // Annulé depuis l'interface : la pièce jointe est déjà retirée.
+                Err(_) => {}
+            }
+        }
+        Command::CancelUpload { local_id } => {
+            if let Some(task) = ctx.uploads.lock().unwrap_or_else(|e| e.into_inner()).remove(&local_id) {
+                task.abort();
+            }
+        }
         Command::Edit { post_id, message } => client.patch_post(&post_id, &message).await?,
         Command::Delete { post_id } => client.delete_post(&post_id).await?,
         Command::React { post_id, emoji, add } => {

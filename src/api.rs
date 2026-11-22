@@ -4,6 +4,7 @@
 //! utilisateur courant, équipes, canaux, messages, fils, envoi.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
@@ -826,14 +827,28 @@ impl Client {
 
     /// Envoie un fichier dans un canal ; renvoie sa description (dont l'id
     /// à joindre au message).
-    pub async fn upload_file(&self, channel_id: &str, path: &std::path::Path) -> Result<FileInfo> {
+    /// Envoie un fichier ; `sent` compte les octets transmis (progression).
+    pub async fn upload_file(
+        &self,
+        channel_id: &str,
+        path: &std::path::Path,
+        sent: Arc<std::sync::atomic::AtomicU64>,
+    ) -> Result<FileInfo> {
         let name = path
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| t!("files.default_name").to_string());
         let bytes =
             tokio::fs::read(path).await.with_context(|| t!("errors.read_file", path = path.display()).to_string())?;
-        let part = reqwest::multipart::Part::bytes(bytes).file_name(name);
+        // Morceaux de 64 Kio, comptés au fur et à mesure qu'ils partent.
+        let total = bytes.len() as u64;
+        let chunks: Vec<Vec<u8>> = bytes.chunks(64 * 1024).map(<[u8]>::to_vec).collect();
+        let stream = futures::stream::iter(chunks.into_iter().map(move |chunk| {
+            sent.fetch_add(chunk.len() as u64, std::sync::atomic::Ordering::Relaxed);
+            Ok::<_, std::io::Error>(chunk)
+        }));
+        let part =
+            reqwest::multipart::Part::stream_with_length(reqwest::Body::wrap_stream(stream), total).file_name(name);
         let form = reqwest::multipart::Form::new().text("channel_id", channel_id.to_string()).part("files", part);
         let resp = self
             .http

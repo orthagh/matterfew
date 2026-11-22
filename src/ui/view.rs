@@ -34,6 +34,7 @@ use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlug
 
 pub(super) mod bookmarks;
 pub(super) mod dialogs;
+pub(super) mod help;
 pub(super) mod manage;
 pub(super) mod messaging;
 pub(super) mod presence;
@@ -1544,7 +1545,7 @@ impl ChatApp {
     fn line_chars(&self, pane: Pane) -> usize {
         let w = self.viewport_w;
         let column = match pane {
-            Pane::Thread => THREAD_WIDTH,
+            Pane::Thread => self.right_panel_width(),
             Pane::Channel => {
                 let sidebar = if w < super::NARROW_SIDEBAR {
                     0.
@@ -1554,7 +1555,7 @@ impl ChatApp {
                 let right = if w < super::NARROW_PANELS {
                     0.
                 } else if self.thread.is_some() || self.side.is_some() {
-                    THREAD_WIDTH
+                    self.right_panel_width()
                 } else if self.settings.show_members {
                     240.
                 } else {
@@ -1840,7 +1841,22 @@ impl ChatApp {
                 .toggled(previewing)
                 .on_click(cx.listener(move |this, _, window, cx| this.toggle_preview(pane, window, cx))),
             )
+            .child(
+                tool(format!("md-help-{pane:?}"), IconName::CircleQuestionMark, t!("markdown_help.tooltip").into())
+                    .on_click(cx.listener(|this, _, _, cx| this.open_markdown_help(cx))),
+            )
             .child(div().flex_1())
+            .children({
+                let (count, max) = (text.chars().count(), self.max_post_size());
+                (count * 10 > max * 9).then(|| {
+                    div()
+                        .px_1()
+                        .text_xs()
+                        .when(count > max, |el| el.text_color(p.error).font_semibold())
+                        .when(count <= max, |el| el.text_color(p.muted()))
+                        .child(t!("composer.char_count", count = count, max = max))
+                })
+            })
             .child(
                 Button::new(SharedString::from(format!("send-{pane:?}")))
                     .icon(Icon::new(IconName::SendHorizontal))
@@ -2269,9 +2285,18 @@ impl ChatApp {
             let status = match (&a.file_id, &a.error) {
                 (_, Some(err)) => div().text_color(p.error).child(t!("composer.upload_failed", error = err)),
                 (Some(_), None) => div().text_color(p.muted()).child(human_size(a.size)),
+                (None, None) if a.size > 0 && a.sent > 0 => {
+                    let pct = (a.sent as f64 / a.size as f64 * 100.).min(99.) as u32;
+                    div().text_color(p.muted()).child(t!("composer.uploading_pct", pct = pct))
+                }
                 (None, None) => div().text_color(p.muted()).child(t!("composer.uploading")),
             };
+            let progress = (a.file_id.is_none() && a.error.is_none())
+                .then(|| if a.size > 0 { (a.sent as f32 / a.size as f32).clamp(0.02, 1.) } else { 0.02 });
+            let uploading = progress.is_some();
             h_flex()
+                .relative()
+                .overflow_hidden()
                 .gap_2()
                 .max_w(px(300.))
                 .pl_2()
@@ -2289,7 +2314,17 @@ impl ChatApp {
                         .icon(Icon::new(IconName::X))
                         .xsmall()
                         .ghost()
+                        .accessibility_label(if uploading {
+                            t!("composer.cancel_upload")
+                        } else {
+                            t!("composer.remove_file")
+                        })
+                        .tooltip(if uploading { t!("composer.cancel_upload") } else { t!("composer.remove_file") })
                         .on_click(cx.listener(move |this, _, _, cx| this.remove_attachment(local_id, cx))),
+                )
+                // Barre de progression au bas de la puce.
+                .children(
+                    progress.map(|f| div().absolute().left_0().bottom_0().h(px(2.)).w(relative(f)).bg(p.button_bg)),
                 )
         })))
     }
@@ -2557,7 +2592,7 @@ impl ChatApp {
             .when(self.loading_older, |el| {
                 el.child(div().text_xs().text_color(p.muted()).child(t!("messages.loading_history")))
             })
-            .children(actions.map(|a| a.flex_shrink(1.).min_w_0().justify_end()))
+            .children(actions.map(|a| a.flex_shrink(1.).min_w_0().overflow_hidden().justify_end()))
     }
 
     fn render_chat(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -2700,7 +2735,7 @@ impl ChatApp {
                 .unwrap_or_default();
             v_flex()
                 .id("thread-panel")
-                .w(px(THREAD_WIDTH))
+                .w(px(self.right_panel_width()))
                 .h_full()
                 .flex_none()
                 .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(p.button_bg.opacity(0.06)))
@@ -2722,6 +2757,7 @@ impl ChatApp {
                         .border_color(p.border())
                         .child(div().text_size(px(16.)).font_bold().child(t!("threads.thread")))
                         .child(div().flex_1().truncate().text_size(px(12.)).text_color(p.muted()).child(channel))
+                        .child(self.expand_button("expand-thread", cx))
                         .child(
                             Button::new("close-thread")
                                 .icon(Icon::new(IconName::X))
@@ -2852,6 +2888,11 @@ impl ChatApp {
                 }
                 if ctrl && shift && !alt && k.key == "a" && this.dialog.is_none() {
                     this.open_settings(window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if ctrl && shift && !alt && (k.key == "." || k.key == ">") {
+                    this.toggle_panel_expanded(cx);
                     cx.stop_propagation();
                     return;
                 }
@@ -3225,7 +3266,7 @@ impl ChatApp {
         };
         Some(
             v_flex()
-                .w(px(THREAD_WIDTH))
+                .w(px(self.right_panel_width()))
                 .h_full()
                 .flex_none()
                 .bg(p.center_bg)
@@ -3243,6 +3284,7 @@ impl ChatApp {
                         .border_color(p.border())
                         .child(div().text_size(px(16.)).font_bold().child(title))
                         .child(div().flex_1().truncate().text_size(px(12.)).text_color(p.muted()).child(subtitle))
+                        .child(self.expand_button("expand-side", cx))
                         .child(
                             Button::new("close-side")
                                 .icon(Icon::new(IconName::X))

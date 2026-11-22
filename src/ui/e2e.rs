@@ -655,6 +655,46 @@ fn e2e_rejoindre_et_quitter_une_equipe() {
 }
 
 #[test]
+fn e2e_limites_envoi_aide_et_panneau_large() {
+    let mut w = demo_app();
+    // Message trop long : bloqué avant l'envoi.
+    let before = w.1.read(|a, _| a.posts.len());
+    w.1.update(|a, window, cx| {
+        a.server_config.insert("MaxPostSize".into(), "20".into());
+        a.composer.update(cx, |s, cx| s.set_value("un message bien trop long pour la limite", window, cx));
+    });
+    w.1.draw();
+    w.1.update(|a, window, cx| a.send_from(Pane::Channel, window, cx));
+    w.1.read(|a, cx| {
+        assert_eq!(a.posts.len(), before);
+        assert!(!a.composer.read(cx).value().is_empty(), "le texte reste dans la zone de saisie");
+    });
+    // Fichier : progression, puis fin de l'envoi.
+    let dir = std::env::temp_dir().join(format!("matterfew-e2e-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("rapport.txt");
+    std::fs::write(&file, vec![b'x'; 4000]).unwrap();
+    w.1.update(|a, _, cx| a.add_files(Pane::Channel, vec![file.clone()], cx));
+    wait_for(&w, "progression", |a| a.attachments.iter().any(|x| x.sent > 0));
+    w.1.draw();
+    wait_for(&w, "envoyé", |a| a.attachments.iter().all(|x| x.file_id.is_some()));
+    // Trop gros pour le serveur : refusé.
+    w.1.update(|a, _, cx| {
+        a.server_config.insert("MaxFileSize".into(), "1000".into());
+        a.add_files(Pane::Channel, vec![file.clone()], cx);
+    });
+    w.1.read(|a, _| assert_eq!(a.attachments.len(), 1));
+    let _ = std::fs::remove_dir_all(&dir);
+    // Aide Markdown et panneau agrandi.
+    w.1.update(|a, _, cx| a.open_markdown_help(cx));
+    w.1.draw();
+    w.1.update(|a, _, cx| a.close_dialog(cx));
+    let narrow = w.1.read(|a, _| a.right_panel_width());
+    w.1.simulate_keystroke("ctrl-shift-.");
+    w.1.read(|a, _| assert!(a.panel_expanded && a.right_panel_width() >= narrow));
+}
+
+#[test]
 fn e2e_signets_apercu_pdf_et_f6() {
     let mut w = demo_app();
     wait_for(&w, "signets chargés", |a| a.bookmarks.get("general").is_some_and(|b| b.len() == 3));

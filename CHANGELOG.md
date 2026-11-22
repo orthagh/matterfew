@@ -31,6 +31,14 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 - Équipes : rejoindre une autre équipe ouverte, quitter une équipe,
   paramètres de l'équipe (nom, description, ouverte à tous) depuis la
   carte d'équipe.
+- Envoi de fichiers : pourcentage et barre de progression, annulation
+  par la croix ; 10 fichiers au plus par message et taille maximale du
+  serveur annoncées avant l'envoi.
+- Longueur des messages : compteur à l'approche de la limite du serveur,
+  envoi refusé au-delà (le texte reste dans la zone de saisie).
+- Aide à la mise en forme (bouton « ? » de la zone de saisie) : ce qu'on
+  écrit et ce qu'on obtient.
+- Panneau de droite agrandi (bouton de son en-tête, Ctrl+Maj+.).
 - Coloration syntaxique des blocs de code (environ 200 langages), aux
   couleurs du thème clair ou sombre.
 

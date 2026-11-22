@@ -123,7 +123,10 @@ gpui_kit::assets::icon_assets!(
         Volume2,
         ListFilter,
         LogIn,
-        MessageSquareX
+        MessageSquareX,
+        CircleQuestionMark,
+        Maximize2,
+        Minimize2
     ]
 );
 

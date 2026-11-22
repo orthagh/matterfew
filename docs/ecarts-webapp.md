@@ -47,14 +47,14 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | Messages programmés (« Envoyer plus tard ») | `C/advanced_text_editor/send_button`, `C/drafts/scheduled_post_list`, `C/edit_scheduled_post`, `scheduled_post.*` | Menu du bouton d'envoi : demain 9 h, lundi, date libre ; onglet « Programmés » (modifier, replanifier, envoyer maintenant) ; indicateur dans le canal (`/posts/schedule`, serveur ≥ 10.3) | Absent | M | ★★ |
 | Vue « Brouillons » | `C/drafts`, `drafts.*` | Liste de tous les brouillons (canaux et fils) : envoyer, modifier, supprimer | Partiel : brouillons par canal/fil + crayon, pas de vue d'ensemble | M | ★★ |
 | Synchronisation des brouillons | `user.settings.advance.syncDrafts.*` (`/drafts`) | Brouillons stockés sur le serveur, retrouvés sur tous les appareils | Absent (brouillons locaux) | M | ★★ |
-| Limite de longueur | `create_post.error_message` | Erreur « Character count: n/limit » avant envoi (`MaxPostSize`) | Absent | S | ★ |
+| ~~Limite de longueur~~ | ~~`create_post.error_message`~~ | ~~Erreur « Character count: n/limit » avant envoi (`MaxPostSize`)~~ | ~~Absent~~ | ~~S~~ | ~~★~~ |
 | ~~Confirmation @channel / @all~~ | ~~`C/notify_confirm_modal.tsx`~~ | ~~« Envoyer une notification à N personnes dans M fuseaux ? » au-delà d'un seuil~~ | ~~Absent~~ | ~~S~~ | ~~★★~~ |
 | ~~Avertissements en message direct~~ | ~~`C/advanced_text_editor/do_not_disturb_warning.tsx`, `out_of_office_warning.tsx`, `remote_user_hour.tsx`~~ | ~~Bandeau : la personne est en « Ne pas déranger », absente (répondeur), ou il est tard chez elle~~ | ~~Absent (l'heure locale existe dans la carte de profil)~~ | ~~S~~ | ~~★★~~ |
 | ~~Mentions hors canal~~ | ~~`C/post_view/post_add_channel_member`, `post_body.check_for_out_of_channel_mentions.*`~~ | ~~Message éphémère « X n'a pas été notifié… l'ajouter au canal ? »~~ | ~~Absent (dépend du serveur : vérifier l'affichage du message éphémère)~~ | ~~S~~ | ~~★★~~ |
 | Autocomplétion des groupes et mentions spéciales | `C/suggestion`, `C/advanced_text_editor/use_groups.tsx` | `@groupe`, `@here`, `@channel`, `@all` proposés | Partiel : personnes seulement | S | ★ |
-| Progression des envois de fichiers | `C/file_upload`, `create_post.fileProcessing` | Barre de progression par fichier, annulable ; limite de nombre et de taille annoncée | Partiel : libellé « envoi en cours », pas de pourcentage ni d'annulation | S | ★ |
+| ~~Progression des envois de fichiers~~ | ~~`C/file_upload`, `create_post.fileProcessing`~~ | ~~Barre de progression par fichier, annulable ; limite de nombre et de taille annoncée~~ | ~~Partiel : libellé « envoi en cours », pas de pourcentage ni d'annulation~~ | ~~S~~ | ~~★~~ |
 | Ctrl+U joindre un fichier | `shortcuts.files.upload` | Ouvre le sélecteur | Absent | S | ★ |
-| Aide Markdown | `advanced_text_editor.help_link`, `C/help` | Lien vers l'aide de mise en forme | Absent | S | ★ |
+| ~~Aide Markdown~~ | ~~`advanced_text_editor.help_link`, `C/help`~~ | ~~Lien vers l'aide de mise en forme~~ | ~~Absent~~ | ~~S~~ | ~~★~~ |
 | Éditeur riche (bêta), IA « Réécrire » | `C/advanced_text_editor/wysiwyg_editor`, `texteditor.rewrite.*` | WYSIWYG ; réécriture par l'agent IA (plugin Agents) | Absent — non prioritaire | L | ★ |
 
 ## 3. Fils, panneau droit
@@ -63,7 +63,7 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 |---|---|---|---|---|---|
 | ~~Vue « Fils » globale~~ | ~~`C/threading/global_threads`, `threading.filters.unreads`, `threading.threadList.markRead`~~ | ~~Tous les fils suivis de l'équipe, onglet « Non lus », « Tout marquer comme lu », entrée en haut de la barre latérale avec pastille~~ | ~~Partiel : fils suivis du canal affiché seulement~~ | ~~M~~ | ~~★★★~~ |
 | Fil dans une fenêtre séparée | `C/thread_popout`, `C/rhs_popout` | Détacher un fil ou le panneau droit | Absent | M | ★ |
-| Agrandir le panneau droit | `shortcuts.nav.expand_sidebar` (Ctrl+Maj+.) | Panneau droit en grand | Absent | S | ★ |
+| ~~Agrandir le panneau droit~~ | ~~`shortcuts.nav.expand_sidebar` (Ctrl+Maj+.)~~ | ~~Panneau droit en grand~~ | ~~Absent~~ | ~~S~~ | ~~★~~ |
 
 ## 4. Canaux, messages directs, équipes
 

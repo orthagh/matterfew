@@ -48,7 +48,12 @@ struct Attachment {
     /// Identifiant côté serveur, une fois l'envoi terminé.
     file_id: Option<String>,
     error: Option<String>,
+    /// Octets déjà envoyés.
+    sent: u64,
 }
+
+/// Fichiers au plus dans un message (comme le client web).
+const MAX_FILES: usize = 10;
 
 /// Image affichée en grand dans la visionneuse.
 struct Viewer {
@@ -406,6 +411,8 @@ pub struct ChatApp {
     dnd_end: i64,
     /// Filtre « Non lus seulement » de la barre latérale.
     unread_filter: bool,
+    /// Panneau de droite agrandi (Ctrl+Maj+.).
+    panel_expanded: bool,
     /// Mots-clés qui valent une mention (en minuscules).
     mention_keywords: Vec<String>,
     /// Tiroir flottant ouvert en mise en page étroite.
@@ -748,6 +755,7 @@ impl ChatApp {
             viewport_h: 800.,
             dnd_end: 0,
             unread_filter: false,
+            panel_expanded: false,
             mention_keywords: Vec::new(),
             drawer: None,
             root_focus: cx.focus_handle(),
@@ -1345,6 +1353,13 @@ impl ChatApp {
             return;
         }
 
+        // Trop long pour le serveur : on le dit avant d'envoyer.
+        let (count, max) = (message.chars().count(), self.max_post_size());
+        if count > max {
+            self.flash(t!("composer.too_long", count = count, max = max).to_string(), cx);
+            return;
+        }
+
         // Pièces jointes : on attend la fin de leur envoi.
         let pending: Vec<&Attachment> = self.attachments.iter().filter(|a| a.pane == pane).collect();
         if pending.iter().any(|a| a.file_id.is_none() && a.error.is_none()) {
@@ -1414,17 +1429,22 @@ impl ChatApp {
     /// Envoie des fichiers locaux ; ils seront joints au prochain message.
     fn add_files(&mut self, pane: Pane, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         let Some(channel_id) = self.channel_id.clone() else { return };
+        let max_size = self.max_file_size();
         for path in paths.into_iter().filter(|p| p.is_file()) {
+            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let size = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
+            if self.attachments.iter().filter(|a| a.pane == pane).count() >= MAX_FILES {
+                self.flash(t!("composer.too_many_files", max = MAX_FILES).to_string(), cx);
+                break;
+            }
+            if size > max_size {
+                let max = crate::api::human_size(max_size);
+                self.flash(t!("composer.file_too_big", name = name, max = max).to_string(), cx);
+                continue;
+            }
             self.next_local_id += 1;
             let local_id = self.next_local_id;
-            self.attachments.push(Attachment {
-                local_id,
-                pane,
-                name: path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-                size: std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0),
-                file_id: None,
-                error: None,
-            });
+            self.attachments.push(Attachment { local_id, pane, name, size, file_id: None, error: None, sent: 0 });
             self.send(Command::Upload { local_id, channel_id: channel_id.clone(), path });
         }
         cx.notify();
@@ -1446,7 +1466,21 @@ impl ChatApp {
         .detach();
     }
 
+    /// Taille maximale d'un fichier (réglage du serveur, 100 Mo par défaut).
+    fn max_file_size(&self) -> i64 {
+        self.server_config.get("MaxFileSize").and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(100 << 20)
+    }
+
+    /// Caractères au plus dans un message (réglage du serveur).
+    fn max_post_size(&self) -> usize {
+        self.server_config.get("MaxPostSize").and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(16383)
+    }
+
     fn remove_attachment(&mut self, local_id: u64, cx: &mut Context<Self>) {
+        // Envoi en cours : on l'arrête.
+        if self.attachments.iter().any(|a| a.local_id == local_id && a.file_id.is_none() && a.error.is_none()) {
+            self.send(Command::CancelUpload { local_id });
+        }
         self.attachments.retain(|a| a.local_id != local_id);
         cx.notify();
     }
@@ -2531,6 +2565,41 @@ impl ChatApp {
                 after(self, 400, window, cx, |this, _, cx| this.open_notify_dialog("general".into(), cx))
             }
             "fils" => after(self, 600, window, cx, |this, _, cx| this.open_threads_panel(true, cx)),
+            "aide-markdown" => after(self, 500, window, cx, |this, _, cx| this.open_markdown_help(cx)),
+            "envoi-fichier" => after(self, 500, window, cx, |this, window, cx| {
+                this.server_config.insert("MaxPostSize".into(), "300".into());
+                this.next_local_id += 2;
+                let id = this.next_local_id;
+                this.attachments.push(Attachment {
+                    local_id: id - 1,
+                    pane: Pane::Channel,
+                    name: "maquette-accueil-v3.fig".into(),
+                    size: 48 << 20,
+                    file_id: None,
+                    error: None,
+                    sent: 21 << 20,
+                });
+                this.attachments.push(Attachment {
+                    local_id: id,
+                    pane: Pane::Channel,
+                    name: "compte-rendu.pdf".into(),
+                    size: 245 << 10,
+                    file_id: Some("demo-file".into()),
+                    error: None,
+                    sent: 245 << 10,
+                });
+                let text = t!("demo.long_draft").to_string();
+                this.composer.update(cx, |s, cx| s.set_value(text, window, cx));
+            }),
+            "panneau-large" => {
+                self.select_channel("backend".into(), cx);
+                after(self, 700, window, cx, |this, window, cx| {
+                    if let Some(root) = this.posts.iter().find(|v| v.post.reply_count > 0).map(|v| v.post.id.clone()) {
+                        this.open_thread(root, window, cx);
+                    }
+                    this.toggle_panel_expanded(cx);
+                });
+            }
             _ => {}
         }
     }
@@ -3318,6 +3387,11 @@ impl ChatApp {
                     cx.reveal_path(&path);
                     let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                     self.flash(t!("files.saved_to_downloads", name = name).into(), cx);
+                }
+            }
+            Event::UploadProgress { local_id, sent } => {
+                if let Some(a) = self.attachments.iter_mut().find(|a| a.local_id == local_id) {
+                    a.sent = sent;
                 }
             }
             Event::Uploaded { local_id, file } => {

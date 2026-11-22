@@ -32,6 +32,7 @@ pub(crate) enum Dialog {
         confirm_delete: bool,
     },
     Shortcuts,
+    MarkdownHelp,
     /// « Ne pas déranger » jusqu'à une date (jours à partir d'aujourd'hui).
     DndCustom {
         day: i64,
@@ -284,6 +285,7 @@ impl ChatApp {
                 self.render_category_dialog(category_id, *confirm_delete, cx)
             }
             Dialog::Shortcuts => self.render_shortcuts(cx),
+            Dialog::MarkdownHelp => self.render_markdown_help(cx),
             Dialog::Settings(d) => self.render_settings(d, cx),
             Dialog::JoinTeam { teams, joining } => self.render_join_team(teams.as_ref(), joining.as_deref(), cx),
             Dialog::LeaveTeam { team_id } => self.render_leave_team(team_id, cx),

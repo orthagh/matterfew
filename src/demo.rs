@@ -896,8 +896,12 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             let _ = std::fs::write(&path, format!("{}\n", t!("demo.download_content", name = file.name)));
             send(Event::Downloaded { path, open });
         }
+        Command::CancelUpload { .. } => {}
         Command::Upload { local_id, path, .. } => {
-            std::thread::sleep(Duration::from_millis(600));
+            let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            std::thread::sleep(Duration::from_millis(300));
+            send(Event::UploadProgress { local_id, sent: total / 2 });
+            std::thread::sleep(Duration::from_millis(300));
             let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let size = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
             let extension = name.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_default();
