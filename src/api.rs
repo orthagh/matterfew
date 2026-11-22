@@ -49,6 +49,22 @@ pub struct User {
     pub delete_at: i64,
 }
 
+const NAME_DEFAULT: u8 = 0;
+const NAME_USERNAME: u8 = 1;
+const NAME_NICKNAME: u8 = 2;
+static NAME_FORMAT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(NAME_DEFAULT);
+
+/// Format des noms affichés : "username", "nickname_full_name" ou
+/// "full_name" (préférence `display_settings/name_format`).
+pub fn set_name_format(format: &str) {
+    let value = match format {
+        "username" => NAME_USERNAME,
+        "nickname_full_name" => NAME_NICKNAME,
+        _ => NAME_DEFAULT,
+    };
+    NAME_FORMAT.store(value, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Statut personnalisé : emoji, texte et échéance.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
 pub struct CustomStatus {
@@ -118,10 +134,16 @@ impl User {
         (!empty && !status.expired(chrono::Utc::now())).then_some(status)
     }
 
-    /// Nom affiché : « Prénom Nom » si disponible, sinon le nom d'utilisateur.
+    /// Nom affiché selon le format choisi (voir [`set_name_format`]) ; par
+    /// défaut « Prénom Nom », sinon le pseudo, sinon le nom d'utilisateur.
     pub fn display_name(&self) -> String {
         let full = format!("{} {}", self.first_name, self.last_name);
         let full = full.trim();
+        match NAME_FORMAT.load(std::sync::atomic::Ordering::Relaxed) {
+            NAME_USERNAME => return self.username.clone(),
+            NAME_NICKNAME if !self.nickname.is_empty() => return self.nickname.clone(),
+            _ => {}
+        }
         if !full.is_empty() {
             full.to_string()
         } else if !self.nickname.is_empty() {
@@ -1259,6 +1281,12 @@ impl Client {
 
     pub async fn mark_channels_read(&self, channel_ids: &[String]) -> Result<()> {
         self.send_json(reqwest::Method::POST, "/channels/members/me/mark_read", Some(channel_ids)).await
+    }
+
+    /// Préférences de notification du compte (la carte complète).
+    pub async fn set_notify_props(&self, user_id: &str, props: &HashMap<String, String>) -> Result<User> {
+        let body = serde_json::json!({ "notify_props": props });
+        self.put(&format!("/users/{user_id}/patch"), &body).await
     }
 
     /// Statut : "online", "away", "dnd" ou "offline".

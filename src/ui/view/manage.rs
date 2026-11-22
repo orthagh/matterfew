@@ -525,6 +525,7 @@ impl ChatApp {
                     ("Ctrl F", t!("shortcuts.search").into()),
                     ("Ctrl Shift M", t!("shortcuts.mentions").into()),
                     ("Ctrl Shift L", t!("shortcuts.focus").into()),
+                    ("Ctrl Shift A", t!("shortcuts.settings").into()),
                     ("Shift Esc", t!("shortcuts.mark_all_read").into()),
                     ("Esc", t!("shortcuts.close").into()),
                     ("F6", t!("shortcuts.cycle_focus").into()),

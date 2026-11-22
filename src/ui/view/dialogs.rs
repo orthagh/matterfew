@@ -32,6 +32,7 @@ pub(crate) enum Dialog {
         confirm_delete: bool,
     },
     Shortcuts,
+    Settings(Box<super::settings::SettingsDraft>),
     Bookmark {
         channel_id: String,
     },
@@ -267,6 +268,7 @@ impl ChatApp {
                 self.render_category_dialog(category_id, *confirm_delete, cx)
             }
             Dialog::Shortcuts => self.render_shortcuts(cx),
+            Dialog::Settings(d) => self.render_settings(d, cx),
             Dialog::Bookmark { .. } => self.render_bookmark_dialog(cx),
             Dialog::ConfirmNotify { pane, count, mention } => self.render_confirm_notify(*pane, *count, mention, cx),
         })
@@ -1391,7 +1393,7 @@ fn until_label(expires_at: &str) -> String {
     let local = at.with_timezone(&chrono::Local);
     let today = chrono::Local::now().date_naive();
     if local.date_naive() == today {
-        t!("custom_status.until_time", time = local.format("%H:%M").to_string()).to_string()
+        t!("custom_status.until_time", time = local.format(super::settings::time_format()).to_string()).to_string()
     } else {
         t!("custom_status.until_day", day = day_label_inline(at.timestamp_millis())).to_string()
     }

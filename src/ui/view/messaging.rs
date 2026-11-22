@@ -530,7 +530,11 @@ impl ChatApp {
             if !late || there.format("%H").to_string() == mine.format("%H").to_string() {
                 return None;
             }
-            (IconName::Moon, t!("dm_warning.late", name = name, time = there.format("%H:%M").to_string()).to_string())
+            (
+                IconName::Moon,
+                t!("dm_warning.late", name = name, time = there.format(super::settings::time_format()).to_string())
+                    .to_string(),
+            )
         };
         Some(
             h_flex()

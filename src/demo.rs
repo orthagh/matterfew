@@ -1051,6 +1051,12 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             };
             send(Event::DirectOpened(channel));
         }
+        Command::SaveNotifyProps(props) => {
+            if let Some(me) = demo.users.iter_mut().find(|u| u.id == ME) {
+                me.notify_props = props;
+                send(Event::Users(vec![me.clone()]));
+            }
+        }
         Command::SetCustomStatus(status) => {
             if let Some(me) = demo.users.iter_mut().find(|u| u.id == ME) {
                 me.props = match status {

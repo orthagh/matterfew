@@ -27,6 +27,7 @@ mod pdf;
 mod rich;
 mod settings;
 mod sidebar;
+mod sound;
 mod spell;
 mod sso;
 mod theme;
@@ -115,7 +116,11 @@ gpui_kit::assets::icon_assets!(
         Settings,
         UserMinus,
         Keyboard,
-        WifiOff
+        WifiOff,
+        Monitor,
+        PanelLeft,
+        SlidersHorizontal,
+        Volume2
     ]
 );
 

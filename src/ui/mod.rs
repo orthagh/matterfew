@@ -401,6 +401,9 @@ pub struct ChatApp {
     collapsed_member_groups: HashSet<String>,
     /// Largeur de la fenêtre (mise en page étroite).
     viewport_w: f32,
+    viewport_h: f32,
+    /// Mots-clés qui valent une mention (en minuscules).
+    mention_keywords: Vec<String>,
     /// Tiroir flottant ouvert en mise en page étroite.
     drawer: Option<Drawer>,
     /// Focus de la fenêtre quand aucune zone n'a le focus : Échap, Ctrl+K et
@@ -738,6 +741,8 @@ impl ChatApp {
             create_purpose_input,
             collapsed_member_groups: HashSet::new(),
             viewport_w: 1200.,
+            viewport_h: 800.,
+            mention_keywords: Vec::new(),
             drawer: None,
             root_focus: cx.focus_handle(),
             settings,
@@ -908,6 +913,7 @@ impl ChatApp {
         }
         self.prefs = SidebarPrefs::from_preferences(&self.raw_prefs);
         self.apply_enter_preferences(cx);
+        self.apply_display_preferences();
         self.load_recent_emojis();
         let theme = MattermostTheme::from_preferences(&self.raw_prefs, self.team_id.as_deref());
         self.palette = Palette::from_theme(&theme);
@@ -2453,6 +2459,17 @@ impl ChatApp {
                 }
             }),
             "raccourcis" => after(self, 500, window, cx, |this, _, cx| this.open_shortcuts(cx)),
+            "parametres" => after(self, 500, window, cx, |this, window, cx| this.open_settings(window, cx)),
+            "mots-cles" => {
+                self.select_channel("backend".into(), cx);
+                after(self, 300, window, cx, |this, _, _| {
+                    if let Some(me) = this.me.as_ref() {
+                        let mut props = me.notify_props.clone();
+                        props.insert("highlight_keys".into(), "index, CI".into());
+                        this.send(Command::SaveNotifyProps(props));
+                    }
+                });
+            }
             "hors-ligne" => after(self, 800, window, cx, |this, _, cx| {
                 this.connected = false;
                 cx.notify();
@@ -3023,6 +3040,8 @@ impl ChatApp {
                 }
                 self.users.insert(me.id.clone(), me.clone());
                 self.me = Some(me);
+                self.apply_display_preferences();
+                self.refresh_keywords(cx);
                 self.teams = teams;
                 self.screen = Screen::Chat;
                 // Dernière équipe ouverte si elle existe encore, sinon la première.
@@ -3032,8 +3051,16 @@ impl ChatApp {
                 }
             }
             Event::Users(users) => {
+                let mut me_changed = false;
                 for user in users {
+                    if self.me.as_ref().is_some_and(|me| me.id == user.id) {
+                        self.me = Some(user.clone());
+                        me_changed = true;
+                    }
                     self.users.insert(user.id.clone(), user);
+                }
+                if me_changed {
+                    self.refresh_keywords(cx);
                 }
             }
             Event::TeamIcon { team_id, bytes } => {
@@ -3643,6 +3670,10 @@ impl ChatApp {
                 channel_id: post.channel_id.clone(),
             };
             self.send(Command::Notify { title, body, target: Some(target) });
+            let props = me.map(|m| &m.notify_props);
+            if !cfg!(test) && props.and_then(|p| p.get("desktop_sound")).map(String::as_str) != Some("false") {
+                crate::sound::play(props.and_then(|p| p.get("desktop_notification_sound")).map_or("", String::as_str));
+            }
             if !active && let Some(hwnd) = self.hwnd {
                 desktop::flash(hwnd);
             }

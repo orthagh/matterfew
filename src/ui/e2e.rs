@@ -530,6 +530,40 @@ fn e2e_historique_des_canaux() {
 }
 
 #[test]
+fn e2e_parametres_notifications_et_barre_laterale() {
+    use super::view::settings::SettingsTab;
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| a.open_settings(window, cx));
+    for tab in [SettingsTab::Notifications, SettingsTab::Display, SettingsTab::Sidebar, SettingsTab::Advanced] {
+        w.1.update(|a, _, _| {
+            if let Some(Dialog::Settings(d)) = a.dialog.as_mut() {
+                d.tab = tab;
+            }
+        });
+        w.1.draw();
+    }
+    w.1.update(|a, window, cx| {
+        let Some(Dialog::Settings(d)) = a.dialog.as_mut() else { panic!("paramètres ouverts") };
+        d.desktop = "all".into();
+        d.sound = "Ripple";
+        d.dm_limit = 10;
+        d.highlight_keys.update(cx, |s, cx| s.set_value("zorglub, quux", window, cx));
+        a.save_settings(cx);
+    });
+    wait_for(&w, "préférences de notification enregistrées", |a| {
+        let props = &a.me.as_ref().unwrap().notify_props;
+        props.get("highlight_keys").map(String::as_str) == Some("zorglub,quux")
+            && props.get("desktop").map(String::as_str) == Some("all")
+            && props.get("desktop_notification_sound").map(String::as_str) == Some("Ripple")
+    });
+    w.1.read(|a, _| {
+        assert!(a.dialog.is_none());
+        // Les mots-clés surlignés sont globaux : d'autres tests en parallèle les changent.
+        assert_eq!(a.prefs.dm_limit, 10);
+    });
+}
+
+#[test]
 fn e2e_signets_apercu_pdf_et_f6() {
     let mut w = demo_app();
     wait_for(&w, "signets chargés", |a| a.bookmarks.get("general").is_some_and(|b| b.len() == 3));

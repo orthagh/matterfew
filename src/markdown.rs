@@ -21,6 +21,82 @@ pub const MENTION_SCHEME: &str = "mm-mention:";
 pub const CHANNEL_SCHEME: &str = "mm-channel:";
 /// Préfixe des liens d'étiquettes (`#sujet`), qui lancent une recherche.
 pub const HASHTAG_SCHEME: &str = "mm-hashtag:";
+/// Préfixe des mots-clés surlignés (texte en hexadécimal après le préfixe).
+pub const KEYWORD_SCHEME: &str = "mm-key:";
+
+/// Mots-clés surlignés dans les messages (en minuscules) : ceux qui
+/// notifient, ceux qui surlignent seulement, le prénom si activé.
+static KEYWORDS: std::sync::RwLock<Vec<String>> = std::sync::RwLock::new(Vec::new());
+
+/// Change les mots-clés surlignés ; vrai s'ils ont changé.
+pub fn set_keywords(mut keys: Vec<String>) -> bool {
+    keys.iter_mut().for_each(|k| *k = k.trim().to_lowercase());
+    keys.retain(|k| !k.is_empty());
+    keys.sort();
+    keys.dedup();
+    let mut current = KEYWORDS.write().unwrap_or_else(|e| e.into_inner());
+    if *current == keys {
+        return false;
+    }
+    *current = keys;
+    true
+}
+
+/// Mots-clés surlignés en cours.
+pub fn keywords() -> Vec<String> {
+    KEYWORDS.read().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// Découpe un texte en morceaux (texte, mot-clé ?) : mots entiers, sans
+/// tenir compte de la casse, comme le client web.
+pub fn split_keywords<'a>(text: &'a str, keys: &[String]) -> Vec<(&'a str, bool)> {
+    let lower = text.to_lowercase();
+    // Un changement de casse peut changer la longueur : on renonce alors.
+    if keys.is_empty() || lower.len() != text.len() {
+        return vec![(text, false)];
+    }
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let mut out = Vec::new();
+    let (mut cursor, mut i) = (0, 0);
+    while i < text.len() {
+        let found = keys.iter().filter(|k| lower[i..].starts_with(k.as_str())).max_by_key(|k| k.len()).filter(|k| {
+            let before = text[..i].chars().next_back().is_none_or(|c| !word(c));
+            let after = text[i + k.len()..].chars().next().is_none_or(|c| !word(c));
+            before && after && text.is_char_boundary(i + k.len())
+        });
+        match found {
+            Some(k) => {
+                if cursor < i {
+                    out.push((&text[cursor..i], false));
+                }
+                out.push((&text[i..i + k.len()], true));
+                i += k.len();
+                cursor = i;
+            }
+            None => i += text[i..].chars().next().map_or(1, char::len_utf8),
+        }
+    }
+    if cursor < text.len() {
+        out.push((&text[cursor..], false));
+    }
+    out
+}
+
+/// Le texte contient-il l'un des mots-clés ?
+pub fn contains_keyword(text: &str, keys: &[String]) -> bool {
+    split_keywords(text, keys).iter().any(|(_, k)| *k)
+}
+
+fn hex(text: &str) -> String {
+    text.bytes().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Texte d'un lien de mot-clé.
+pub fn keyword_text(value: &str) -> Option<String> {
+    let bytes: Option<Vec<u8>> =
+        (0..value.len()).step_by(2).map(|i| value.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok())).collect();
+    String::from_utf8(bytes?).ok()
+}
 
 fn options() -> Options {
     let mut opts = Options::empty();
@@ -183,6 +259,7 @@ fn html_ranges(source: &str) -> Vec<Range<usize>> {
 fn transform_text(text: &str, emoji_size: u32, channel_id: Option<&str>) -> String {
     let text = emoji::replace_shortcodes(text);
     let mut out = String::with_capacity(text.len());
+    let keywords = keywords();
     for (chunk, kind) in split_tokens(&text) {
         match kind {
             Token::Mention => out.push_str(&format!("[{chunk}]({MENTION_SCHEME}{})", &chunk[1..])),
@@ -196,7 +273,13 @@ fn transform_text(text: &str, emoji_size: u32, channel_id: Option<&str>) -> Stri
                         out.push_str(&piece);
                         continue;
                     }
-                    push_with_emojis(&mut out, &piece, emoji_size);
+                    for (part, keyword) in split_keywords(&piece, &keywords) {
+                        if keyword {
+                            out.push_str(&format!("[{}]({KEYWORD_SCHEME}{})", escape_html(part), hex(part)));
+                        } else {
+                            push_with_emojis(&mut out, part, emoji_size);
+                        }
+                    }
                 }
             }
         }
@@ -438,5 +521,21 @@ mod tests {
     #[test]
     fn plain_text_for_notifications() {
         assert_eq!(plain_text("**Salut** `toi` :wave:"), "Salut toi 👋");
+    }
+}
+
+#[cfg(test)]
+mod keyword_tests {
+    use super::*;
+
+    #[test]
+    fn mots_cles_entiers_sans_casse() {
+        let keys = vec!["prod".to_string(), "mise en prod".to_string()];
+        let parts = split_keywords("Mise en prod ce soir, produit ok ; PROD!", &keys);
+        let found: Vec<&str> = parts.iter().filter(|(_, k)| *k).map(|(t, _)| *t).collect();
+        assert_eq!(found, vec!["Mise en prod", "PROD"]);
+        assert_eq!(parts.iter().map(|(t, _)| *t).collect::<String>(), "Mise en prod ce soir, produit ok ; PROD!");
+        assert!(!contains_keyword("reproduire", &keys));
+        assert_eq!(keyword_text(&hex("été")).as_deref(), Some("été"));
     }
 }

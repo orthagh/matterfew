@@ -111,6 +111,8 @@ pub enum Command {
     },
     /// Enregistre des préférences (emojis récents…).
     SavePreferences(Vec<Preference>),
+    /// Préférences de notification du compte (carte complète).
+    SaveNotifyProps(HashMap<String, String>),
     /// Paramètres du canal : nom affiché et nom dans les liens.
     RenameChannel {
         channel_id: String,
@@ -838,6 +840,10 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             }
         }
         Command::SavePreferences(prefs) => client.save_preferences(&ctx.me_id, &prefs).await?,
+        Command::SaveNotifyProps(props) => {
+            let user = client.set_notify_props(&ctx.me_id, &props).await?;
+            ctx.emit(Event::Users(vec![user])).await;
+        }
         Command::RenameChannel { channel_id, display_name, name } => {
             let fields = serde_json::json!({ "display_name": display_name, "name": name });
             let channel = client.patch_channel_fields(&channel_id, &fields).await?;

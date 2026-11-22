@@ -12,6 +12,15 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 
 ### Ajouté
 
+- Fenêtre « Paramètres » (menu du compte, Ctrl+Maj+A), en quatre onglets :
+  - Notifications : bureau (tous, mentions, rien), réponses dans les fils,
+    e-mail, son choisi parmi six (synthétisés, mêmes noms que le client
+    web), mots qui vous mentionnent, mots surlignés sans notifier,
+    réponse automatique en message direct ;
+  - Affichage : fils réduits, horloge 12 ou 24 heures, format des noms ;
+  - Barre latérale : canaux non lus regroupés, nombre de messages directs ;
+  - Avancé : envoi avec Ctrl+Entrée, barre de mise en forme.
+- Mots-clés surlignés dans les messages, comme les mentions.
 - Coloration syntaxique des blocs de code (environ 200 langages), aux
   couleurs du thème clair ou sombre.
 

@@ -91,10 +91,10 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 |---|---|---|---|---|---|
 | ~~Statut personnalisé~~ | ~~`C/custom_status`, `custom_status.*`, `C/post_view/post_header_custom_status`~~ | ~~Emoji + texte, suggestions (« En réunion »…), récents, expiration (30 min → date libre) ; affiché à côté du nom dans les messages, la carte de profil, les membres (`PUT /users/me/status/custom`)~~ | ~~Absent (ni réglage ni affichage)~~ | ~~M~~ | ~~★★★~~ |
 | « Ne pas déranger » avec durée | `userAccountMenu.dndSubMenu.*`, `C/dnd_custom_time_picker_modal` | 30 min, 1 h, 2 h, demain, personnalisé (`dnd_end_time`) | Partiel : statut sans échéance | S | ★★ |
-| Paramètres de notification | `C/user_settings/notifications`, `user.settings.notifications.*` | Bureau (tout/mentions/rien, fils suivis), sons, e-mail, mots-clés qui notifient / surlignent, réponses, suivi auto sur @channel | Absent (préférences lues mais non modifiables) | M | ★★ |
-| Réponse automatique (absence) | `user.settings.notifications.autoResponder*` | Message envoyé automatiquement en MP | Absent | S | ★ |
-| Sons de notification | `user.settings.notifications.desktopNotificationSound.*` | Choix du son (Bing, Crackle…) | Absent (son Windows par défaut) | S | ★ |
-| Mots-clés surlignés | `user.settings.notifications.keywordsWithHighlight.*` | Mots surlignés sans notifier (Professional) | Absent | S | ★ |
+| ~~Paramètres de notification~~ | ~~`C/user_settings/notifications`, `user.settings.notifications.*`~~ | ~~Bureau (tout/mentions/rien, fils suivis), sons, e-mail, mots-clés qui notifient / surlignent, réponses, suivi auto sur @channel~~ | ~~Absent (préférences lues mais non modifiables)~~ | ~~M~~ | ~~★★~~ |
+| ~~Réponse automatique (absence)~~ | ~~`user.settings.notifications.autoResponder*`~~ | ~~Message envoyé automatiquement en MP~~ | ~~Absent~~ | ~~S~~ | ~~★~~ |
+| ~~Sons de notification~~ | ~~`user.settings.notifications.desktopNotificationSound.*`~~ | ~~Choix du son (Bing, Crackle…)~~ | ~~Absent (son Windows par défaut)~~ | ~~S~~ | ~~★~~ |
+| ~~Mots-clés surlignés~~ | ~~`user.settings.notifications.keywordsWithHighlight.*`~~ | ~~Mots surlignés sans notifier (Professional)~~ | ~~Absent~~ | ~~S~~ | ~~★~~ |
 
 ## 6. Paramètres utilisateur (Ctrl+Maj+A)
 
@@ -103,10 +103,10 @@ Aucun écran de paramètres dans matterfew : les préférences serveur sont lues
 
 | Réglage | Où (`user.settings.*`) | Chez nous | Effort | Valeur |
 |---|---|---|---|---|
-| Fenêtre « Paramètres » (onglets Notifications, Affichage, Barre latérale, Avancé) | `C/user_settings` | Absent | L (ensemble) | ★★ |
-| Affichage du nom (pseudo, nom complet, identifiant) | `display.teammateNameDisplay*` | Absent : règle fixe (pseudo sinon nom complet) | S | ★★ |
+| ~~Fenêtre « Paramètres » (onglets Notifications, Affichage, Barre latérale, Avancé)~~ | ~~`C/user_settings`~~ | ~~Absent~~ | ~~L (ensemble)~~ | ~~★★~~ |
+| ~~Affichage du nom (pseudo, nom complet, identifiant)~~ | ~~`display.teammateNameDisplay*`~~ | ~~Absent : règle fixe (pseudo sinon nom complet)~~ | ~~S~~ | ~~★★~~ |
 | Horloge 12 h / 24 h, fuseau | `display.clockDisplay`, `display.timezone` | Absent (format système) | S | ★ |
-| Fils réduits (CRT) on/off | `display.collapsedReplyThreads*` | Partiel : la préférence est respectée, pas modifiable | S | ★ |
+| ~~Fils réduits (CRT) on/off~~ | ~~`display.collapsedReplyThreads*`~~ | ~~Partiel : la préférence est respectée, pas modifiable~~ | ~~S~~ | ~~★~~ |
 | Aperçus de liens on/off, images dépliées par défaut | `display.linkPreviewDisplay`, `display.collapseDisplay` | Absent (toujours affichés) | S | ★ |
 | Affichage compact, coloration des noms | `display.messageDisplay*`, `display.colorize` | Absent | M | ★ |
 | Messages d'arrivée/départ | `advance.joinLeaveTitle` | À vérifier (préférence non lue) | S | ★ |

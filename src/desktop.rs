@@ -151,7 +151,8 @@ mod windows_impl {
         Ok(())
     }
 
-    /// Notification Windows ; un clic envoie `target` à l'interface.
+    /// Notification Windows ; un clic envoie `target` à l'interface. Muette :
+    /// le son choisi dans les paramètres est joué par l'application.
     ///
     /// Les notifications affichées restent référencées ici : si l'objet était
     /// libéré, Windows ne pourrait plus nous prévenir du clic. Une seule
@@ -166,7 +167,7 @@ mod windows_impl {
 
         let xml = XmlDocument::new()?;
         xml.LoadXml(&HSTRING::from(format!(
-            r#"<toast><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text></binding></visual></toast>"#,
+            r#"<toast><visual><binding template="ToastGeneric"><text>{}</text><text>{}</text></binding></visual><audio silent="true"/></toast>"#,
             xml_escape(title),
             xml_escape(body)
         )))?;
@@ -466,6 +467,8 @@ mod unix_impl {
         {
             notification.action("default", &t!("tray.open"));
             notification.hint(notify_rust::Hint::DesktopEntry(linux::desktop_entry()));
+            // Le son choisi dans les paramètres est joué par l'application.
+            notification.hint(notify_rust::Hint::SuppressSound(true));
         }
         let handle = notification.show()?;
         if let Some(target) = target {

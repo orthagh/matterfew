@@ -36,6 +36,7 @@ pub(super) mod bookmarks;
 pub(super) mod dialogs;
 pub(super) mod manage;
 pub(super) mod messaging;
+pub(super) mod settings;
 
 /// Réactions proposées dans la barre d'actions d'un message.
 const QUICK_REACTIONS: [&str; 3] = ["+1", "heart", "joy"];
@@ -953,6 +954,13 @@ impl ChatApp {
                             })
                     })
                     .separator()
+                    .item({
+                        let entity = entity.clone();
+                        PopupMenuItem::new(t!("settings.menu"))
+                            .icon(Icon::new(IconName::Settings))
+                            .on_click(move |_, window, cx| entity.update(cx, |this, cx| this.open_settings(window, cx)))
+                    })
+                    .separator()
                     .item(
                         PopupMenuItem::new(t!("account.log_out"))
                             .icon(Icon::new(IconName::LogOut))
@@ -968,6 +976,9 @@ impl ChatApp {
     fn mentions_me(&self, post: &Post) -> bool {
         let Some(me) = &self.me else { return false };
         let needle = format!("@{}", me.username);
+        if post.user_id != me.id && markdown::contains_keyword(&post.message, &self.mention_keywords) {
+            return true;
+        }
         post.user_id != me.id
             && post.message.match_indices(&needle).any(|(i, _)| {
                 // « @jean » ne doit pas correspondre à « @jean.dupont ».
@@ -2765,6 +2776,11 @@ impl ChatApp {
                     cx.stop_propagation();
                     return;
                 }
+                if ctrl && shift && !alt && k.key == "a" && this.dialog.is_none() {
+                    this.open_settings(window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 if ctrl && shift && !alt && k.key == "m" {
                     this.show_mentions(cx);
                     cx.stop_propagation();
@@ -3565,6 +3581,7 @@ impl ChatApp {
     fn tag_plugin(&self, entity: &Entity<Self>) -> TagPlugin {
         TagPlugin {
             me: self.me.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
+            keywords: markdown::keywords(),
             palette: self.palette,
             app: entity.downgrade(),
         }
@@ -5428,6 +5445,7 @@ impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.scale = window.scale_factor();
         self.viewport_w = window.viewport_size().width / px(1.);
+        self.viewport_h = window.viewport_size().height / px(1.);
         // Fenêtre fermée : son champ n'est plus affiché, le focus revient à
         // l'application (sinon les raccourcis ne répondent plus).
         let orphan = self.dialog.is_none()
@@ -5465,7 +5483,7 @@ fn day_of(ms: i64) -> Option<chrono::NaiveDate> {
 
 /// « 14:32 ».
 fn format_hour(ms: i64) -> String {
-    local(ms).map(|t| t.format("%H:%M").to_string()).unwrap_or_default()
+    local(ms).map(|t| t.format(settings::time_format()).to_string()).unwrap_or_default()
 }
 
 /// Heure dans l'en-tête d'un message (la date est donnée par le séparateur).
@@ -5638,7 +5656,7 @@ fn local_time(tz: &str) -> Option<(String, String)> {
     let there = chrono::Utc::now().with_timezone(&tz);
     let theirs = there.offset().fix().local_minus_utc();
     let mine = chrono::Local::now().offset().local_minus_utc();
-    Some((there.format("%H:%M").to_string(), offset_label((theirs - mine) / 60)))
+    Some((there.format(settings::time_format()).to_string(), offset_label((theirs - mine) / 60)))
 }
 
 fn offset_label(minutes: i32) -> String {
@@ -5710,8 +5728,13 @@ struct TagData {
 /// Affiche `@nom` et `#étiquette` en pastilles cliquables : carte de profil
 /// pour une personne, recherche pour une étiquette. Vos propres mentions (et
 /// @here, @channel, @all) sont surlignées.
+/// Mot-clé surligné (paramètres de notification).
+struct KeywordData;
+
 struct TagPlugin {
     me: String,
+    /// Mots-clés surlignés (une mention `@clé` l'est aussi).
+    keywords: Vec<String>,
     palette: Palette,
     app: WeakEntity<ChatApp>,
 }
@@ -5723,6 +5746,10 @@ impl MarkdownPlugin for TagPlugin {
 
     fn parse(&self, node: &markdown_ast::Node, _cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
         let markdown_ast::Node::Link(link) = node else { return None };
+        if let Some(hex) = link.url.strip_prefix(markdown::KEYWORD_SCHEME) {
+            let text = markdown::keyword_text(hex)?;
+            return Some(MarkdownNode::new("mm-tag", KeywordData).text(text));
+        }
         let (hashtag, value) = match link.url.strip_prefix(markdown::MENTION_SCHEME) {
             Some(v) => (false, v),
             None => (true, link.url.strip_prefix(markdown::HASHTAG_SCHEME)?),
@@ -5733,11 +5760,23 @@ impl MarkdownPlugin for TagPlugin {
 
     fn render(&self, node: &MarkdownNode, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let p = self.palette;
+        if node.data::<KeywordData>().is_some() {
+            // Mot-clé surligné : simple fond, rien à cliquer.
+            return div()
+                .px(px(2.))
+                .rounded(px(3.))
+                .bg(p.mention_highlight_bg.opacity(0.6))
+                .text_color(p.center_color)
+                .child(node.as_text().to_string())
+                .into_any_element();
+        }
         let Some(tag) = node.data::<TagData>() else {
             return div().child(node.as_text().to_string()).into_any_element();
         };
         let mine = !tag.hashtag
-            && (tag.value.eq_ignore_ascii_case(&self.me) || matches!(tag.value.as_str(), "here" | "channel" | "all"));
+            && (tag.value.eq_ignore_ascii_case(&self.me)
+                || matches!(tag.value.as_str(), "here" | "channel" | "all")
+                || self.keywords.iter().any(|k| k.strip_prefix('@') == Some(tag.value.to_lowercase().as_str())));
         let (bg, fg) = match (tag.hashtag, mine) {
             (true, _) => (transparent_black(), p.link),
             (false, true) => (p.mention_highlight_bg.opacity(0.6), p.center_color),
