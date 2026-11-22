@@ -1418,7 +1418,9 @@ mod tests {
             ("demo.posts.general_docs", &["#release-12", "#documentation", "](https://example.org/notes)"]),
             (
                 "demo.posts.backend_index",
-                &["```sql\nCREATE INDEX idx_tickets_status\n    ON tickets (status, updated_at);\n```"],
+                &[
+                    "```sql\nCREATE INDEX idx_tickets_open\n    ON tickets (status, updated_at)\n    WHERE status <> 'closed';\n```",
+                ],
             ),
             ("demo.posts.support_escalation", &["**#4821**", "!4821"]),
         ];

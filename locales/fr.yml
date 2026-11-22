@@ -146,7 +146,7 @@ demo:
     general_mockup: "Voici la maquette finale de la page d'accueil :point_down:"
     general_perf_report: "Le rapport de performances et les mesures brutes :"
     backend_slow: "Quelqu'un a vu la lenteur sur `/api/tickets` ce matin ?"
-    backend_index: "Oui, un index manquait. Correctif :\n\n```sql\nCREATE INDEX idx_tickets_status\n    ON tickets (status, updated_at);\n```"
+    backend_index: "Oui, un index manquait. Correctif :\n\n```sql\nCREATE INDEX idx_tickets_open\n    ON tickets (status, updated_at)\n    WHERE status <> 'closed';\n```"
     backend_review: "Je relis la MR de @nathan.simon cet après-midi."
     backend_ci: "Top, merci ! Les tests passent en local, la CI est encore en cours :hourglass:"
     backend_history: "Ancien message n°%{n} de l'historique (pour tester le défilement)."

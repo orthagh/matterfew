@@ -10,7 +10,7 @@ readme = "README.md"
 
 [dependencies]
 # GPUI Kit : GPUI (version épinglée) + composants stylés (saisie, listes, Markdown…)
-gpui-kit = "0.10"
+gpui-kit = { version = "0.10", features = ["syntect"] }
 
 # Réseau
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }

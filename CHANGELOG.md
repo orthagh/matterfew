@@ -10,6 +10,11 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 
 ## [Non publié]
 
+### Ajouté
+
+- Coloration syntaxique des blocs de code (environ 200 langages), aux
+  couleurs du thème clair ou sombre.
+
 ## [0.2.0] - 2026-11-22
 
 ### Modifié
