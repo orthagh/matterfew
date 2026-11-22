@@ -367,3 +367,83 @@ fn e2e_vue_fils_de_l_equipe() {
     wait_for(&w, "tout lu", |a| a.unread_threads() == (0, 0));
     w.1.draw();
 }
+
+#[test]
+fn e2e_envoi_echoue_puis_reessaye() {
+    let mut w = demo_app();
+    w.1.update(|a, _, cx| {
+        a.outgoing.push(super::view::messaging::OutgoingPost {
+            pending_id: "p-1".into(),
+            pane: Pane::Channel,
+            channel_id: "general".into(),
+            root_id: String::new(),
+            message: "Message parti sans réseau".into(),
+            file_ids: Vec::new(),
+            failed: Some("réseau indisponible".into()),
+        });
+        cx.notify();
+    });
+    w.1.draw();
+    w.1.update(|a, _, cx| a.retry_send("p-1", cx));
+    wait_for(&w, "renvoyé puis confirmé", |a| a.outgoing.is_empty());
+    wait_for(&w, "message reçu", |a| a.posts.last().is_some_and(|v| v.post.message == "Message parti sans réseau"));
+}
+
+#[test]
+fn e2e_ctrl_entree_et_confirmation_channel() {
+    let mut w = demo_app();
+    wait_for(&w, "membres chargés", |a| a.members.get("general").is_some_and(|m| m.1 > 5));
+    // Envoi avec Ctrl+Entrée : Entrée va à la ligne.
+    w.1.update(|a, _, cx| {
+        a.raw_prefs.push(crate::api::Preference {
+            user_id: "me".into(),
+            category: "advanced_settings".into(),
+            name: "send_on_ctrl_enter".into(),
+            value: "true".into(),
+        });
+        a.refresh_preferences(cx);
+    });
+    w.1.update(|a, window, cx| a.composer.update(cx, |s, cx| s.focus(window, cx)));
+    w.1.simulate_input("ligne 1");
+    w.1.simulate_keystroke("enter");
+    w.1.simulate_input("ligne 2");
+    w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value(), "ligne 1\nligne 2"));
+    w.1.simulate_keystroke("ctrl-enter");
+    wait_for(&w, "envoyé", |a| a.posts.last().is_some_and(|v| v.post.message == "ligne 1\nligne 2"));
+    // @channel dans un canal de plus de 5 personnes : confirmation.
+    w.1.update(|a, window, cx| a.composer.update(cx, |s, cx| s.set_value("@channel réunion à 14 h", window, cx)));
+    w.1.simulate_keystroke("ctrl-enter");
+    wait_for(&w, "confirmation", |a| matches!(a.dialog, Some(Dialog::ConfirmNotify { .. })));
+    w.1.draw();
+    w.1.update(|a, window, cx| a.confirm_notify_send(Pane::Channel, window, cx));
+    wait_for(&w, "envoyé après confirmation", |a| {
+        a.dialog.is_none() && a.posts.last().is_some_and(|v| v.post.message == "@channel réunion à 14 h")
+    });
+}
+
+#[test]
+fn e2e_transferer_reactions_et_emojis_recents() {
+    let mut w = demo_app();
+    let (post_id, reacted) = w.1.read(|a, _| {
+        let v = a.posts.iter().find(|v| !v.post.metadata.reactions.is_empty()).expect("réactions dans la démo");
+        (v.post.id.clone(), v.post.metadata.reactions[0].emoji_name.clone())
+    });
+    w.1.read(|a, _| {
+        let tip = a.who_reacted(&a.posts.iter().find(|v| v.post.id == post_id).unwrap().post, &reacted);
+        assert!(tip.contains(&format!(":{reacted}:")), "{tip}");
+    });
+    // Emoji utilisé : en tête des récents et des réactions rapides.
+    w.1.update(|a, _, _| a.toggle_reaction(post_id.clone(), "tada".into()));
+    w.1.read(|a, _| {
+        assert_eq!(a.recent_emojis.first().map(String::as_str), Some("tada"));
+        assert_eq!(a.quick_reactions()[0], "tada");
+    });
+    // Transfert vers « design ».
+    w.1.update(|a, window, cx| a.open_forward(post_id.clone(), window, cx));
+    w.1.simulate_input("design");
+    w.1.simulate_keystroke("enter");
+    w.1.read(|a, _| assert!(matches!(&a.dialog, Some(Dialog::Forward(f)) if f.target.as_deref() == Some("design"))));
+    w.1.draw();
+    w.1.update(|a, _, cx| a.send_forward(cx));
+    wait_for(&w, "transféré", |a| a.dialog.is_none() && a.outgoing.is_empty() && a.info.is_some());
+}

@@ -10,6 +10,7 @@ sidebar:
   demo_badge: "DÉMO"
   goto_channel: "Aller à un canal…"
 emoji:
+  recent: "Utilisés récemment"
   custom: "Personnalisés"
   smileys: "Smileys et émotions"
   people: "Personnes"
@@ -331,6 +332,7 @@ clipboard:
   message_text: "Texte du message"
   channel_link: "Lien du canal"
 post_menu:
+  forward: "Transférer"
   follow: "Suivre le fil"
   unfollow: "Ne plus suivre le fil"
   remind: "Me le rappeler"
@@ -564,3 +566,37 @@ notify:
   ignore_mentions_hint: "Ces mentions ne vous notifient plus dans ce canal."
   auto_follow: "Suivre tous les nouveaux fils"
   auto_follow_hint: "Vous serez notifié des réponses à chaque fil ouvert ici."
+outgoing:
+  failed: "Message non envoyé"
+  retry: "Réessayer"
+  edit: "Modifier le message"
+  discard: "Abandonner"
+confirm_notify:
+  title: "Notifier %{count} personnes ?"
+  body: "Avec %{mention}, les %{count} personnes de ce canal recevront une notification."
+  hint: "Pour n’en prévenir que certaines, mentionnez-les plutôt par leur nom."
+  send: "Envoyer quand même"
+forward:
+  title: "Transférer le message"
+  search_placeholder: "Chercher un canal ou une personne"
+  comment_placeholder: "Ajouter un commentaire (facultatif)"
+  send: "Transférer"
+  done: "Message transféré dans %{channel}."
+dm_warning:
+  dnd: "%{name} est en « Ne pas déranger » : pas de notification."
+  out_of_office: "%{name} est absent : la réponse automatique est activée."
+  late: "Il est %{time} pour %{name}."
+toast:
+  new_since: "Nouveaux messages depuis %{time}"
+  new_below:
+    one: "1 nouveau message"
+    other: "%{count} nouveaux messages"
+reactions:
+  you: "vous"
+  and: "%{first} et %{last}"
+  and_others: "%{names} et %{count} autres"
+  who: "%{names} : réaction %{emoji}"
+out_of_channel:
+  add_one: "Ajouter %{name} au canal"
+  add_many: "Ajouter ces %{count} personnes au canal"
+  added: "Ajouté au canal (%{count})."

@@ -106,7 +106,11 @@ pub enum Command {
         root_id: String,
         message: String,
         file_ids: Vec<String>,
+        /// Identifiant local : signale l'envoi réussi ou échoué (`Sent`, `SendFailed`).
+        pending_id: String,
     },
+    /// Enregistre des préférences (emojis récents…).
+    SavePreferences(Vec<Preference>),
     LoadTeamUnreads,
     /// Aperçu d'une image jointe.
     LoadPreview {
@@ -378,6 +382,13 @@ pub enum Event {
         total: i64,
     },
     Threads(Vec<UserThread>),
+    Sent {
+        pending_id: String,
+    },
+    SendFailed {
+        pending_id: String,
+        error: String,
+    },
     /// Un fil suivi a changé (nouvelle réponse, lecture…).
     ThreadUpdated {
         team_id: String,
@@ -760,9 +771,14 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         // Les résultats des quatre commandes suivantes reviennent par le
         // WebSocket (posted, post_edited, post_deleted, reaction_*) :
         // l'interface les applique à ce moment-là, sans doublon.
-        Command::Send { channel_id, root_id, message, file_ids } => {
-            client.create_post(&channel_id, &root_id, &message, &file_ids).await?;
+        Command::Send { channel_id, root_id, message, file_ids, pending_id } => {
+            // Échec : l'interface propose de réessayer (pas d'erreur générale).
+            match client.create_post(&channel_id, &root_id, &message, &file_ids, &pending_id).await {
+                Ok(_) => ctx.emit(Event::Sent { pending_id }).await,
+                Err(err) => ctx.emit(Event::SendFailed { pending_id, error: format!("{err:#}") }).await,
+            }
         }
+        Command::SavePreferences(prefs) => client.save_preferences(&ctx.me_id, &prefs).await?,
         Command::LoadTeamUnreads => {
             let unreads = client.team_unreads().await?;
             ctx.emit(Event::TeamUnreads(unreads)).await;

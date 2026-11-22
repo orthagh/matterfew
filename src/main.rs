@@ -106,7 +106,11 @@ gpui_kit::assets::icon_assets!(
         Compass,
         SquarePen,
         BellRing,
-        Archive
+        Archive,
+        TriangleAlert,
+        RotateCcw,
+        Forward,
+        ArrowUp
     ]
 );
 

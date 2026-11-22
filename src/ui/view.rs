@@ -33,6 +33,7 @@ use crate::{emoji, markdown};
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
 
 pub(super) mod dialogs;
+pub(super) mod messaging;
 
 /// Réactions proposées dans la barre d'actions d'un message.
 const QUICK_REACTIONS: [&str; 3] = ["+1", "heart", "joy"];
@@ -1105,6 +1106,10 @@ impl ChatApp {
                         el.border_color(transparent_black()).bg(p.center_color.opacity(0.08)).text_color(p.muted())
                     })
                     .hover(|s| s.border_color(p.center_color.opacity(0.24)))
+                    .tooltip({
+                        let tip: SharedString = self.who_reacted(post, &name).into();
+                        move |window, cx| gpui_kit::component::tooltip::Tooltip::new(tip.clone()).build(window, cx)
+                    })
                     .child(match self.custom_emojis.get(&name) {
                         Some(image) => img(image.clone()).size(px(16.)).into_any_element(),
                         None => emoji_face(&emoji::lookup(&name), 16.),
@@ -1357,6 +1362,7 @@ impl ChatApp {
                         }
                     })
                     .when(!post.metadata.reactions.is_empty(), |el| el.child(reaction_row))
+                    .children(self.out_of_channel_action(post, entity))
                     .children(replies),
             )
             .children(toolbar);
@@ -1457,16 +1463,20 @@ impl ChatApp {
                 ));
         }
 
-        for name in QUICK_REACTIONS {
+        for name in self.quick_reactions() {
             let (entity, pid) = (entity.clone(), post_id.clone());
+            let face = match self.custom_emojis.get(&name) {
+                Some(image) => img(image.clone()).size(px(14.)).into_any_element(),
+                None => emoji_face(&emoji::lookup(&name), 14.),
+            };
             bar = bar.child(
                 Button::new(id(&format!("qr-{name}")))
-                    .child(emoji_face(&emoji::lookup(name), 14.))
+                    .child(face)
                     .xsmall()
                     .ghost()
                     .tooltip(format!(":{name}:"))
                     .on_click(move |_, _, cx| {
-                        entity.update(cx, |this, _| this.toggle_reaction(pid.clone(), name.to_string()));
+                        entity.update(cx, |this, _| this.toggle_reaction(pid.clone(), name.clone()));
                     }),
             );
         }
@@ -1570,6 +1580,9 @@ impl ChatApp {
                         }))
                         .item(item(&t!("post_menu.copy_text"), IconName::Copy, |this, id, _, cx| {
                             this.copy_post_text(&id, cx)
+                        }))
+                        .item(item(&t!("post_menu.forward"), IconName::Forward, |this, id, window, cx| {
+                            this.open_forward(id, window, cx)
                         }));
                     if mine {
                         let (e, id) = (entity.clone(), pid.clone());
@@ -2376,6 +2389,10 @@ impl ChatApp {
 
     fn render_chat(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.palette;
+        // Revenu en bas : les messages arrivés entre-temps sont vus.
+        if self.unseen_new > 0 && !self.scroller.read(cx).is_scrolled_up() {
+            self.unseen_new = 0;
+        }
         let entity = cx.entity();
 
         let error_banner = self.error.clone().map(|err| {
@@ -2415,7 +2432,9 @@ impl ChatApp {
                 .into_any_element()
         } else {
             let entity = entity.clone();
+            let toast = self.render_unread_toast(cx);
             div()
+                .relative()
                 .flex_1()
                 .min_h_0()
                 .child(
@@ -2425,13 +2444,17 @@ impl ChatApp {
                     .with_jump_button_label(t!("messages.jump_tooltip"))
                     .with_jump_button_renderer({
                         let (bg, fg) = (p.button_bg, p.button_color);
-                        move |b| {
-                            b.label(t!("messages.jump_to_present")).bg(bg).text_color(fg).border_color(bg).shadow_md()
-                        }
+                        let label: SharedString = match self.unseen_new {
+                            0 => t!("messages.jump_to_present").into(),
+                            1 => t!("toast.new_below.one").into(),
+                            n => t!("toast.new_below.other", count = n).into(),
+                        };
+                        move |b| b.label(label.clone()).bg(bg).text_color(fg).border_color(bg).shadow_md()
                     })
                     // Pas d'espace imposé entre les lignes : chaque message gère le sien.
                     .with_row_style(StyleRefinement::default().pb(px(0.))),
                 )
+                .children(toast)
                 .into_any_element()
         };
 
@@ -2467,6 +2490,8 @@ impl ChatApp {
             .children(error_banner)
             .children(info_banner)
             .child(messages)
+            .children(self.render_failed_sends(Pane::Channel, cx))
+            .children(self.render_dm_warning())
             .child(if self.channel_id.as_deref().is_some_and(|id| self.is_archived(id)) {
                 // Canal archivé : lecture seule.
                 h_flex()
@@ -2536,6 +2561,7 @@ impl ChatApp {
                         .with_row_style(StyleRefinement::default().pb(px(0.))),
                     ),
                 )
+                .children(self.render_failed_sends(Pane::Thread, cx))
                 .child(self.render_composer(Pane::Thread, cx))
         });
 
@@ -5002,6 +5028,12 @@ impl ChatApp {
             names.into_iter().filter(|n| n.contains(&query)).map(|n| (n.clone(), String::new())).collect()
         };
         if query.is_empty() {
+            let recent: Vec<(String, String)> = self
+                .recent_emojis
+                .iter()
+                .map(|n| (n.clone(), if self.custom_emojis.contains_key(n) { String::new() } else { emoji::lookup(n) }))
+                .collect();
+            push_group(&mut rows, &t!("emoji.recent"), recent);
             push_group(&mut rows, &t!("emoji.custom"), custom);
             for (title, list) in crate::emoji::catalog() {
                 push_group(&mut rows, &t!(*title), list.clone());

@@ -22,6 +22,13 @@ pub(crate) enum Dialog {
     Direct(DirectPicker),
     Status(StatusDraft),
     Notify(NotifyDraft),
+    Forward(super::messaging::ForwardDraft),
+    /// @channel / @all / @here dans un canal de `count` personnes.
+    ConfirmNotify {
+        pane: Pane,
+        count: i64,
+        mention: &'static str,
+    },
 }
 
 /// « Parcourir les canaux » : canaux publics et archivés de l'équipe.
@@ -155,6 +162,9 @@ impl ChatApp {
     /// Le texte du champ a changé : nouvelle recherche de personnes.
     pub(crate) fn dialog_input_changed(&mut self, cx: &mut Context<Self>) {
         let term = self.dialog_term(cx);
+        if let Some(Dialog::Forward(f)) = self.dialog.as_mut() {
+            f.highlight = 0;
+        }
         if matches!(self.dialog, Some(Dialog::Direct(_))) {
             let recents = term.is_empty().then(|| self.recent_partners());
             if let Some(Dialog::Direct(d)) = self.dialog.as_mut() {
@@ -169,7 +179,7 @@ impl ChatApp {
     }
 
     /// Fenêtre posée au-dessus de l'interface : en-tête, contenu, pied.
-    fn dialog_shell(
+    pub(crate) fn dialog_shell(
         &self,
         icon: IconName,
         title: SharedString,
@@ -239,6 +249,8 @@ impl ChatApp {
             Dialog::Direct(d) => self.render_direct(d, cx),
             Dialog::Status(s) => self.render_status_dialog(s, cx),
             Dialog::Notify(n) => self.render_notify(n, cx),
+            Dialog::Forward(f) => self.render_forward(f, cx),
+            Dialog::ConfirmNotify { pane, count, mention } => self.render_confirm_notify(*pane, *count, mention, cx),
         })
     }
 

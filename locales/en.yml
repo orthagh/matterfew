@@ -10,6 +10,7 @@ sidebar:
   demo_badge: "DEMO"
   goto_channel: "Go to channel…"
 emoji:
+  recent: "Recently used"
   custom: "Custom"
   smileys: "Smileys & emotion"
   people: "People"
@@ -331,6 +332,7 @@ clipboard:
   message_text: "Message text"
   channel_link: "Channel link"
 post_menu:
+  forward: "Forward"
   follow: "Follow thread"
   unfollow: "Unfollow thread"
   remind: "Remind me"
@@ -564,3 +566,37 @@ notify:
   ignore_mentions_hint: "These mentions no longer notify you in this channel."
   auto_follow: "Follow all new threads"
   auto_follow_hint: "You will be notified of replies to every thread started here."
+outgoing:
+  failed: "Message not sent"
+  retry: "Retry"
+  edit: "Edit the message"
+  discard: "Discard"
+confirm_notify:
+  title: "Notify %{count} people?"
+  body: "With %{mention}, %{count} people in this channel will receive a notification."
+  hint: "To reach only some of them, mention them by name instead."
+  send: "Send anyway"
+forward:
+  title: "Forward message"
+  search_placeholder: "Find a channel or a person"
+  comment_placeholder: "Add a comment (optional)"
+  send: "Forward"
+  done: "Message forwarded to %{channel}."
+dm_warning:
+  dnd: "%{name} is in Do not disturb and will not be notified."
+  out_of_office: "%{name} is away: an automatic reply is on."
+  late: "It is %{time} for %{name}."
+toast:
+  new_since: "New messages since %{time}"
+  new_below:
+    one: "1 new message"
+    other: "%{count} new messages"
+reactions:
+  you: "you"
+  and: "%{first} and %{last}"
+  and_others: "%{names} and %{count} others"
+  who: "%{names} reacted with %{emoji}"
+out_of_channel:
+  add_one: "Add %{name} to the channel"
+  add_many: "Add these %{count} people to the channel"
+  added: "Added to the channel (%{count})."

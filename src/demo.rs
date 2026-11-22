@@ -732,7 +732,9 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             posts.extend(demo.replies.get(&root_id).cloned().unwrap_or_default());
             send(Event::Thread { root_id, posts });
         }
-        Command::Send { channel_id, root_id, message, file_ids } => {
+        Command::SavePreferences(_) => {}
+        Command::Send { channel_id, root_id, message, file_ids, pending_id } => {
+            send(Event::Sent { pending_id });
             let id = demo.new_id();
             let files = file_ids.iter().filter_map(|id| demo.uploads.remove(id)).collect();
             let post = Post {

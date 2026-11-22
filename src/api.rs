@@ -710,6 +710,7 @@ impl Client {
         root_id: &str,
         message: &str,
         file_ids: &[String],
+        pending_post_id: &str,
     ) -> Result<Post> {
         #[derive(Serialize)]
         struct NewPost<'a> {
@@ -717,8 +718,9 @@ impl Client {
             root_id: &'a str,
             message: &'a str,
             file_ids: &'a [String],
+            pending_post_id: &'a str,
         }
-        self.post("/posts", &NewPost { channel_id, root_id, message, file_ids }).await
+        self.post("/posts", &NewPost { channel_id, root_id, message, file_ids, pending_post_id }).await
     }
 
     pub async fn team_unreads(&self) -> Result<Vec<TeamUnread>> {

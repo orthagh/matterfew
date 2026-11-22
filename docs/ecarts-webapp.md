@@ -23,7 +23,7 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | Fonction | Où dans la webapp | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
 | ~~Rappel « Me le rappeler »~~ | ~~`C/dot_menu/post_reminder_submenu.tsx`, `C/post_reminder_custom_time_picker_modal`, `post_info.post_reminder.*`~~ | ~~Sous-menu 30 min / 1 h / 2 h / demain / personnalisé ; le bot système renvoie le message à l'heure dite (`POST /users/{id}/posts/{post}/reminder`)~~ | ~~Absent~~ | ~~S~~ | ~~★★★~~ |
-| Transférer un message | `C/forward_post_modal`, `forward_post_modal.*` | Choix d'un canal ou d'une personne, commentaire facultatif, aperçu ; avertit si la source est privée | Absent | M | ★★ |
+| ~~Transférer un message~~ | ~~`C/forward_post_modal`, `forward_post_modal.*`~~ | ~~Choix d'un canal ou d'une personne, commentaire facultatif, aperçu ; avertit si la source est privée~~ | ~~Absent~~ | ~~M~~ | ~~★★~~ |
 | ~~Suivre / ne plus suivre le fil~~ | ~~`threading.threadMenu.follow*`, `C/threading/common`~~ | ~~Bouton dans l'en-tête du fil et menu « ⋯ » (`PUT/DELETE /users/{u}/teams/{t}/threads/{id}/following`)~~ | ~~Absent (le backend connaît seulement l'état « suivi » pour les notifications)~~ | ~~S~~ | ~~★★★~~ |
 | Historique des modifications | `C/post_edit_history`, `post_info.edit.*`, `search_header.title_edit.history` | Clic sur « (modifié) » : versions précédentes dans le panneau droit, restauration possible (`GET /posts/{id}/edit_history`) | Partiel : libellé « (modifié) » seulement | M | ★★ |
 | Priorité Important / Urgent | `C/post_priority`, `C/advanced_text_editor/priority_labels`, `post_priority.*` | Sélecteur dans la barre de mise en forme ; étiquette colorée sur le message (`metadata.priority`) | Absent (ni envoi ni affichage des étiquettes reçues) | M | ★★ |
@@ -31,10 +31,10 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | Notifications persistantes | `C/persist_notification_confirm_modal.tsx`, `persist_notification.*` | Messages urgents relancés toutes les N minutes jusqu'à accusé | Absent (dépend du précédent) | S | ★ |
 | Citer / répondre en citant | `post_info.quote`, `C/quote_selection_button` | « Citer » dans le menu ; bouton flottant pour citer une sélection | Absent (seul le format « citation » de l'éditeur existe) | S | ★★ |
 | Marquer un fil comme non lu | `threading.threadMenu.markUnread` | Depuis la liste des fils | Absent (seul le message est marquable) | S | ★ |
-| Qui a réagi | `C/post_view/reaction`, `reaction.reacted` | Infobulle « X, Y et 3 autres ont réagi avec :+1: » | Absent | S | ★★ |
-| Réactions rapides récentes | `C/post_view/post_recent_reactions`, `user.settings.display.oneClickReactionsOnPostsTitle` | Les 3 derniers emojis utilisés au survol | Partiel : 3 emojis figés (`QUICK_REACTIONS`) | S | ★ |
+| ~~Qui a réagi~~ | ~~`C/post_view/reaction`, `reaction.reacted`~~ | ~~Infobulle « X, Y et 3 autres ont réagi avec :+1: »~~ | ~~Absent~~ | ~~S~~ | ~~★★~~ |
+| ~~Réactions rapides récentes~~ | ~~`C/post_view/post_recent_reactions`, `user.settings.display.oneClickReactionsOnPostsTitle`~~ | ~~Les 3 derniers emojis utilisés au survol~~ | ~~Partiel : 3 emojis figés (`QUICK_REACTIONS`)~~ | ~~S~~ | ~~★~~ |
 | Déplacer un fil | `C/move_thread_modal`, `post_info.move_thread` | Déplace un fil vers un autre canal (droits requis) | Absent | M | ★ |
-| Réessayer un envoi échoué | `C/post_view/failed_post_options` | Message en échec affiché avec « Réessayer / Annuler » | Partiel : erreur générique (à vérifier : brouillon conservé ?) | M | ★★ |
+| ~~Réessayer un envoi échoué~~ | ~~`C/post_view/failed_post_options`~~ | ~~Message en échec affiché avec « Réessayer / Annuler »~~ | ~~Partiel : erreur générique (à vérifier : brouillon conservé ?)~~ | ~~M~~ | ~~★★~~ |
 
 ## 2. Rédaction et envoi
 
@@ -43,14 +43,14 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | ~~Coller une image du presse-papiers~~ | ~~`file_upload.pasted`~~ | ~~Ctrl+V d'une capture : fichier « Image Pasted at … » joint~~ | ~~Absent (noté dans FONCTIONNALITES)~~ | ~~S~~ | ~~★★★~~ |
 | ~~↑ pour modifier son dernier message~~ | ~~`shortcuts.msgs.edit`~~ | ~~Dans une saisie vide~~ | ~~Absent~~ | ~~S~~ | ~~★★★~~ |
 | Maj+↑ répondre au dernier message | `shortcuts.msgs.reply` | Ouvre le fil du dernier message | Absent | S | ★ |
-| Envoyer avec Ctrl+Entrée | `user.settings.advance.sendTitle`, préférence `advanced_settings.send_on_ctrl_enter` | Entrée = nouvelle ligne ; Ctrl+Entrée envoie (tous messages ou seulement blocs de code) | Absent (préférence serveur ignorée) | S | ★★ |
+| ~~Envoyer avec Ctrl+Entrée~~ | ~~`user.settings.advance.sendTitle`, préférence `advanced_settings.send_on_ctrl_enter`~~ | ~~Entrée = nouvelle ligne ; Ctrl+Entrée envoie (tous messages ou seulement blocs de code)~~ | ~~Absent (préférence serveur ignorée)~~ | ~~S~~ | ~~★★~~ |
 | Messages programmés (« Envoyer plus tard ») | `C/advanced_text_editor/send_button`, `C/drafts/scheduled_post_list`, `C/edit_scheduled_post`, `scheduled_post.*` | Menu du bouton d'envoi : demain 9 h, lundi, date libre ; onglet « Programmés » (modifier, replanifier, envoyer maintenant) ; indicateur dans le canal (`/posts/schedule`, serveur ≥ 10.3) | Absent | M | ★★ |
 | Vue « Brouillons » | `C/drafts`, `drafts.*` | Liste de tous les brouillons (canaux et fils) : envoyer, modifier, supprimer | Partiel : brouillons par canal/fil + crayon, pas de vue d'ensemble | M | ★★ |
 | Synchronisation des brouillons | `user.settings.advance.syncDrafts.*` (`/drafts`) | Brouillons stockés sur le serveur, retrouvés sur tous les appareils | Absent (brouillons locaux) | M | ★★ |
 | Limite de longueur | `create_post.error_message` | Erreur « Character count: n/limit » avant envoi (`MaxPostSize`) | Absent | S | ★ |
-| Confirmation @channel / @all | `C/notify_confirm_modal.tsx` | « Envoyer une notification à N personnes dans M fuseaux ? » au-delà d'un seuil | Absent | S | ★★ |
-| Avertissements en message direct | `C/advanced_text_editor/do_not_disturb_warning.tsx`, `out_of_office_warning.tsx`, `remote_user_hour.tsx` | Bandeau : la personne est en « Ne pas déranger », absente (répondeur), ou il est tard chez elle | Absent (l'heure locale existe dans la carte de profil) | S | ★★ |
-| Mentions hors canal | `C/post_view/post_add_channel_member`, `post_body.check_for_out_of_channel_mentions.*` | Message éphémère « X n'a pas été notifié… l'ajouter au canal ? » | Absent (dépend du serveur : vérifier l'affichage du message éphémère) | S | ★★ |
+| ~~Confirmation @channel / @all~~ | ~~`C/notify_confirm_modal.tsx`~~ | ~~« Envoyer une notification à N personnes dans M fuseaux ? » au-delà d'un seuil~~ | ~~Absent~~ | ~~S~~ | ~~★★~~ |
+| ~~Avertissements en message direct~~ | ~~`C/advanced_text_editor/do_not_disturb_warning.tsx`, `out_of_office_warning.tsx`, `remote_user_hour.tsx`~~ | ~~Bandeau : la personne est en « Ne pas déranger », absente (répondeur), ou il est tard chez elle~~ | ~~Absent (l'heure locale existe dans la carte de profil)~~ | ~~S~~ | ~~★★~~ |
+| ~~Mentions hors canal~~ | ~~`C/post_view/post_add_channel_member`, `post_body.check_for_out_of_channel_mentions.*`~~ | ~~Message éphémère « X n'a pas été notifié… l'ajouter au canal ? »~~ | ~~Absent (dépend du serveur : vérifier l'affichage du message éphémère)~~ | ~~S~~ | ~~★★~~ |
 | Autocomplétion des groupes et mentions spéciales | `C/suggestion`, `C/advanced_text_editor/use_groups.tsx` | `@groupe`, `@here`, `@channel`, `@all` proposés | Partiel : personnes seulement | S | ★ |
 | Progression des envois de fichiers | `C/file_upload`, `create_post.fileProcessing` | Barre de progression par fichier, annulable ; limite de nombre et de taille annoncée | Partiel : libellé « envoi en cours », pas de pourcentage ni d'annulation | S | ★ |
 | Ctrl+U joindre un fichier | `shortcuts.files.upload` | Ouvre le sélecteur | Absent | S | ★ |
@@ -136,7 +136,7 @@ Aucun écran de paramètres dans matterfew : les préférences serveur sont lues
 
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
-| Emojis récents | `emoji_picker.recent` (préférence `recent_emojis`) | Catégorie « Récemment utilisés » en tête, partagée entre appareils | Absent | S | ★★ |
+| ~~Emojis récents~~ | ~~`emoji_picker.recent` (préférence `recent_emojis`)~~ | ~~Catégorie « Récemment utilisés » en tête, partagée entre appareils~~ | ~~Absent~~ | ~~S~~ | ~~★★~~ |
 | Couleur de peau | `emoji_picker.skin_tone` | Sélecteur mémorisé | Absent (noms reconnus seulement) | S | ★ |
 | GIF | `C/gif_picker` | Recherche Giphy/Tenor via le serveur (si activé) | Absent | M | ★ |
 | Réagir au dernier message | `shortcuts.msgs.comp.last_reaction` (Ctrl+Maj+\\) | Ouvre le sélecteur pour le dernier message | Absent | S | ★ |
@@ -184,7 +184,7 @@ Chez nous : Ctrl+K, Ctrl+F, Échap, mise en forme (Ctrl+B/I/Maj+X/Alt+K/Alt+C),
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
 | Bandeau hors ligne | `announcement_bar.warn.no_internet_connection` | Bandeau visible en haut de l'écran | Partiel : « Reconnexion… » à la place du statut dans la barre latérale | S | ★★ |
-| Toasts du fil de messages | `C/toast_wrapper`, `postlist.toast.*` | « N nouveaux messages », « Aller aux non lus », « Vous consultez l'historique » | Partiel : « Revenir au présent » | S | ★ |
+| ~~Toasts du fil de messages~~ | ~~`C/toast_wrapper`, `postlist.toast.*`~~ | ~~« N nouveaux messages », « Aller aux non lus », « Vous consultez l'historique »~~ | ~~Partiel : « Revenir au présent »~~ | ~~S~~ | ~~★~~ |
 | Accessibilité | `accessibility.sections.*`, `C/a11y` (régions, F6) | Lecteur d'écran, navigation par régions | Absent / limité par GPUI | L | ★★ |
 | Traductions | `webapp/channels/src/i18n/*.json` | ≈ 20 langues | Partiel : fr, en, pt-BR | M | ★ |
 
@@ -220,8 +220,8 @@ Classement : valeur pour un utilisateur venant du client officiel, puis effort.
 | ✅ 9 | ~~Nouveau message direct / de groupe (Ctrl+Maj+K)~~ | ~~★★★~~ | ~~M~~ | |
 | ✅ 10 | ~~Statut personnalisé (affichage puis réglage) + « Ne pas déranger » avec durée~~ | ~~★★★~~ | ~~M~~ | ~~Statut fait ; « Ne pas déranger » avec durée reste à faire (★★)~~ |
 | ✅ 11 | ~~Vue « Fils » globale (équipe, non lus, tout marquer lu)~~ | ~~★★★~~ | ~~M~~ | ~~Panneau par canal existant à généraliser~~ |
-| 12 | Envoi avec Ctrl+Entrée (préférence serveur) | ★★ | S | |
-| 13 | Qui a réagi + emojis récents (réactions rapides et sélecteur) | ★★ | S | |
+| ~~12~~ | ~~Envoi avec Ctrl+Entrée (préférence serveur)~~ | ~~★★~~ | ~~S~~ | |
+| ~~13~~ | ~~Qui a réagi + emojis récents (réactions rapides et sélecteur)~~ | ~~★★~~ | ~~S~~ | |
 | 14 | Priorité, étiquettes Important/Urgent et accusés de lecture | ★★ | M | Afficher les étiquettes reçues d'abord (S) |
 | 15 | Messages programmés + vue Brouillons | ★★ | M | Brouillons locaux déjà là ; serveur ≥ 10.3 pour la programmation |
 

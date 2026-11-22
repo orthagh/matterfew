@@ -12,6 +12,10 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 
 ### Modifié
 
+- Bouton « + » de la barre latérale plus discret ; couleurs de présence
+  dans le menu des statuts ; pastille bleue pour les mentions des autres
+  équipes ; entrée « Fils » visible dès que le serveur gère les fils suivis.
+
 - L'application s'appelle désormais **Matterfew** (dépôt
   `orthagh/matterfew`). Réglages, cache et connexion enregistrés sous
   l'ancien nom sont repris automatiquement au premier lancement.
@@ -36,6 +40,20 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
   messages directs, carte de profil) ; réglage avec suggestions et échéance.
 - Vue « Fils » de toute l'équipe en haut de la barre latérale, avec sa
   pastille, l'onglet « Non lus » et « Tout marquer comme lu ».
+- Recherche dans les fichiers et liens d'un canal.
+- Transférer un message vers un canal ou une personne, avec un commentaire.
+- Infobulle « qui a réagi » sur les réactions.
+- Message non envoyé : réessayer, le modifier ou l'abandonner.
+- Envoi avec Ctrl+Entrée si la préférence du serveur le demande (Entrée
+  va alors à la ligne) ; dans un bloc de code, Entrée va à la ligne.
+- Confirmation avant @channel, @all ou @here dans un canal de plus de
+  5 personnes.
+- En message direct : avertissement si la personne est en « Ne pas
+  déranger », absente, ou s'il fait nuit chez elle.
+- Mention d'une personne absente du canal : bouton pour l'y ajouter.
+- Emojis récents : en tête du sélecteur et comme réactions rapides.
+- Toasts : « N nouveaux messages » en bas, « Nouveaux messages depuis… »
+  en haut de la liste.
 
 ## [0.1.0] - 2026-11-21
 

@@ -229,7 +229,7 @@ enum Screen {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-enum Pane {
+pub(crate) enum Pane {
     Channel,
     Thread,
 }
@@ -354,6 +354,21 @@ pub struct ChatApp {
     dialog_input: Entity<InputState>,
     /// Filtre du panneau des fichiers du canal (nom, adresse).
     files_filter: Entity<InputState>,
+    /// Commentaire de la fenêtre « Transférer ».
+    dialog_comment: Entity<InputState>,
+    /// Messages envoyés pas encore confirmés, ou en échec.
+    outgoing: Vec<view::messaging::OutgoingPost>,
+    /// Préférences : Ctrl+Entrée envoie (Entrée va à la ligne) ; dans un bloc de code seulement.
+    send_on_ctrl_enter: bool,
+    code_block_ctrl_enter: bool,
+    /// @channel confirmé : l'envoi suivant ne redemande pas.
+    notify_confirmed: bool,
+    /// Emojis récents (préférence du serveur), le plus récent d'abord.
+    recent_emojis: Vec<String>,
+    /// Messages arrivés pendant que la liste est remontée.
+    unseen_new: usize,
+    /// Canal dont on a fermé le toast « Nouveaux messages depuis… ».
+    unread_toast_closed: Option<String>,
     search_input: Entity<InputState>,
     /// Sélecteur de canaux (Ctrl+K) ouvert, avec la ligne choisie.
     switcher: Option<usize>,
@@ -473,6 +488,8 @@ impl ChatApp {
         let member_search_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("members.search_placeholder").to_string()));
         let dialog_input = cx.new(|cx| InputState::new(window, cx));
+        let dialog_comment =
+            cx.new(|cx| InputState::new(window, cx).placeholder(t!("forward.comment_placeholder").to_string()));
         let files_filter =
             cx.new(|cx| InputState::new(window, cx).placeholder(t!("files.search_placeholder").to_string()));
         let switcher_input =
@@ -501,7 +518,7 @@ impl ChatApp {
                   window: &mut Window,
                   cx: &mut Context<Self>| {
                 match ev {
-                    InputEvent::PressEnter { .. } => this.send_from(pane, window, cx),
+                    InputEvent::PressEnter { secondary, .. } => this.composer_enter(pane, *secondary, window, cx),
                     InputEvent::Change => {
                         this.signal_typing(pane);
                         this.update_autocomplete(pane, cx);
@@ -671,6 +688,14 @@ impl ChatApp {
             dialog: None,
             dialog_input,
             files_filter,
+            dialog_comment,
+            outgoing: Vec::new(),
+            send_on_ctrl_enter: false,
+            code_block_ctrl_enter: true,
+            notify_confirmed: false,
+            recent_emojis: Vec::new(),
+            unseen_new: 0,
+            unread_toast_closed: None,
             expanded_bots: HashSet::new(),
             spell: crate::spell::Checker::new(),
             misspellings: HashMap::new(),
@@ -870,6 +895,8 @@ impl ChatApp {
             }
         }
         self.prefs = SidebarPrefs::from_preferences(&self.raw_prefs);
+        self.apply_enter_preferences(cx);
+        self.load_recent_emojis();
         let theme = MattermostTheme::from_preferences(&self.raw_prefs, self.team_id.as_deref());
         self.palette = Palette::from_theme(&theme);
         self.palette.apply(cx);
@@ -1307,7 +1334,12 @@ impl ChatApp {
             cx.notify();
             return;
         }
-        self.send(Command::Send { channel_id, root_id, message, file_ids });
+        // @channel dans un grand canal : confirmation d'abord (le texte reste).
+        if self.confirm_channel_mention(pane, &channel_id, &message) {
+            cx.notify();
+            return;
+        }
+        self.post_message(pane, channel_id, root_id, message, file_ids);
         self.attachments.retain(|a| a.pane != pane);
         self.last_typing_sent = None;
         state.update(cx, |s, cx| s.set_value("", window, cx));
@@ -2350,6 +2382,40 @@ impl ChatApp {
             "etroit-canaux" => after(self, 400, window, cx, |this, _, cx| this.toggle_drawer(Drawer::Channels, cx)),
             "etroit-membres" => after(self, 400, window, cx, |this, _, cx| this.toggle_drawer(Drawer::Members, cx)),
             "autolink" => self.select_channel("support".into(), cx),
+            "transferer" => after(self, 600, window, cx, |this, window, cx| {
+                let Some(id) = this
+                    .posts
+                    .iter()
+                    .rev()
+                    .find(|v| !v.post.message.is_empty() && !v.post.is_bot_post())
+                    .map(|v| v.post.id.clone())
+                else {
+                    return;
+                };
+                this.open_forward(id, window, cx);
+                if let Some(view::dialogs::Dialog::Forward(f)) = this.dialog.as_mut() {
+                    f.target = Some("design".into());
+                }
+                this.dialog_comment.update(cx, |s, cx| s.set_value("Pour info, la maquette validée", window, cx));
+            }),
+            "echec" => after(self, 600, window, cx, |this, _, cx| {
+                this.outgoing.push(view::messaging::OutgoingPost {
+                    pending_id: "demo".into(),
+                    pane: Pane::Channel,
+                    channel_id: "general".into(),
+                    root_id: String::new(),
+                    message: "Je serai en retard de 10 minutes pour la démo client.".into(),
+                    file_ids: Vec::new(),
+                    failed: Some("réseau".into()),
+                });
+                cx.notify();
+            }),
+            "confirmation" => after(self, 600, window, cx, |this, _, cx| {
+                this.dialog =
+                    Some(view::dialogs::Dialog::ConfirmNotify { pane: Pane::Channel, count: 7, mention: "@channel" });
+                cx.notify();
+            }),
+            "mp-dnd" => self.send(Command::OpenDirect { user_id: "u3".into() }),
             "fichiers" => {
                 self.select_channel("general".into(), cx);
                 after(self, 600, window, cx, |this, window, cx| {
@@ -2790,6 +2856,7 @@ impl ChatApp {
         match self.emoji_picker.clone() {
             Some(PickerTarget::Reaction(post_id)) => self.toggle_reaction(post_id, name.clone()),
             Some(PickerTarget::Composer(pane)) => {
+                self.note_emoji_used(&name);
                 let text = if glyph.is_empty() { format!(":{name}: ") } else { glyph };
                 self.composer_for(pane).update(cx, |s, cx| s.insert(text, window, cx));
             }
@@ -2859,6 +2926,9 @@ impl ChatApp {
             .chain(self.thread.iter().flat_map(|t| t.posts.iter()))
             .find(|p| p.post.id == post_id)
             .is_some_and(|p| p.post.metadata.reactions.iter().any(|r| r.user_id == me && r.emoji_name == emoji));
+        if !mine {
+            self.note_emoji_used(&emoji);
+        }
         self.send(Command::React { post_id, emoji, add: !mine });
     }
 
@@ -3031,6 +3101,8 @@ impl ChatApp {
                     self.send(Command::LoadMembers { channel_id });
                 }
             }
+            Event::Sent { pending_id } => self.on_send_result(&pending_id, None),
+            Event::SendFailed { pending_id, error } => self.on_send_result(&pending_id, Some(error)),
             Event::ThreadUpdated { team_id, thread } => self.on_thread_updated(team_id, thread),
             Event::ThreadRead { thread_id, unread_replies, unread_mentions } => {
                 self.on_thread_read(&thread_id, unread_replies, unread_mentions)
@@ -3429,6 +3501,9 @@ impl ChatApp {
             }
         }
         if in_channel_list && is_current && !self.posts.iter().any(|p| p.post.id == post.id) {
+            if !from_me && self.scroller.read(cx).is_scrolled_up() {
+                self.unseen_new += 1;
+            }
             self.posts.push(PostView::new(post.clone()));
             self.scroller.update(cx, |s, cx| s.append(1, cx));
         }
