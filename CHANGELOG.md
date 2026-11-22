@@ -10,6 +10,8 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 
 ## [Non publié]
 
+## [0.2.0] - 2026-11-22
+
 ### Modifié
 
 - Bouton « + » de la barre latérale plus discret ; couleurs de présence

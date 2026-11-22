@@ -2743,8 +2743,14 @@ impl ChatApp {
                     cx.stop_propagation();
                     return;
                 }
-                if alt && !ctrl && !shift && (k.key == "left" || k.key == "right") {
-                    this.navigate_history(k.key == "right", window, cx);
+                // Historique : Alt+←/→, Cmd+[/] sur macOS (Alt+← y déplace d'un mot).
+                let history = if cfg!(target_os = "macos") {
+                    k.modifiers.platform && !shift && !alt && (k.key == "[" || k.key == "]")
+                } else {
+                    alt && !ctrl && !shift && (k.key == "left" || k.key == "right")
+                };
+                if history {
+                    this.navigate_history(k.key == "right" || k.key == "]", window, cx);
                     cx.stop_propagation();
                     return;
                 }

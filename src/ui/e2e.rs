@@ -408,11 +408,11 @@ fn e2e_ctrl_entree_et_confirmation_channel() {
     w.1.simulate_keystroke("enter");
     w.1.simulate_input("ligne 2");
     w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value(), "ligne 1\nligne 2"));
-    w.1.simulate_keystroke("ctrl-enter");
+    w.1.simulate_keystroke("secondary-enter");
     wait_for(&w, "envoyé", |a| a.posts.last().is_some_and(|v| v.post.message == "ligne 1\nligne 2"));
     // @channel dans un canal de plus de 5 personnes : confirmation.
     w.1.update(|a, window, cx| a.composer.update(cx, |s, cx| s.set_value("@channel réunion à 14 h", window, cx)));
-    w.1.simulate_keystroke("ctrl-enter");
+    w.1.simulate_keystroke("secondary-enter");
     wait_for(&w, "confirmation", |a| matches!(a.dialog, Some(Dialog::ConfirmNotify { .. })));
     w.1.draw();
     w.1.update(|a, window, cx| a.confirm_notify_send(Pane::Channel, window, cx));
@@ -520,11 +520,12 @@ fn e2e_historique_des_canaux() {
     let mut w = demo_app();
     w.1.update(|a, _, cx| a.select_channel("design".into(), cx));
     w.1.update(|a, _, cx| a.select_channel("backend".into(), cx));
-    w.1.simulate_keystroke("alt-left");
+    let (back, forward) = if cfg!(target_os = "macos") { ("cmd-[", "cmd-]") } else { ("alt-left", "alt-right") };
+    w.1.simulate_keystroke(back);
     wait_for(&w, "retour à design", |a| a.channel_id.as_deref() == Some("design"));
-    w.1.simulate_keystroke("alt-left");
+    w.1.simulate_keystroke(back);
     wait_for(&w, "retour à général", |a| a.channel_id.as_deref() == Some("general"));
-    w.1.simulate_keystroke("alt-right");
+    w.1.simulate_keystroke(forward);
     wait_for(&w, "avance à design", |a| a.channel_id.as_deref() == Some("design"));
 }
 
@@ -546,8 +547,9 @@ fn e2e_signets_apercu_pdf_et_f6() {
     let pdf = w.1.read(|a, _| {
         a.posts.iter().flat_map(|v| v.post.metadata.files.iter()).find(|f| f.extension == "pdf").cloned().unwrap()
     });
-    w.1.update(|a, window, cx| a.open_file(pdf, window, cx));
+    // Ailleurs que sous Windows, le PDF s'ouvrirait avec l'application du système.
     if crate::pdf::SUPPORTED {
+        w.1.update(|a, window, cx| a.open_file(pdf, window, cx));
         wait_for(&w, "pages rendues", |a| {
             a.viewer.as_ref().and_then(|v| v.pdf.as_ref()).is_some_and(|(pages, total)| pages.len() == 2 && *total == 2)
         });
