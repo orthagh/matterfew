@@ -447,3 +447,83 @@ fn e2e_transferer_reactions_et_emojis_recents() {
     w.1.update(|a, _, cx| a.send_forward(cx));
     wait_for(&w, "transféré", |a| a.dialog.is_none() && a.outgoing.is_empty() && a.info.is_some());
 }
+
+#[test]
+fn e2e_parametres_du_canal_et_archivage() {
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.open_channel_settings("design".into(), window, cx);
+        a.dialog_input.update(cx, |s, cx| s.set_value("Design produit", window, cx));
+        a.dialog_comment.update(cx, |s, cx| s.set_value("Design Produit", window, cx));
+    });
+    w.1.draw();
+    w.1.update(|a, _, cx| a.save_channel_settings(cx));
+    wait_for(&w, "canal renommé", |a| {
+        let c = &a.channels["design"].channel;
+        c.display_name == "Design produit" && c.name == "design-produit"
+    });
+    w.1.update(|a, window, cx| {
+        a.open_channel_settings("design".into(), window, cx);
+        if let Some(Dialog::ChannelSettings { confirm, .. }) = a.dialog.as_mut() {
+            *confirm = Some(super::view::manage::ChannelDanger::Archive);
+        }
+    });
+    w.1.draw();
+    w.1.update(|a, _, cx| a.run_channel_danger(cx));
+    wait_for(&w, "canal archivé", |a| a.is_archived("design"));
+}
+
+#[test]
+fn e2e_categories_raccourcis_et_tout_lu() {
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.open_category_dialog("clients".into(), false, window, cx);
+        a.dialog_input.update(cx, |s, cx| s.set_value("Clients VIP", window, cx));
+        a.rename_category(cx);
+    });
+    w.1.read(|a, _| assert!(a.categories.iter().any(|c| c.id == "clients" && c.display_name == "Clients VIP")));
+    w.1.update(|a, window, cx| {
+        a.open_category_dialog("clients".into(), true, window, cx);
+        a.delete_category(cx);
+    });
+    w.1.read(|a, _| {
+        assert!(!a.categories.iter().any(|c| c.id == "clients"));
+        let channels = a.categories.iter().find(|c| c.kind == "channels").unwrap();
+        assert!(channels.channel_ids.iter().any(|id| id == "support"));
+    });
+    // F1 : aide des raccourcis ; Échap la ferme.
+    w.1.simulate_keystroke("f1");
+    wait_for(&w, "aide ouverte", |a| matches!(a.dialog, Some(Dialog::Shortcuts)));
+    w.1.draw();
+    w.1.simulate_keystroke("escape");
+    wait_for(&w, "aide fermée", |a| a.dialog.is_none());
+    // Maj+Échap : tout marquer comme lu.
+    w.1.read(|a, _| assert!(a.channels.values().any(|c| c.shows_unread())));
+    w.1.simulate_keystroke("shift-escape");
+    wait_for(&w, "tout lu", |a| !a.channels.values().any(|c| c.shows_unread()));
+}
+
+#[test]
+fn e2e_retirer_un_membre() {
+    let mut w = demo_app();
+    wait_for(&w, "membres", |a| a.members.contains_key("general"));
+    let before = w.1.read(|a, _| a.members["general"].0.len());
+    w.1.update(|a, _, cx| a.remove_member("general".into(), "u6".into(), cx));
+    w.1.read(|a, _| {
+        assert_eq!(a.members["general"].0.len(), before - 1);
+        assert!(!a.members["general"].0.iter().any(|id| id == "u6"));
+    });
+}
+
+#[test]
+fn e2e_historique_des_canaux() {
+    let mut w = demo_app();
+    w.1.update(|a, _, cx| a.select_channel("design".into(), cx));
+    w.1.update(|a, _, cx| a.select_channel("backend".into(), cx));
+    w.1.simulate_keystroke("alt-left");
+    wait_for(&w, "retour à design", |a| a.channel_id.as_deref() == Some("design"));
+    w.1.simulate_keystroke("alt-left");
+    wait_for(&w, "retour à général", |a| a.channel_id.as_deref() == Some("general"));
+    w.1.simulate_keystroke("alt-right");
+    wait_for(&w, "avance à design", |a| a.channel_id.as_deref() == Some("design"));
+}

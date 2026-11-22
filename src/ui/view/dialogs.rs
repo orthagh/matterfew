@@ -23,6 +23,15 @@ pub(crate) enum Dialog {
     Status(StatusDraft),
     Notify(NotifyDraft),
     Forward(super::messaging::ForwardDraft),
+    ChannelSettings {
+        channel_id: String,
+        confirm: Option<super::manage::ChannelDanger>,
+    },
+    Category {
+        category_id: String,
+        confirm_delete: bool,
+    },
+    Shortcuts,
     /// @channel / @all / @here dans un canal de `count` personnes.
     ConfirmNotify {
         pane: Pane,
@@ -250,6 +259,11 @@ impl ChatApp {
             Dialog::Status(s) => self.render_status_dialog(s, cx),
             Dialog::Notify(n) => self.render_notify(n, cx),
             Dialog::Forward(f) => self.render_forward(f, cx),
+            Dialog::ChannelSettings { channel_id, confirm } => self.render_channel_settings(channel_id, *confirm, cx),
+            Dialog::Category { category_id, confirm_delete } => {
+                self.render_category_dialog(category_id, *confirm_delete, cx)
+            }
+            Dialog::Shortcuts => self.render_shortcuts(cx),
             Dialog::ConfirmNotify { pane, count, mention } => self.render_confirm_notify(*pane, *count, mention, cx),
         })
     }

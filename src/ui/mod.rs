@@ -367,6 +367,10 @@ pub struct ChatApp {
     recent_emojis: Vec<String>,
     /// Messages arrivés pendant que la liste est remontée.
     unseen_new: usize,
+    /// Historique des canaux ouverts (Alt+← / Alt+→).
+    nav_back: Vec<String>,
+    nav_forward: Vec<String>,
+    nav_jumping: bool,
     /// Canal dont on a fermé le toast « Nouveaux messages depuis… ».
     unread_toast_closed: Option<String>,
     search_input: Entity<InputState>,
@@ -695,6 +699,9 @@ impl ChatApp {
             notify_confirmed: false,
             recent_emojis: Vec::new(),
             unseen_new: 0,
+            nav_back: Vec::new(),
+            nav_forward: Vec::new(),
+            nav_jumping: false,
             unread_toast_closed: None,
             expanded_bots: HashSet::new(),
             spell: crate::spell::Checker::new(),
@@ -1133,6 +1140,16 @@ impl ChatApp {
     fn select_channel(&mut self, channel_id: String, cx: &mut Context<Self>) {
         if self.channel_id.as_deref() == Some(&channel_id) {
             return;
+        }
+        // Historique (Alt+← / Alt+→).
+        if let Some(prev) = self.channel_id.clone()
+            && !std::mem::take(&mut self.nav_jumping)
+        {
+            self.nav_back.push(prev);
+            if self.nav_back.len() > 50 {
+                self.nav_back.remove(0);
+            }
+            self.nav_forward.clear();
         }
         self.store_cache();
         // Brouillons : on garde le texte du canal quitté, on reprend celui du nouveau.
@@ -2415,6 +2432,17 @@ impl ChatApp {
                     Some(view::dialogs::Dialog::ConfirmNotify { pane: Pane::Channel, count: 7, mention: "@channel" });
                 cx.notify();
             }),
+            "parametres-canal" => after(self, 500, window, cx, |this, window, cx| {
+                this.open_channel_settings("backend".into(), window, cx);
+                if let Some(view::dialogs::Dialog::ChannelSettings { confirm, .. }) = this.dialog.as_mut() {
+                    *confirm = Some(view::manage::ChannelDanger::Archive);
+                }
+            }),
+            "raccourcis" => after(self, 500, window, cx, |this, _, cx| this.open_shortcuts(cx)),
+            "hors-ligne" => after(self, 800, window, cx, |this, _, cx| {
+                this.connected = false;
+                cx.notify();
+            }),
             "mp-dnd" => self.send(Command::OpenDirect { user_id: "u3".into() }),
             "fichiers" => {
                 self.select_channel("general".into(), cx);
@@ -3075,6 +3103,9 @@ impl ChatApp {
                     state.channel.display_name = channel.display_name;
                     state.channel.purpose = channel.purpose;
                     state.channel.header = channel.header;
+                    state.channel.name = channel.name;
+                    state.channel.kind = channel.kind;
+                    state.channel.delete_at = channel.delete_at;
                 }
                 self.channel_editing = false;
             }

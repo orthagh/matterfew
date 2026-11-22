@@ -54,6 +54,14 @@ puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
 - Emojis récents : en tête du sélecteur et comme réactions rapides.
 - Toasts : « N nouveaux messages » en bas, « Nouveaux messages depuis… »
   en haut de la liste.
+- Paramètres du canal : nom, adresse, passage en privé, archivage et
+  désarchivage.
+- Membres : nommer ou retirer un administrateur, retirer du canal (clic droit).
+- Catégories : renommer, supprimer (leurs canaux reviennent dans « Canaux »).
+- Raccourcis : aide (Ctrl+/ ou F1), Maj+↑ répondre au dernier message,
+  Maj+Échap tout marquer comme lu, Ctrl+Maj+M mentions, Ctrl+Maj+L zone de
+  saisie, Alt+←/→ historique des canaux, Ctrl+Alt+↑/↓ équipe.
+- Bandeau en haut de l'écran quand la connexion au serveur est perdue.
 
 ## [0.1.0] - 2026-11-21
 

@@ -971,6 +971,36 @@ impl Client {
             .await
     }
 
+    /// Modifie des champs d'un canal (nom affiché, nom dans les liens…).
+    pub async fn patch_channel_fields(&self, channel_id: &str, fields: &serde_json::Value) -> Result<Channel> {
+        self.put(&format!("/channels/{channel_id}/patch"), fields).await
+    }
+
+    /// Canal public converti en privé (irréversible sans administrateur système).
+    pub async fn make_channel_private(&self, channel_id: &str) -> Result<Channel> {
+        self.put(&format!("/channels/{channel_id}/privacy"), &serde_json::json!({ "privacy": "P" })).await
+    }
+
+    pub async fn archive_channel(&self, channel_id: &str) -> Result<()> {
+        self.send_json::<()>(reqwest::Method::DELETE, &format!("/channels/{channel_id}"), None).await
+    }
+
+    pub async fn unarchive_channel(&self, channel_id: &str) -> Result<Channel> {
+        self.post(&format!("/channels/{channel_id}/restore"), &serde_json::json!({})).await
+    }
+
+    /// Administrateur du canal ou simple membre.
+    pub async fn set_channel_admin(&self, channel_id: &str, user_id: &str, admin: bool) -> Result<()> {
+        let body = serde_json::json!({ "scheme_admin": admin, "scheme_user": true });
+        let path = format!("/channels/{channel_id}/members/{user_id}/schemeRoles");
+        self.send_json(reqwest::Method::PUT, &path, Some(&body)).await
+    }
+
+    pub async fn delete_category(&self, team_id: &str, category_id: &str) -> Result<()> {
+        let path = format!("/users/me/teams/{team_id}/channels/categories/{category_id}");
+        self.send_json::<()>(reqwest::Method::DELETE, &path, None).await
+    }
+
     pub async fn patch_team_description(&self, team_id: &str, description: &str) -> Result<Team> {
         self.put(&format!("/teams/{team_id}/patch"), &serde_json::json!({ "description": description })).await
     }

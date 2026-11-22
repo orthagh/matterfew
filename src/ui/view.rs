@@ -33,6 +33,7 @@ use crate::{emoji, markdown};
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
 
 pub(super) mod dialogs;
+pub(super) mod manage;
 pub(super) mod messaging;
 
 /// Réactions proposées dans la barre d'actions d'un message.
@@ -507,6 +508,14 @@ impl ChatApp {
                     this.copy_channel_link(&id, cx)
                 }));
             if !direct {
+                let (e, cid) = (entity.clone(), id.clone());
+                menu = menu.item(
+                    PopupMenuItem::new(t!("channel_menu.settings")).icon(Icon::new(IconName::Settings)).on_click(
+                        move |_, window, cx| {
+                            e.update(cx, |this, cx| this.open_channel_settings(cid.clone(), window, cx))
+                        },
+                    ),
+                );
                 if panels {
                     let (entity, id) = (entity.clone(), id.clone());
                     menu = menu.separator().item(
@@ -799,6 +808,7 @@ impl ChatApp {
         let category = self.categories.iter().find(|c| c.id == category_id);
         let sorting = category.map(|c| c.sorting.clone()).unwrap_or_default();
         let dm = category.is_some_and(|c| c.kind == "direct_messages");
+        let custom = category.is_some_and(|c| c.kind == "custom");
         let muted = category.is_some_and(|c| c.muted);
         let p = self.palette;
         div()
@@ -824,6 +834,30 @@ impl ChatApp {
                             .item(sort(&t!("category_menu.sort_recent"), "recent", sorting == "recent"));
                         if !dm {
                             menu = menu.item(sort(&t!("category_menu.sort_manual"), "manual", sorting == "manual"));
+                        }
+                        if custom {
+                            let (er, ir) = (entity.clone(), id.clone());
+                            let (ed, id_d) = (entity.clone(), id.clone());
+                            menu = menu
+                                .separator()
+                                .item(
+                                    PopupMenuItem::new(t!("category_menu.rename"))
+                                        .icon(Icon::new(IconName::Pencil))
+                                        .on_click(move |_, window, cx| {
+                                            er.update(cx, |this, cx| {
+                                                this.open_category_dialog(ir.clone(), false, window, cx)
+                                            })
+                                        }),
+                                )
+                                .item(
+                                    PopupMenuItem::new(t!("category_menu.delete"))
+                                        .icon(Icon::new(IconName::Trash))
+                                        .on_click(move |_, window, cx| {
+                                            ed.update(cx, |this, cx| {
+                                                this.open_category_dialog(id_d.clone(), true, window, cx)
+                                            })
+                                        }),
+                                );
                         }
                         let (entity2, id2) = (entity.clone(), id.clone());
                         let (entity, id) = (entity.clone(), id.clone());
@@ -2487,6 +2521,7 @@ impl ChatApp {
                 this.add_files(Pane::Channel, paths.paths().to_vec(), cx);
             }))
             .child(self.render_channel_header(cx))
+            .children(self.render_offline_banner())
             .children(error_banner)
             .children(info_banner)
             .child(messages)
@@ -2644,6 +2679,47 @@ impl ChatApp {
             // Ctrl+K : aller à un canal.
             .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
+                let (ctrl, shift, alt) = (k.modifiers.control, k.modifiers.shift, k.modifiers.alt);
+                if (ctrl && !alt && (k.key == "/" || k.key == ":")) || k.key == "f1" {
+                    this.open_shortcuts(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if alt && !ctrl && !shift && (k.key == "left" || k.key == "right") {
+                    this.navigate_history(k.key == "right", window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if alt && ctrl && (k.key == "up" || k.key == "down") {
+                    this.cycle_team(k.key == "down", cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if ctrl && shift && !alt && k.key == "m" {
+                    this.show_mentions(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if ctrl && shift && !alt && k.key == "l" {
+                    this.focus_composer(window, cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if k.key == "escape" && shift && !ctrl && this.dialog.is_none() {
+                    this.mark_team_read(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                if k.key == "up"
+                    && shift
+                    && !ctrl
+                    && !alt
+                    && this.composer.read(cx).focus_handle(cx).is_focused(window)
+                    && this.reply_to_last(window, cx)
+                {
+                    cx.stop_propagation();
+                    return;
+                }
                 if k.key == "escape" && this.dialog.is_some() {
                     this.close_dialog(cx);
                     cx.stop_propagation();
@@ -3257,9 +3333,11 @@ impl ChatApp {
             if collapsed {
                 continue;
             }
+            let manage = self.can_manage_members(channel_id);
             for id in people {
                 let user_id = id.clone();
                 let offline = status(id) == "offline";
+                let menu = (manage && id != self.me_id()).then(|| self.member_menu(channel_id, id, cx));
                 let role = (title == "admins").then(|| -> SharedString {
                     if self.users.get(id).is_some_and(|u| u.is_system_admin()) {
                         t!("members.system_admin").into()
@@ -3267,56 +3345,58 @@ impl ChatApp {
                         t!("members.channel_admin").into()
                     }
                 });
-                list = list.child(
-                    h_flex()
-                        .id(SharedString::from(format!("mbr-{id}")))
-                        .flex_none()
-                        .gap_2()
-                        .mx_2()
-                        .px_2()
-                        .py_1()
-                        .rounded(px(6.))
-                        .when(offline, |el| el.opacity(0.55))
-                        .cursor_pointer()
-                        .hover(|s| s.bg(p.hover()))
-                        .child(self.avatar(id, 28., p.center_bg))
-                        .child(
-                            v_flex()
-                                .min_w_0()
-                                .child(
-                                    h_flex()
-                                        .gap_1()
-                                        .min_w_0()
-                                        .child(
-                                            div()
-                                                .truncate()
-                                                .text_sm()
-                                                .font_semibold()
-                                                .when(role.is_some(), |d| d.text_color(group_color("admins", &p)))
-                                                .child(self.user_name(id)),
-                                        )
-                                        .children(self.status_emoji(id, 14., cx)),
-                                )
-                                .when_some(self.users.get(id).map(|u| u.username.clone()), |el, name| {
-                                    el.child(div().truncate().text_xs().text_color(p.muted()).child(format!("@{name}")))
+                let row = h_flex()
+                    .id(SharedString::from(format!("mbr-{id}")))
+                    .flex_none()
+                    .gap_2()
+                    .mx_2()
+                    .px_2()
+                    .py_1()
+                    .rounded(px(6.))
+                    .when(offline, |el| el.opacity(0.55))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.hover()))
+                    .child(self.avatar(id, 28., p.center_bg))
+                    .child(
+                        v_flex()
+                            .min_w_0()
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .truncate()
+                                            .text_sm()
+                                            .font_semibold()
+                                            .when(role.is_some(), |d| d.text_color(group_color("admins", &p)))
+                                            .child(self.user_name(id)),
+                                    )
+                                    .children(self.status_emoji(id, 14., cx)),
+                            )
+                            .when_some(self.users.get(id).map(|u| u.username.clone()), |el, name| {
+                                el.child(div().truncate().text_xs().text_color(p.muted()).child(format!("@{name}")))
+                            }),
+                    )
+                    .when_some(role, |el, role| {
+                        el.child(div().flex_1()).child(
+                            div()
+                                .flex_none()
+                                .text_color(p.muted())
+                                .child(Icon::new(IconName::Shield).size(px(14.)))
+                                .id(SharedString::from(format!("mbr-role-{id}")))
+                                .tooltip(move |window, cx| {
+                                    gpui_kit::component::tooltip::Tooltip::new(role.clone()).build(window, cx)
                                 }),
                         )
-                        .when_some(role, |el, role| {
-                            el.child(div().flex_1()).child(
-                                div()
-                                    .flex_none()
-                                    .text_color(p.muted())
-                                    .child(Icon::new(IconName::Shield).size(px(14.)))
-                                    .id(SharedString::from(format!("mbr-role-{id}")))
-                                    .tooltip(move |window, cx| {
-                                        gpui_kit::component::tooltip::Tooltip::new(role.clone()).build(window, cx)
-                                    }),
-                            )
-                        })
-                        .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                            this.open_profile(user_id.clone(), ev.position(), window, cx)
-                        })),
-                );
+                    })
+                    .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
+                        this.open_profile(user_id.clone(), ev.position(), window, cx)
+                    }));
+                list = list.child(match menu {
+                    Some(menu) => row.context_menu(menu).into_any_element(),
+                    None => row.into_any_element(),
+                });
             }
         }
         let hidden = total - ids.len() as i64;
@@ -5245,7 +5325,12 @@ impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.scale = window.scale_factor();
         self.viewport_w = window.viewport_size().width / px(1.);
-        if self.screen == Screen::Chat && window.focused(cx).is_none() {
+        // Fenêtre fermée : son champ n'est plus affiché, le focus revient à
+        // l'application (sinon les raccourcis ne répondent plus).
+        let orphan = self.dialog.is_none()
+            && (self.dialog_input.read(cx).focus_handle(cx).is_focused(window)
+                || self.dialog_comment.read(cx).focus_handle(cx).is_focused(window));
+        if self.screen == Screen::Chat && (window.focused(cx).is_none() || orphan) {
             window.focus(&self.root_focus, cx);
         }
         self.update_badge();

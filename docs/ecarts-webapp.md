@@ -42,7 +42,7 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 |---|---|---|---|---|---|
 | ~~Coller une image du presse-papiers~~ | ~~`file_upload.pasted`~~ | ~~Ctrl+V d'une capture : fichier « Image Pasted at … » joint~~ | ~~Absent (noté dans FONCTIONNALITES)~~ | ~~S~~ | ~~★★★~~ |
 | ~~↑ pour modifier son dernier message~~ | ~~`shortcuts.msgs.edit`~~ | ~~Dans une saisie vide~~ | ~~Absent~~ | ~~S~~ | ~~★★★~~ |
-| Maj+↑ répondre au dernier message | `shortcuts.msgs.reply` | Ouvre le fil du dernier message | Absent | S | ★ |
+| ~~Maj+↑ répondre au dernier message~~ | ~~`shortcuts.msgs.reply`~~ | ~~Ouvre le fil du dernier message~~ | ~~Absent~~ | ~~S~~ | ~~★~~ |
 | ~~Envoyer avec Ctrl+Entrée~~ | ~~`user.settings.advance.sendTitle`, préférence `advanced_settings.send_on_ctrl_enter`~~ | ~~Entrée = nouvelle ligne ; Ctrl+Entrée envoie (tous messages ou seulement blocs de code)~~ | ~~Absent (préférence serveur ignorée)~~ | ~~S~~ | ~~★★~~ |
 | Messages programmés (« Envoyer plus tard ») | `C/advanced_text_editor/send_button`, `C/drafts/scheduled_post_list`, `C/edit_scheduled_post`, `scheduled_post.*` | Menu du bouton d'envoi : demain 9 h, lundi, date libre ; onglet « Programmés » (modifier, replanifier, envoyer maintenant) ; indicateur dans le canal (`/posts/schedule`, serveur ≥ 10.3) | Absent | M | ★★ |
 | Vue « Brouillons » | `C/drafts`, `drafts.*` | Liste de tous les brouillons (canaux et fils) : envoyer, modifier, supprimer | Partiel : brouillons par canal/fil + crayon, pas de vue d'ensemble | M | ★★ |
@@ -73,11 +73,11 @@ tout utilisateur venant du client officiel. API REST : `/api/v4`.
 | ~~Nouveau message direct / de groupe~~ | ~~`C/more_direct_channels`, `shortcuts.nav.direct_messages_menu` (Ctrl+Maj+K)~~ | ~~« + » de la catégorie Messages directs : choisir 1 à 7 personnes~~ | ~~Partiel : message direct depuis la carte de profil, pas de groupe~~ | ~~M~~ | ~~★★★~~ |
 | Fermer une conversation directe | `sidebar_left.sidebar_channel_menu.leaveConversation` | Retire le MP de la barre latérale | Absent | S | ★★ |
 | ~~Préférences de notification du canal~~ | ~~`C/channel_notifications_modal`, `channel_notifications.*`~~ | ~~Bureau/mobile : tout, mentions, rien ; réponses de fils ; suivre tous les fils du canal ; ignorer @channel ; son ; réinitialiser (`PUT /channels/{c}/members/{u}/notify_props`)~~ | ~~Partiel : sourdine seulement (les réglages existants sont lus)~~ | ~~M~~ | ~~★★★~~ |
-| Paramètres du canal | `C/channel_settings_modal`, `channel_settings.tab.*` | Renommer, changer l'URL, convertir en privé, archiver / désarchiver | Partiel : description et en-tête modifiables | M | ★★ |
-| Canaux archivés | `C/center_message_lock`, `C/unarchive_channel_modal` | Lecture seule avec bandeau, recherche dans les archivés | Absent (non géré) | S | ★ |
-| Gestion des membres | `C/channel_members_rhs`, `channel_members_rhs.action_bar.manage_button` | « Gérer » : retirer, nommer administrateur | Partiel : liste et ajout seulement | S | ★★ |
+| ~~Paramètres du canal~~ | ~~`C/channel_settings_modal`, `channel_settings.tab.*`~~ | ~~Renommer, changer l'URL, convertir en privé, archiver / désarchiver~~ | ~~Partiel : description et en-tête modifiables~~ | ~~M~~ | ~~★★~~ |
+| ~~Canaux archivés~~ | ~~`C/center_message_lock`, `C/unarchive_channel_modal`~~ | ~~Lecture seule avec bandeau, recherche dans les archivés~~ | ~~Absent (non géré)~~ | ~~S~~ | ~~★~~ |
+| ~~Gestion des membres~~ | ~~`C/channel_members_rhs`, `channel_members_rhs.action_bar.manage_button`~~ | ~~« Gérer » : retirer, nommer administrateur~~ | ~~Partiel : liste et ajout seulement~~ | ~~S~~ | ~~★★~~ |
 | Menu de canal complet | `sidebar_left.sidebar_channel_menu.*` | « Déplacer vers… » (catégorie existante ou nouvelle), « Marquer comme non lu » | Partiel : marquer lu, favori, sourdine, lien, quitter ; déplacement par glisser-déposer seulement | S | ★★ |
-| Gestion des catégories | `sidebar_left.sidebar_category_menu.*` | Renommer, supprimer une catégorie | Absent (créer, trier, sourdine, marquer lu existent) | S | ★★ |
+| ~~Gestion des catégories~~ | ~~`sidebar_left.sidebar_category_menu.*`~~ | ~~Renommer, supprimer une catégorie~~ | ~~Absent (créer, trier, sourdine, marquer lu existent)~~ | ~~S~~ | ~~★★~~ |
 | Filtre « Non lus seulement » | `sidebar_left.channel_filter.*`, Ctrl+Maj+U | Bascule non lus / tous dans la barre latérale | Partiel : section « Non lus » si la préférence est active | S | ★ |
 | Convertir un MP de groupe en canal | `C/convert_gm_to_channel_modal` | Transforme une conversation de groupe en canal privé | Absent | M | ★ |
 | Signets de canal | `C/channel_bookmarks`, `channel_bookmarks.*` | Barre de liens/fichiers sous l'en-tête (ajout, ordre, emoji) | Absent (pas même l'affichage) | M | ★★ |
@@ -160,15 +160,15 @@ Chez nous : Ctrl+K, Ctrl+F, Échap, mise en forme (Ctrl+B/I/Maj+X/Alt+K/Alt+C),
 |---|---|---|---|
 | ~~Alt+↑ / Alt+↓~~ | ~~Canal précédent / suivant~~ | ~~S~~ | ~~★★~~ |
 | ~~Alt+Maj+↑ / ↓~~ | ~~Canal non lu précédent / suivant~~ | ~~S~~ | ~~★★★~~ |
-| Alt+← / Alt+→ | Historique de navigation | S | ★★ |
-| Ctrl+Maj+M | Mentions récentes | S | ★ |
-| Ctrl+Maj+L | Focus dans la zone de saisie | S | ★ |
+| ~~Alt+← / Alt+→~~ | ~~Historique de navigation~~ | ~~S~~ | ~~★★~~ |
+| ~~Ctrl+Maj+M~~ | ~~Mentions récentes~~ | ~~S~~ | ~~★~~ |
+| ~~Ctrl+Maj+L~~ | ~~Focus dans la zone de saisie~~ | ~~S~~ | ~~★~~ |
 | Ctrl+. / Ctrl+Alt+I | Ouvrir/fermer le panneau droit / infos du canal | S | ★ |
-| Ctrl+Alt+↑ / ↓, Ctrl+Alt+1…9 | Équipe précédente / suivante / n | S | ★ |
-| Maj+Échap | Tout marquer comme lu (avec confirmation `C/mark_all_as_read_modal`) | S | ★★ |
+| ~~Ctrl+Alt+↑ / ↓, Ctrl+Alt+1…9~~ | ~~Équipe précédente / suivante / n~~ | ~~S~~ | ~~★~~ |
+| ~~Maj+Échap~~ | ~~Tout marquer comme lu (avec confirmation `C/mark_all_as_read_modal`)~~ | ~~S~~ | ~~★★~~ |
 | Échap (dans un canal) | Marquer le canal comme lu | S | ★ |
 | Ctrl+↑ / ↓ | Rappeler un message envoyé précédemment | S | ★ |
-| Ctrl+/ | Fenêtre d'aide des raccourcis | S | ★★ |
+| ~~Ctrl+/~~ | ~~Fenêtre d'aide des raccourcis~~ | ~~S~~ | ~~★★~~ |
 | Ctrl+ + / – | Zoom de l'interface | M | ★★ |
 
 ## 11. Profil et personnes
@@ -183,7 +183,7 @@ Chez nous : Ctrl+K, Ctrl+F, Échap, mise en forme (Ctrl+B/I/Maj+X/Alt+K/Alt+C),
 
 | Fonction | Où | Comportement officiel | Chez nous | Effort | Valeur |
 |---|---|---|---|---|---|
-| Bandeau hors ligne | `announcement_bar.warn.no_internet_connection` | Bandeau visible en haut de l'écran | Partiel : « Reconnexion… » à la place du statut dans la barre latérale | S | ★★ |
+| ~~Bandeau hors ligne~~ | ~~`announcement_bar.warn.no_internet_connection`~~ | ~~Bandeau visible en haut de l'écran~~ | ~~Partiel : « Reconnexion… » à la place du statut dans la barre latérale~~ | ~~S~~ | ~~★★~~ |
 | ~~Toasts du fil de messages~~ | ~~`C/toast_wrapper`, `postlist.toast.*`~~ | ~~« N nouveaux messages », « Aller aux non lus », « Vous consultez l'historique »~~ | ~~Partiel : « Revenir au présent »~~ | ~~S~~ | ~~★~~ |
 | Accessibilité | `accessibility.sections.*`, `C/a11y` (régions, F6) | Lecteur d'écran, navigation par régions | Absent / limité par GPUI | L | ★★ |
 | Traductions | `webapp/channels/src/i18n/*.json` | ≈ 20 langues | Partiel : fr, en, pt-BR | M | ★ |

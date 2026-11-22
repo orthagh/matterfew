@@ -111,6 +111,33 @@ pub enum Command {
     },
     /// Enregistre des préférences (emojis récents…).
     SavePreferences(Vec<Preference>),
+    /// Paramètres du canal : nom affiché et nom dans les liens.
+    RenameChannel {
+        channel_id: String,
+        display_name: String,
+        name: String,
+    },
+    MakeChannelPrivate {
+        channel_id: String,
+    },
+    /// Archive (`archive`) ou désarchive un canal.
+    ArchiveChannel {
+        channel_id: String,
+        archive: bool,
+    },
+    SetChannelAdmin {
+        channel_id: String,
+        user_id: String,
+        admin: bool,
+    },
+    RemoveChannelMember {
+        channel_id: String,
+        user_id: String,
+    },
+    DeleteCategory {
+        team_id: String,
+        category_id: String,
+    },
     LoadTeamUnreads,
     /// Aperçu d'une image jointe.
     LoadPreview {
@@ -779,6 +806,36 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             }
         }
         Command::SavePreferences(prefs) => client.save_preferences(&ctx.me_id, &prefs).await?,
+        Command::RenameChannel { channel_id, display_name, name } => {
+            let fields = serde_json::json!({ "display_name": display_name, "name": name });
+            let channel = client.patch_channel_fields(&channel_id, &fields).await?;
+            ctx.emit(Event::ChannelUpdated(channel)).await;
+        }
+        Command::MakeChannelPrivate { channel_id } => {
+            let channel = client.make_channel_private(&channel_id).await?;
+            ctx.emit(Event::ChannelUpdated(channel)).await;
+        }
+        Command::ArchiveChannel { channel_id, archive } => {
+            let channel = if archive {
+                client.archive_channel(&channel_id).await?;
+                client.channel(&channel_id).await?
+            } else {
+                client.unarchive_channel(&channel_id).await?
+            };
+            ctx.emit(Event::ChannelUpdated(channel)).await;
+        }
+        Command::SetChannelAdmin { channel_id, user_id, admin } => {
+            client.set_channel_admin(&channel_id, &user_id, admin).await?;
+            ctx.emit(Event::MembersChanged { channel_id }).await;
+        }
+        Command::RemoveChannelMember { channel_id, user_id } => {
+            client.leave_channel(&channel_id, &user_id).await?;
+            ctx.emit(Event::MembersChanged { channel_id }).await;
+        }
+        Command::DeleteCategory { team_id, category_id } => {
+            client.delete_category(&team_id, &category_id).await?;
+            ctx.emit(Event::CategoriesChanged { team_id }).await;
+        }
         Command::LoadTeamUnreads => {
             let unreads = client.team_unreads().await?;
             ctx.emit(Event::TeamUnreads(unreads)).await;

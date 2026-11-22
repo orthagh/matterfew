@@ -732,7 +732,29 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             posts.extend(demo.replies.get(&root_id).cloned().unwrap_or_default());
             send(Event::Thread { root_id, posts });
         }
-        Command::SavePreferences(_) => {}
+        Command::SavePreferences(_)
+        | Command::SetChannelAdmin { .. }
+        | Command::RemoveChannelMember { .. }
+        | Command::DeleteCategory { .. } => {}
+        Command::RenameChannel { channel_id, display_name, name } => {
+            if let Some(c) = demo.channels.iter_mut().find(|c| c.id == channel_id) {
+                c.display_name = display_name;
+                c.name = name;
+                send(Event::ChannelUpdated(c.clone()));
+            }
+        }
+        Command::MakeChannelPrivate { channel_id } => {
+            if let Some(c) = demo.channels.iter_mut().find(|c| c.id == channel_id) {
+                c.kind = "P".into();
+                send(Event::ChannelUpdated(c.clone()));
+            }
+        }
+        Command::ArchiveChannel { channel_id, archive } => {
+            if let Some(c) = demo.channels.iter_mut().find(|c| c.id == channel_id) {
+                c.delete_at = if archive { now_ms() } else { 0 };
+                send(Event::ChannelUpdated(c.clone()));
+            }
+        }
         Command::Send { channel_id, root_id, message, file_ids, pending_id } => {
             send(Event::Sent { pending_id });
             let id = demo.new_id();

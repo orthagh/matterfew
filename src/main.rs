@@ -110,7 +110,11 @@ gpui_kit::assets::icon_assets!(
         TriangleAlert,
         RotateCcw,
         Forward,
-        ArrowUp
+        ArrowUp,
+        Settings,
+        UserMinus,
+        Keyboard,
+        WifiOff
     ]
 );
 
