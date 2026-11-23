@@ -73,7 +73,7 @@ fn detect_from(
         if in_bundle { Install::App } else { Install::Manual }
     } else if windows {
         // Compilation locale (target\…) : pas un exécutable installé.
-        let dev = exe.components().any(|c| c.as_os_str() == "target");
+        let dev = exe.to_string_lossy().split(['/', '\\']).any(|c| c == "target");
         if dev { Install::Manual } else { Install::Nsis }
     } else {
         Install::Manual
