@@ -29,6 +29,7 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 ### Fixed
 
 - Snap: crash at startup on AMD GPUs.
+- Linux: "Log in via Mattermost" failed under Wayland.
 
 ## [0.2.0] - 2026-11-22
 

@@ -1,12 +1,12 @@
-//! Connexion « via Mattermost » : une petite fenêtre de navigateur intégré
-//! (WebView2 sous Windows) affiche la vraie page de connexion du serveur.
-//! L'utilisateur s'y connecte comme d'habitude (GitLab, mot de passe, double
-//! authentification…), puis on récupère le cookie de session `MMAUTHTOKEN`
-//! que Mattermost dépose une fois la connexion réussie.
+//! "Log in via Mattermost": a small embedded browser window (WebView2 on
+//! Windows, WebKitGTK on Linux) shows the server's real login page. The user
+//! logs in as usual (GitLab, password, two-factor authentication…), then we
+//! read the `MMAUTHTOKEN` session cookie Mattermost sets once the login
+//! succeeds.
 //!
-//! Cette fenêtre tourne dans un processus séparé (`matterfew --sso-login URL`)
-//! pour ne pas mélanger sa boucle d'événements avec celle de GPUI. Le jeton
-//! est transmis au processus principal sur la sortie standard.
+//! That window runs in a separate process (`matterfew --sso-login URL`) so
+//! its event loop does not mix with GPUI's. The token is handed to the main
+//! process on standard output.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -17,21 +17,24 @@ use anyhow::{Context as _, Result, bail};
 
 const TOKEN_PREFIX: &str = "MMAUTHTOKEN ";
 
-/// Dossier où le navigateur intégré garde ses cookies (pour ne pas avoir à
-/// se reconnecter à GitLab à chaque fois).
+/// Exit code of the login window when the user closes it without logging in.
+const EXIT_CLOSED: i32 = 2;
+
+/// Folder where the embedded browser keeps its cookies (so the user does not
+/// have to log in to GitLab again every time).
 pub fn webview_data_dir() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("matterfew").join("webview"))
 }
 
-/// Efface la session du navigateur intégré (à la déconnexion).
+/// Clears the embedded browser's session (on logout).
 pub fn clear_webview_data() {
     if let Some(dir) = webview_data_dir() {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
 
-/// Côté application : lance la fenêtre de connexion et attend le jeton.
-/// Bloquant, à appeler depuis un thread d'arrière-plan.
+/// Application side: opens the login window and waits for the token.
+/// Blocking, to be called from a background thread.
 pub fn login_in_browser(server_url: &str) -> Result<String> {
     let exe = std::env::current_exe().with_context(|| t!("errors.app_path").to_string())?;
     let mut child = Command::new(exe)
@@ -45,14 +48,16 @@ pub fn login_in_browser(server_url: &str) -> Result<String> {
         .lines()
         .map_while(|l| l.ok())
         .find_map(|line| line.strip_prefix(TOKEN_PREFIX).map(str::to_string));
-    let _ = child.wait();
+    let closed_by_user = child.wait().is_ok_and(|status| status.code() == Some(EXIT_CLOSED));
     match token {
         Some(token) if !token.is_empty() => Ok(token),
-        _ => bail!("{}", t!("sso.cancelled")),
+        // Any other exit than a window closed by the user is a crash, not a cancellation.
+        _ if closed_by_user => bail!("{}", t!("sso.cancelled")),
+        _ => bail!("{}", t!("sso.open_failed")),
     }
 }
 
-/// Côté fenêtre de connexion : point d'entrée de `--sso-login URL`.
+/// Login window side: entry point of `--sso-login URL`.
 pub fn run_login_window(server_url: &str) -> ! {
     use tao::dpi::LogicalSize;
     use tao::event::{Event, StartCause, WindowEvent};
@@ -66,15 +71,24 @@ pub fn run_login_window(server_url: &str) -> ! {
         .with_title(t!("sso.window_title"))
         .with_inner_size(LogicalSize::new(560.0, 760.0))
         .build(&event_loop)
-        .expect("fenêtre de connexion");
+        .expect("login window");
 
     let mut context = WebContext::new(webview_data_dir());
-    let webview = WebViewBuilder::new_with_web_context(&mut context)
-        // Évite la page « Où souhaitez-vous voir ceci ? » du client web.
+    let builder = WebViewBuilder::new_with_web_context(&mut context)
+        // Skips the web client's "Where would you like to view this?" page.
         .with_initialization_script("try { localStorage.setItem('__landingPageSeen__', 'true'); } catch (e) {}")
-        .with_url(format!("{server}/login"))
-        .build(&window)
-        .expect("navigateur intégré (WebView2) indisponible");
+        .with_url(format!("{server}/login"));
+    // On Linux, building from the window handle only works under X11; the GTK
+    // container tao gives every window works under Wayland as well.
+    #[cfg(target_os = "linux")]
+    let webview = {
+        use tao::platform::unix::WindowExtUnix;
+        use wry::WebViewBuilderExtUnix;
+        builder.build_gtk(window.default_vbox().expect("login window has no GTK container"))
+    };
+    #[cfg(not(target_os = "linux"))]
+    let webview = builder.build(&window);
+    let webview = webview.expect("embedded browser unavailable");
 
     let started = Instant::now();
     event_loop.run(move |event, _, control_flow| {
@@ -82,9 +96,8 @@ pub fn run_login_window(server_url: &str) -> ! {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(400));
         match event {
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
-                // On attend d'avoir quitté les pages de connexion : un vieux
-                // cookie resté dans le navigateur ne doit pas être pris pour
-                // une connexion réussie.
+                // Wait until the login pages are left: an old cookie still in
+                // the browser must not be taken for a successful login.
                 let url = webview.url().unwrap_or_default();
                 let path = url.strip_prefix(&server).unwrap_or("/login");
                 let on_login_pages = ["/login", "/oauth", "/signup", "/reset_password", "/mfa", "/do_verify_email"]
@@ -102,7 +115,7 @@ pub fn run_login_window(server_url: &str) -> ! {
                     std::process::exit(0);
                 }
             }
-            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => std::process::exit(2),
+            Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => std::process::exit(EXIT_CLOSED),
             _ => {}
         }
     })
