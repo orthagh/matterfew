@@ -25,6 +25,8 @@ pub struct UiSettings {
     pub show_formatting: bool,
     /// Éditeur riche (bêta) : mise en forme visible pendant la saisie.
     pub rich_editor: bool,
+    /// Rechercher les nouvelles versions de l'application.
+    pub check_updates: bool,
 }
 
 impl Default for UiSettings {
@@ -37,6 +39,7 @@ impl Default for UiSettings {
             recent_searches: Vec::new(),
             show_formatting: false,
             rich_editor: false,
+            check_updates: true,
         }
     }
 }

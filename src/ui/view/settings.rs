@@ -49,6 +49,7 @@ pub(crate) struct SettingsDraft {
     pub code_block_ctrl_enter: bool,
     pub show_formatting: bool,
     pub rich_editor: bool,
+    pub check_updates: bool,
 }
 
 /// Nombres de messages directs proposés (10000 = tous), comme le client web.
@@ -165,6 +166,7 @@ impl ChatApp {
             code_block_ctrl_enter: self.code_block_ctrl_enter,
             show_formatting: self.settings.show_formatting,
             rich_editor: self.settings.rich_editor,
+            check_updates: self.settings.check_updates,
         })));
         cx.notify();
     }
@@ -272,6 +274,10 @@ impl ChatApp {
         }
 
         // Réglages de cette application.
+        if self.settings.check_updates != d.check_updates {
+            self.settings.check_updates = d.check_updates;
+            self.settings.save();
+        }
         if self.settings.show_formatting != d.show_formatting || self.settings.rich_editor != d.rich_editor {
             let rich_changed = self.settings.rich_editor != d.rich_editor;
             self.settings.show_formatting = d.show_formatting;
@@ -727,6 +733,28 @@ impl ChatApp {
                 |d, v| d.rich_editor = v,
                 cx,
             ))
+            .child(self.settings_section(
+                t!("update.section").into(),
+                Some(t!("update.current", version = env!("CARGO_PKG_VERSION")).into()),
+            ))
+            .child(self.settings_toggle(
+                "settings-check-updates",
+                t!("update.auto_check").into(),
+                Some(t!("update.auto_check_hint").into()),
+                d.check_updates,
+                |d, v| d.check_updates = v,
+                cx,
+            ))
+            .child(
+                h_flex().px_5().pt_1().child(
+                    Button::new("settings-check-now")
+                        .label(t!("update.check_now"))
+                        .icon(Icon::new(IconName::RotateCcw))
+                        .small()
+                        .outline()
+                        .on_click(cx.listener(|this, _, _, cx| this.check_for_update(true, cx))),
+                ),
+            )
             .into_any_element()
     }
 }

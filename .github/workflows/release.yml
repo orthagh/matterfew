@@ -4,6 +4,12 @@
 #   Linux    : snap, flatpak (+ .deb et AppImage, et l'exécutable seul)
 # La release GitHub reprend la section du CHANGELOG de cette version.
 #
+# Mise à jour automatique : avec la clé des secrets
+# CARGO_PACKAGER_SIGN_PRIVATE_KEY(_PASSWORD), les paquets sont signés
+# (minisign, fichiers .sig) et latest.json les décrit pour l'application.
+# Le dépôt flatpak (GitHub Pages) est signé avec FLATPAK_GPG_PRIVATE_KEY
+# et FLATPAK_GPG_PASSPHRASE.
+#
 # « Run workflow » (workflow_dispatch) construit tout sans rien publier :
 # les installateurs restent dans les artefacts de l'exécution.
 name: Release
@@ -74,10 +80,12 @@ jobs:
             formats: nsis
           - name: macos-arm64
             os: macos-15
-            formats: dmg
+            formats: dmg,app
+            arch: aarch64
           - name: macos-x64
             os: macos-15-intel
-            formats: dmg
+            formats: dmg,app
+            arch: x64
           - name: linux-x64
             os: ubuntu-22.04
             formats: deb,appimage
@@ -94,8 +102,31 @@ jobs:
           tool: cargo-packager
       - name: Compilation optimisée
         run: cargo build --profile dist --locked
-      - name: Installateurs
-        run: cargo packager --profile dist --formats ${{ matrix.formats }} --verbose
+      - name: Installateurs (signés si la clé est fournie)
+        shell: bash
+        env:
+          SIGN_KEY: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY }}
+          SIGN_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$SIGN_KEY" ]; then
+            export CARGO_PACKAGER_SIGN_PRIVATE_KEY="$SIGN_KEY"
+            export CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD="$SIGN_PASSWORD"
+          else
+            echo "::warning::Pas de clé de signature : paquets non signés, pas de mise à jour automatique."
+          fi
+          cargo packager --profile dist --formats ${{ matrix.formats }} --verbose
+      - name: "Application macOS pour la mise à jour (nom par architecture)"
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cd target/packages
+          name="Matterfew_${{ needs.version.outputs.version }}_${{ matrix.arch }}.app.tar.gz"
+          if [ -f Matterfew.app.tar.gz ]; then
+            mv Matterfew.app.tar.gz "$name"
+            [ -f Matterfew.app.tar.gz.sig ] && mv Matterfew.app.tar.gz.sig "$name.sig"
+          else
+            tar -czf "$name" Matterfew.app
+          fi
       - name: "Exécutable seul (Linux, pour snap et flatpak)"
         if: runner.os == 'Linux'
         run: |
@@ -110,7 +141,29 @@ jobs:
             target/packages/*.deb
             target/packages/*.AppImage
             target/packages/*.tar.gz
+            target/packages/*.sig
           if-no-files-found: error
+
+  updater-manifest:
+    name: Manifeste de mise à jour
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: "{packages-*,notes}"
+      - name: latest.json
+        run: |
+          python3 packaging/updater-manifest.py artifacts "${{ needs.version.outputs.version }}" \
+            artifacts/notes/notes.md "${{ github.repository }}" updater/latest.json
+          ls -l updater || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-updater
+          path: updater/latest.json
+          if-no-files-found: warn
 
   snap:
     name: Paquet snap
@@ -169,10 +222,75 @@ jobs:
           path: matterfew-*.flatpak
           if-no-files-found: error
 
+  flatpak-repo:
+    name: Dépôt flatpak (GitHub Pages)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, flatpak]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: packages-flatpak
+          path: bundle
+      - name: Clé GPG
+        id: gpg
+        env:
+          GPG_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$GPG_KEY" ]; then
+            echo "::warning::Pas de FLATPAK_GPG_PRIVATE_KEY : dépôt flatpak non publié."
+            exit 0
+          fi
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          echo "allow-preset-passphrase" > ~/.gnupg/gpg-agent.conf
+          printf '%s' "$GPG_KEY" | gpg --batch --import
+          gpgconf --kill gpg-agent
+          key=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
+          preset=$(command -v gpg-preset-passphrase || ls /usr/libexec/gpg-preset-passphrase /usr/lib/gnupg/gpg-preset-passphrase 2>/dev/null | head -1)
+          if [ -n "$GPG_PASSPHRASE" ]; then
+            gpg-connect-agent /bye
+            for grip in $(gpg --list-secret-keys --with-keygrip --with-colons | awk -F: '/^grp/ {print $10}'); do
+              "$preset" --preset --passphrase "$GPG_PASSPHRASE" "$grip"
+            done
+          fi
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+      - name: Dépôt signé
+        if: steps.gpg.outputs.key != ''
+        run: |
+          sh packaging/flatpak/repo.sh bundle/*.flatpak "${{ steps.gpg.outputs.key }}" \
+            "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" site
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.gpg.outputs.key != ''
+        with:
+          path: site
+
+  pages:
+    name: Publication GitHub Pages
+    needs: flatpak-repo
+    if: needs.flatpak-repo.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+
   publish:
     name: Release GitHub
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [version, build, snap, flatpak]
+    needs: [version, build, snap, flatpak, updater-manifest]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

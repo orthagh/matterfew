@@ -14,9 +14,12 @@ gpui-kit = { version = "0.10", features = ["syntect"] }
 
 # Réseau
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
-reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
+reqwest = { version = "0.12", features = ["json", "multipart", "stream", "blocking"] }
 tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 futures = "0.3"
+# Mise à jour : téléchargement signé (minisign), installation, relance
+cargo-packager-updater = "0.2.3"
+semver = "1"
 async-channel = "2"
 
 # Données

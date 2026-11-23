@@ -413,6 +413,12 @@ pub struct ChatApp {
     unread_filter: bool,
     /// Panneau de droite agrandi (Ctrl+Maj+.).
     panel_expanded: bool,
+    /// Mise à jour de l'application proposée ou en cours.
+    update: Option<view::update::UpdateState>,
+    /// Version écartée par « Plus tard » (jusqu'au prochain lancement).
+    update_dismissed: Option<String>,
+    /// Type d'installation (installateur, AppImage, flatpak…).
+    install_kind: crate::updater::Install,
     /// Mots-clés qui valent une mention (en minuscules).
     mention_keywords: Vec<String>,
     /// Tiroir flottant ouvert en mise en page étroite.
@@ -756,6 +762,9 @@ impl ChatApp {
             dnd_end: 0,
             unread_filter: false,
             panel_expanded: false,
+            update: None,
+            update_dismissed: None,
+            install_kind: crate::updater::detect(),
             mention_keywords: Vec::new(),
             drawer: None,
             root_focus: cx.focus_handle(),
@@ -790,6 +799,7 @@ impl ChatApp {
         };
         this.palette.apply(cx);
         this.listen_desktop(window, cx);
+        this.start_update_checks(cx);
         if launch == Launch::Demo || std::env::args().any(|a| a == "--demo") {
             this.start_demo(window, cx);
         } else if let Some((url, token, kind)) = auto.filter(|_| !std::env::args().any(|a| a == "--login")) {
@@ -2574,6 +2584,13 @@ impl ChatApp {
                     s.focus(window, cx);
                 });
                 this.check_spelling(Pane::Channel, cx);
+            }),
+            "mise-a-jour" => after(self, 500, window, cx, |this, _, cx| this.check_for_update(true, cx)),
+            "parametres-avance" => after(self, 500, window, cx, |this, window, cx| {
+                this.open_settings(window, cx);
+                if let Some(view::dialogs::Dialog::Settings(d)) = this.dialog.as_mut() {
+                    d.tab = view::settings::SettingsTab::Advanced;
+                }
             }),
             "aide-markdown" => after(self, 500, window, cx, |this, _, cx| this.open_markdown_help(cx)),
             "envoi-fichier" => after(self, 500, window, cx, |this, window, cx| {

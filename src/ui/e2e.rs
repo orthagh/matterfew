@@ -713,6 +713,24 @@ fn e2e_editeur_riche() {
 }
 
 #[test]
+fn e2e_mise_a_jour() {
+    use super::view::update::UpdateState;
+    let mut w = demo_app();
+    w.1.update(|a, _, cx| a.check_for_update(true, cx));
+    w.1.read(|a, _| assert!(matches!(&a.update, Some(UpdateState::Available(f)) if f.installable)));
+    w.1.draw();
+    w.1.update(|a, _, cx| a.install_update(cx));
+    wait_for(
+        &w,
+        "téléchargement",
+        |a| matches!(a.update, Some(UpdateState::Downloading { received, .. }) if received > 0),
+    );
+    w.1.draw();
+    wait_for(&w, "installation (démo)", |a| matches!(a.update, Some(UpdateState::Installing { .. })));
+    w.1.draw();
+}
+
+#[test]
 fn e2e_signets_apercu_pdf_et_f6() {
     let mut w = demo_app();
     wait_for(&w, "signets chargés", |a| a.bookmarks.get("general").is_some_and(|b| b.len() == 3));

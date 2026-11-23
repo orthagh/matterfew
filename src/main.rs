@@ -34,6 +34,7 @@ mod sso;
 mod theme;
 mod thumbs;
 mod ui;
+mod updater;
 
 use gpui_kit::*;
 

@@ -40,6 +40,7 @@ pub(super) mod messaging;
 pub(super) mod presence;
 pub(super) mod settings;
 pub(super) mod teams;
+pub(super) mod update;
 
 /// Réactions proposées dans la barre d'actions d'un message.
 const QUICK_REACTIONS: [&str; 3] = ["+1", "heart", "joy"];
@@ -2700,6 +2701,7 @@ impl ChatApp {
             .child(self.render_channel_header(cx))
             .children(self.render_bookmarks_bar(cx))
             .children(self.render_offline_banner())
+            .children(self.render_update_banner(cx))
             .children(error_banner)
             .children(info_banner)
             .child(messages)

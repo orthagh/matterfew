@@ -25,6 +25,9 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Right panel can be widened.
 - Rich editor (beta): formatting shown while typing.
 - Syntax highlighting in code blocks.
+- Automatic updates: signed download and restart for the Windows installer,
+  the macOS app and the AppImage; flatpak repository on GitHub Pages; a
+  notice with a link for snap and .deb.
 
 ### Fixed
 

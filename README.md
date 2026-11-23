@@ -34,6 +34,21 @@ Windows installer, macOS disk image, snap or flatpak for Linux.
 Releases are not signed yet: Windows and macOS ask for confirmation on first
 launch.
 
+### Updates
+
+The Windows installer, the macOS app and the AppImage update themselves: a
+banner offers each new version, and one click downloads it, checks its
+signature, installs it and restarts the app.
+
+With flatpak, install from the Matterfew repository once; `flatpak update`
+and your software center then keep it up to date:
+
+```bash
+flatpak install --from https://orthagh.github.io/matterfew/io.github.orthagh.Matterfew.flatpakref
+```
+
+Snap and `.deb` users get a notice in the app with a link to the new release.
+
 ## Try it without a server
 
 ```bash
