@@ -15,7 +15,7 @@ out=$4
 app=io.github.orthagh.Matterfew
 
 mkdir -p "$out"
-# Le dépôt (archive-z2) est créé par l'import s'il n'existe pas.
+ostree init --mode=archive-z2 --repo="$out/repo"
 flatpak build-import-bundle --gpg-sign="$key" "$out/repo" "$bundle"
 flatpak build-update-repo --gpg-sign="$key" --generate-static-deltas \
     --title=Matterfew --default-branch=master "$out/repo"

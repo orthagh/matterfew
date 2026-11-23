@@ -11,13 +11,20 @@
 # et FLATPAK_GPG_PASSPHRASE.
 #
 # « Run workflow » (workflow_dispatch) construit tout sans rien publier :
-# les installateurs restent dans les artefacts de l'exécution.
+# les installateurs restent dans les artefacts de l'exécution. L'option
+# « flatpak_repo » republie toutefois le dépôt flatpak (GitHub Pages) à
+# partir de la branche choisie, sans release.
 name: Release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      flatpak_repo:
+        description: Republier le dépôt flatpak (GitHub Pages)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -227,7 +234,7 @@ jobs:
 
   flatpak-repo:
     name: Dépôt flatpak (GitHub Pages)
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.flatpak_repo
     needs: [version, flatpak]
     runs-on: ubuntu-24.04
     permissions:
