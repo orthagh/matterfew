@@ -24,8 +24,9 @@ pub fn release_page(version: &str) -> String {
 }
 
 /// Clé publique minisign des paquets (sortie de `cargo packager signer
-/// generate`). Vide : aucune installation automatique, l'avis seulement.
-pub const PUBKEY: &str = "";
+/// generate`, identifiant 6098B3E00CB601C7). Vide : aucune installation
+/// automatique, l'avis seulement.
+pub const PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYwOThCM0UwMENCNjAxQzcKUldUSEFiWU00TE9ZWUU2RkRxQjMxN0NoR29DbHFkczYyZzI5MDVZUml2aGMvd0E4a1RORjdleFIK";
 
 /// Comment l'application a été installée.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
