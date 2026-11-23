@@ -199,7 +199,10 @@ jobs:
     timeout-minutes: 45
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
-      options: --privileged
+      # /var/lib/flatpak sur un volume (Docker y recopie le contenu de
+      # l'image) : sur overlayfs, la mise à jour du SDK préinstallé échoue
+      # (« Invalid cross-device link ») et flatpak-builder plante.
+      options: --privileged --volume /var/lib/flatpak
     steps:
       - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
