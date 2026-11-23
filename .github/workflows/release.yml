@@ -248,8 +248,8 @@ jobs:
         with:
           name: packages-flatpak
           path: bundle
-      - name: Clé GPG
-        id: gpg
+      - name: Dépôt signé
+        id: repo
         env:
           GPG_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.FLATPAK_GPG_PASSPHRASE }}
@@ -258,26 +258,31 @@ jobs:
             echo "::warning::Pas de FLATPAK_GPG_PRIVATE_KEY : dépôt flatpak non publié."
             exit 0
           fi
-          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
-          echo "allow-preset-passphrase" > ~/.gnupg/gpg-agent.conf
-          printf '%s' "$GPG_KEY" | gpg --batch --import
-          gpgconf --kill gpg-agent
+          # Clé, phrase secrète et signature dans la même étape : l'agent GPG
+          # (qui garde la phrase secrète) ne survit pas d'une étape à l'autre.
+          export GNUPGHOME=/tmp/gnupg
+          mkdir -p "$GNUPGHOME" && chmod 700 "$GNUPGHOME"
+          echo "allow-preset-passphrase" > "$GNUPGHOME/gpg-agent.conf"
+          printf '%s\n' "$GPG_KEY" | gpg --batch --import
           key=$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ {print $10; exit}')
-          preset=$(command -v gpg-preset-passphrase || ls /usr/libexec/gpg-preset-passphrase /usr/lib/gnupg/gpg-preset-passphrase 2>/dev/null | head -1)
           if [ -n "$GPG_PASSPHRASE" ]; then
+            preset=$(command -v gpg-preset-passphrase || ls /usr/libexec/gpg-preset-passphrase /usr/lib/gnupg/gpg-preset-passphrase /usr/lib/gnupg2/gpg-preset-passphrase 2>/dev/null | head -1)
+            if [ -z "$preset" ]; then
+              echo "::error::gpg-preset-passphrase introuvable dans l'image."
+              exit 1
+            fi
             gpg-connect-agent /bye
             for grip in $(gpg --list-secret-keys --with-keygrip --with-colons | awk -F: '/^grp/ {print $10}'); do
               "$preset" --preset --passphrase "$GPG_PASSPHRASE" "$grip"
             done
           fi
-          echo "key=$key" >> "$GITHUB_OUTPUT"
-      - name: Dépôt signé
-        if: steps.gpg.outputs.key != ''
-        run: |
-          sh packaging/flatpak/repo.sh bundle/*.flatpak "${{ steps.gpg.outputs.key }}" \
+          # Contrôle : la clé signe sans rien demander.
+          echo test | gpg --batch --pinentry-mode error --local-user "$key" --sign > /dev/null
+          sh packaging/flatpak/repo.sh bundle/*.flatpak "$key" \
             "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" site
+          echo "done=true" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-pages-artifact@v3
-        if: steps.gpg.outputs.key != ''
+        if: steps.repo.outputs.done == 'true'
         with:
           path: site
 
