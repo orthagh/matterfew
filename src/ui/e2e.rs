@@ -764,3 +764,30 @@ fn e2e_signets_apercu_pdf_et_f6() {
     w.1.simulate_keystroke("f6");
     w.1.update(|a, window, cx| assert!(a.composer.read(cx).focus_handle(cx).is_focused(window)));
 }
+
+#[test]
+fn e2e_lu_ailleurs() {
+    // Canal lu depuis le client web : il n'est plus non lu ici.
+    let mut w = demo_app();
+    let id = w.1.read(|a, _| {
+        a.channels.values().find(|c| c.shows_unread()).map(|c| c.channel.id.clone()).expect("un canal non lu")
+    });
+    w.1.update(|a, window, cx| {
+        a.on_event(crate::backend::Event::ChannelsViewed(vec![(id.clone(), 1)]), window, cx);
+    });
+    w.1.read(|a, _| assert!(!a.channels[&id].shows_unread()));
+    // Puis marqué non lu là-bas : il le redevient, avec ses mentions.
+    w.1.update(|a, window, cx| {
+        let unread = crate::backend::Event::ChannelUnread {
+            channel_id: id.clone(),
+            last_viewed_at: 1,
+            mention_count: 2,
+            mention_count_root: 2,
+        };
+        a.on_event(unread, window, cx);
+    });
+    w.1.read(|a, _| {
+        assert!(a.channels[&id].shows_unread());
+        assert_eq!(a.channels[&id].mentions, 2);
+    });
+}

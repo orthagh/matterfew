@@ -12,6 +12,7 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ### Fixed
 
+- Channels read or marked unread in another client (web, mobile) now update here.
 - Some emoji names (`:unicorn_face:`, `:male-teacher:`) showed as text.
 
 ## [0.2.1] - 2026-11-23

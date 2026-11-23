@@ -484,6 +484,15 @@ pub enum Event {
     },
     /// Préférences de notification d'un canal modifiées (ici ou ailleurs).
     MemberUpdated(ChannelMember),
+    /// Canaux lus (ici ou depuis un autre client) : (canal, lecture en ms).
+    ChannelsViewed(Vec<(String, i64)>),
+    /// Canal marqué non lu (ici ou depuis un autre client).
+    ChannelUnread {
+        channel_id: String,
+        last_viewed_at: i64,
+        mention_count: i64,
+        mention_count_root: i64,
+    },
     BrowseChannels {
         team_id: String,
         archived: bool,
@@ -1486,20 +1495,36 @@ fn str_field(value: &Value, pointer: &str) -> String {
 }
 
 async fn on_ws_event(value: Value, ctx: &Ctx) {
-    let Some(kind) = value.get("event").and_then(Value::as_str) else {
-        return;
-    };
-    let data = value.get("data").cloned().unwrap_or(Value::Null);
+    let event = ws_event(&value, &ctx.me_id);
 
-    let event = match kind {
+    if let Some(event) = event {
+        match &event {
+            Event::Posted { post, .. } => ctx.ensure_users([post.user_id.clone()]).await,
+            Event::Typing { user_id, .. } => ctx.ensure_users([user_id.clone()]).await,
+            Event::ThreadUpdated { thread, .. } => {
+                let mut ids = vec![thread.post.user_id.clone()];
+                ids.extend(thread.participants.iter().map(|u| u.id.clone()));
+                ctx.ensure_users(ids).await;
+            }
+            _ => {}
+        }
+        ctx.emit(event).await;
+    }
+}
+
+/// Événement du websocket traduit pour l'application (None : ignoré).
+fn ws_event(value: &Value, me_id: &str) -> Option<Event> {
+    let kind = value.get("event").and_then(Value::as_str)?;
+    let data = value.get("data").cloned().unwrap_or(Value::Null);
+    match kind {
         "hello" => Some(Event::Connection(true)),
         "posted" => nested::<Post>(&data, "post").map(|post| {
             let mentions: Vec<String> = nested(&data, "mentions").unwrap_or_default();
             let followers: Vec<String> = nested(&data, "followers").unwrap_or_default();
             Event::Posted {
                 post,
-                mentions_me: mentions.contains(&ctx.me_id),
-                followed: followers.contains(&ctx.me_id),
+                mentions_me: mentions.iter().any(|m| m == me_id),
+                followed: followers.iter().any(|f| f == me_id),
                 channel_type: str_field(&data, "/channel_type"),
                 team_id: str_field(&data, "/team_id"),
             }
@@ -1520,7 +1545,7 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
             nested::<Reaction>(&data, "reaction").map(|r| Event::ReactionRemoved(r, reaction_post_id(&data)))
         }
         "typing" => Some(Event::Typing {
-            channel_id: str_field(&value, "/broadcast/channel_id"),
+            channel_id: str_field(value, "/broadcast/channel_id"),
             parent_id: str_field(&data, "/parent_id"),
             user_id: str_field(&data, "/user_id"),
         }),
@@ -1531,7 +1556,7 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
             .and_then(|s| serde_json::from_str::<Channel>(s).ok())
             .map(Event::ChannelUpdated),
         "user_added" | "user_removed" => {
-            let channel_id = match str_field(&value, "/broadcast/channel_id") {
+            let channel_id = match str_field(value, "/broadcast/channel_id") {
                 c if c.is_empty() => str_field(&data, "/channel_id"),
                 c => c,
             };
@@ -1547,7 +1572,7 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
         | "sidebar_category_updated"
         | "sidebar_category_deleted"
         | "sidebar_category_order_updated" => {
-            let team_id = match str_field(&value, "/broadcast/team_id") {
+            let team_id = match str_field(value, "/broadcast/team_id") {
                 t if t.is_empty() => str_field(&data, "/team_id"),
                 t => t,
             };
@@ -1559,7 +1584,7 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
             data.get("user").and_then(|u| serde_json::from_value::<User>(u.clone()).ok()).map(|u| Event::Users(vec![u]))
         }
         "thread_updated" => nested::<UserThread>(&data, "thread")
-            .map(|thread| Event::ThreadUpdated { team_id: str_field(&value, "/broadcast/team_id"), thread }),
+            .map(|thread| Event::ThreadUpdated { team_id: str_field(value, "/broadcast/team_id"), thread }),
         "thread_read_changed" => {
             let thread_id = str_field(&data, "/thread_id");
             let count = |k: &str| data.get(k).and_then(Value::as_i64).unwrap_or(0);
@@ -1578,25 +1603,34 @@ async fn on_ws_event(value: Value, ctx: &Ctx) {
         | "channel_bookmark_updated"
         | "channel_bookmark_deleted"
         | "channel_bookmark_sorted" => {
-            let channel_id = str_field(&value, "/broadcast/channel_id");
+            let channel_id = str_field(value, "/broadcast/channel_id");
             (!channel_id.is_empty()).then_some(Event::BookmarksChanged { channel_id })
         }
         "channel_member_updated" => nested::<ChannelMember>(&data, "channelMember").map(Event::MemberUpdated),
-        _ => None,
-    };
-
-    if let Some(event) = event {
-        match &event {
-            Event::Posted { post, .. } => ctx.ensure_users([post.user_id.clone()]).await,
-            Event::Typing { user_id, .. } => ctx.ensure_users([user_id.clone()]).await,
-            Event::ThreadUpdated { thread, .. } => {
-                let mut ids = vec![thread.post.user_id.clone()];
-                ids.extend(thread.participants.iter().map(|u| u.id.clone()));
-                ctx.ensure_users(ids).await;
-            }
-            _ => {}
+        // Lecture depuis un autre client (le serveur prévient toutes les
+        // sessions de l'utilisateur) : ancien et nouveau format.
+        "channel_viewed" => {
+            let channel_id = str_field(&data, "/channel_id");
+            let now = chrono::Utc::now().timestamp_millis();
+            (!channel_id.is_empty()).then(|| Event::ChannelsViewed(vec![(channel_id, now)]))
         }
-        ctx.emit(event).await;
+        "multiple_channels_viewed" => data.get("channel_times").and_then(Value::as_object).map(|times| {
+            Event::ChannelsViewed(times.iter().map(|(id, at)| (id.clone(), at.as_i64().unwrap_or(0))).collect())
+        }),
+        "post_unread" => {
+            let channel_id = match str_field(value, "/broadcast/channel_id") {
+                c if c.is_empty() => str_field(&data, "/channel_id"),
+                c => c,
+            };
+            let count = |k: &str| data.get(k).and_then(Value::as_i64).unwrap_or(0);
+            (!channel_id.is_empty()).then(|| Event::ChannelUnread {
+                channel_id,
+                last_viewed_at: count("last_viewed_at"),
+                mention_count: count("mention_count"),
+                mention_count_root: count("mention_count_root"),
+            })
+        }
+        _ => None,
     }
 }
 
@@ -1668,7 +1702,7 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::unique_path;
+    use super::{Event, unique_path, ws_event};
 
     #[test]
     fn unique_path_stays_in_dir_and_avoids_collisions() {
@@ -1679,5 +1713,20 @@ mod tests {
         std::fs::write(dir.join("a.txt"), "").unwrap();
         assert_eq!(unique_path(&dir, "a.txt"), dir.join("a (1).txt"));
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn lu_ou_non_lu_depuis_un_autre_client() {
+        let ev = |json: &str| ws_event(&serde_json::from_str(json).unwrap(), "moi");
+        let viewed = ev(r#"{"event":"multiple_channels_viewed","data":{"channel_times":{"c1":1700,"c2":1800}}}"#);
+        let Some(Event::ChannelsViewed(mut list)) = viewed else { panic!("{viewed:?}") };
+        list.sort();
+        assert_eq!(list, vec![("c1".to_string(), 1700), ("c2".to_string(), 1800)]);
+        let viewed = ev(r#"{"event":"channel_viewed","data":{"channel_id":"c3"}}"#);
+        assert!(matches!(viewed, Some(Event::ChannelsViewed(l)) if l.len() == 1 && l[0].0 == "c3"));
+        let unread = ev(r#"{"event":"post_unread","broadcast":{"channel_id":"c4"},
+            "data":{"last_viewed_at":1500,"mention_count":2,"mention_count_root":1,"msg_count":3}}"#);
+        assert!(matches!(unread, Some(Event::ChannelUnread { channel_id, last_viewed_at: 1500,
+            mention_count: 2, mention_count_root: 1 }) if channel_id == "c4"));
     }
 }

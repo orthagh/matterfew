@@ -2084,6 +2084,41 @@ impl ChatApp {
         cx.notify();
     }
 
+    /// Canaux lus ailleurs (client web, mobile) ou ici : plus de non-lus.
+    fn on_channels_viewed(&mut self, viewed: Vec<(String, i64)>) {
+        let mut other_team = false;
+        for (id, at) in viewed {
+            if at > 0 {
+                self.last_viewed.insert(id.clone(), at);
+            }
+            if self.manually_unread.as_deref() == Some(id.as_str()) {
+                self.manually_unread = None;
+            }
+            match self.channels.get_mut(&id) {
+                Some(state) => {
+                    state.unread_messages = false;
+                    state.mentions = 0;
+                }
+                None => other_team = true,
+            }
+        }
+        if other_team {
+            self.send(Command::LoadTeamUnreads);
+        }
+    }
+
+    /// Canal marqué non lu (ici ou ailleurs).
+    fn on_channel_unread(&mut self, channel_id: String, last_viewed_at: i64, mentions: i64) {
+        self.last_viewed.insert(channel_id.clone(), last_viewed_at);
+        match self.channels.get_mut(&channel_id) {
+            Some(state) => {
+                state.unread_messages = true;
+                state.mentions = mentions;
+            }
+            None => self.send(Command::LoadTeamUnreads),
+        }
+    }
+
     fn mark_category_read(&mut self, category_id: &str, cx: &mut Context<Self>) {
         let ids =
             self.categories.iter().find(|c| c.id == category_id).map(|c| c.channel_ids.clone()).unwrap_or_default();
@@ -3368,6 +3403,11 @@ impl ChatApp {
             }
             Event::ThreadFollow { thread_id, following } => self.on_thread_follow(thread_id, following),
             Event::MemberUpdated(member) => self.on_member_updated(member),
+            Event::ChannelsViewed(viewed) => self.on_channels_viewed(viewed),
+            Event::ChannelUnread { channel_id, last_viewed_at, mention_count, mention_count_root } => {
+                let mentions = if self.crt { mention_count_root } else { mention_count };
+                self.on_channel_unread(channel_id, last_viewed_at, mentions)
+            }
             Event::BrowseChannels { team_id, archived, channels } => {
                 self.on_browse_channels(team_id, archived, channels)
             }
