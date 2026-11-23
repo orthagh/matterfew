@@ -277,7 +277,10 @@ jobs:
             done
           fi
           # Contrôle : la clé signe sans rien demander.
-          echo test | gpg --batch --pinentry-mode error --local-user "$key" --sign > /dev/null
+          if ! echo test | gpg --batch --pinentry-mode error --local-user "$key" --sign > /dev/null; then
+            echo "::error::La clé GPG demande une phrase secrète : secret FLATPAK_GPG_PASSPHRASE absent ou faux."
+            exit 1
+          fi
           sh packaging/flatpak/repo.sh bundle/*.flatpak "$key" \
             "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" site
           echo "done=true" >> "$GITHUB_OUTPUT"
