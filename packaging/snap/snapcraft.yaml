@@ -1,16 +1,15 @@
-# Snap construit à partir de l'exécutable Linux compilé par la release
-# (déposé dans payload/ par le workflow). Version remplacée par celle du tag.
+# Snap built from the Linux executable compiled by the release workflow
+# (dropped into payload/ by that workflow). The version is replaced by the tag's.
 name: matterfew
 title: Matterfew
 version: '0.0.0'
-summary: Client de bureau Mattermost natif, en Rust avec GPUI
+summary: Native Mattermost desktop client, in Rust with GPUI
 description: |
-  Client de bureau pour Mattermost : rapide et léger, avec la recherche,
-  les fils, les notifications, l'éditeur Markdown et le thème de votre
-  serveur.
+  Desktop client for Mattermost: fast and lightweight, with search,
+  threads, notifications, a Markdown editor and your server's theme.
 license: MIT
 website: https://github.com/orthagh/matterfew
-base: core22
+base: core24
 grade: stable
 confinement: strict
 
@@ -29,14 +28,14 @@ apps:
       - password-manager-service
       - removable-media
 
+# No stage-packages on purpose: GTK, WebKitGTK and libxkbcommon-x11 come from
+# the gnome-46-2404 platform, and the whole graphics stack (Vulkan loader and
+# drivers, libdrm) from mesa-2404 through the extension's gpu-2404 plug. Staging
+# a copy of any of them shadows the platform's and breaks on newer GPUs.
 parts:
   matterfew:
     plugin: dump
     source: payload
-    stage-packages:
-      - libvulkan1
-      - mesa-vulkan-drivers
-      - libxkbcommon-x11-0
   desktop:
     plugin: dump
     source: gui
