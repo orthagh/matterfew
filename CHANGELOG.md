@@ -1,140 +1,84 @@
-# Journal des modifications
+# Changelog
 
-Les évolutions notables de chaque version. Format :
-[Keep a Changelog](https://keepachangelog.com/fr/1.1.0/), versions :
-[SemVer](https://semver.org/lang/fr/).
+Notable changes in each version. Format:
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versions:
+[SemVer](https://semver.org/).
 
-Pour publier une version : déplacer le contenu de « Non publié » sous un
-titre `## [x.y.z] - AAAA-MM-JJ`, mettre la même version dans `Cargo.toml`,
-puis pousser le tag `vx.y.z`. La release GitHub reprend cette section.
+To release: move the content of "Unreleased" under a
+`## [x.y.z] - YYYY-MM-DD` heading, set the same version in `Cargo.toml`,
+then push the `vx.y.z` tag. The GitHub release reuses that section.
 
-## [Non publié]
+## [Unreleased]
 
-### Ajouté
+### Added
 
-- Fenêtre « Paramètres » (menu du compte, Ctrl+Maj+A), en quatre onglets :
-  - Notifications : bureau (tous, mentions, rien), réponses dans les fils,
-    e-mail, son choisi parmi six (synthétisés, mêmes noms que le client
-    web), mots qui vous mentionnent, mots surlignés sans notifier,
-    réponse automatique en message direct ;
-  - Affichage : fils réduits, horloge 12 ou 24 heures, format des noms ;
-  - Barre latérale : canaux non lus regroupés, nombre de messages directs ;
-  - Avancé : envoi avec Ctrl+Entrée, barre de mise en forme.
-- Mots-clés surlignés dans les messages, comme les mentions.
-- « Ne pas déranger » avec une durée (30 min, 1 h, 2 h, jusqu'à demain
-  9 h, ou date et heure choisies), dans le menu du compte ; l'échéance
-  s'affiche sous votre nom.
-- Filtre « Non lus seulement » dans la barre latérale (bouton à côté de
-  « Aller à un canal », Ctrl+Maj+U).
-- « Fermer la conversation » sur un message direct ou de groupe : il
-  quitte la barre latérale et revient au prochain message.
-- Équipes : rejoindre une autre équipe ouverte, quitter une équipe,
-  paramètres de l'équipe (nom, description, ouverte à tous) depuis la
-  carte d'équipe.
-- Envoi de fichiers : pourcentage et barre de progression, annulation
-  par la croix ; 10 fichiers au plus par message et taille maximale du
-  serveur annoncées avant l'envoi.
-- Longueur des messages : compteur à l'approche de la limite du serveur,
-  envoi refusé au-delà (le texte reste dans la zone de saisie).
-- Aide à la mise en forme (bouton « ? » de la zone de saisie) : ce qu'on
-  écrit et ce qu'on obtient.
-- Panneau de droite agrandi (bouton de son en-tête, Ctrl+Maj+.).
-- Éditeur riche (bêta, Paramètres > Avancé) : la mise en forme s'affiche
-  pendant la saisie (gras, italique, code, liens, titres, citations,
-  listes, mentions), les marques Markdown restent visibles mais
-  estompées ; le message envoyé ne change pas.
-- Coloration syntaxique des blocs de code (environ 200 langages), aux
-  couleurs du thème clair ou sombre.
+- Settings window: notifications (with a choice of sounds), display,
+  sidebar and advanced options.
+- Keywords highlighted in messages, like mentions.
+- Do not disturb with a duration.
+- Sidebar filter for unread channels only.
+- Close a direct or group message.
+- Join and leave teams, edit team settings.
+- File uploads: progress, cancel, server limits shown before sending.
+- Message length counter and limit.
+- Formatting help in the composer.
+- Right panel can be widened.
+- Rich editor (beta): formatting shown while typing.
+- Syntax highlighting in code blocks.
+
+### Fixed
+
+- Snap: crash at startup on AMD GPUs.
 
 ## [0.2.0] - 2026-11-22
 
-### Modifié
+### Added
 
-- Bouton « + » de la barre latérale plus discret ; couleurs de présence
-  dans le menu des statuts ; pastille bleue pour les mentions des autres
-  équipes ; entrée « Fils » visible dès que le serveur gère les fils suivis.
+- Server links and `~channel` open in the app.
+- Paste images and files into a message.
+- New direct and group messages; browse public and archived channels.
+- Threads: follow or unfollow, team-wide Threads view.
+- Custom status, message reminders, forwarding.
+- Per-channel notification preferences.
+- Channel settings, bookmarks and member roles; rename and delete categories.
+- Search in a channel's files and links; PDF preview.
+- Retry, edit or discard a message that failed to send.
+- Confirmation before @channel, @all and @here; add a mentioned person to
+  the channel.
+- Direct messages: warning when the other person is away or in do not
+  disturb.
+- Recent emojis, "who reacted" tooltips, new message toasts.
+- Banner when the connection to the server is lost.
+- More keyboard shortcuts (list with Ctrl+/ or F1); send with Ctrl+Enter
+  when the server preference asks for it.
+- Accessibility: screen reader labels, F6 to move between input areas.
 
-- L'application s'appelle désormais **Matterfew** (dépôt
-  `orthagh/matterfew`). Réglages, cache et connexion enregistrés sous
-  l'ancien nom sont repris automatiquement au premier lancement.
+### Changed
 
-### Ajouté
-
-- Liens vers ce serveur (message, canal, message direct) et `~canal`
-  ouverts dans l'application plutôt que dans le navigateur.
-- Coller une image ou des fichiers (Ctrl+V) les joint au message.
-- Flèche ↑ dans une zone de saisie vide : modifier son dernier message.
-- Alt+↑/↓ : canal précédent ou suivant ; Alt+Maj+↑/↓ : canal non lu.
-- Suivre ou ne plus suivre un fil, depuis le menu d'un message.
-- « Me le rappeler » : dans 30 min, 1 h, 2 h ou demain.
-- Préférences de notification par canal : bureau (par défaut, tout,
-  mentions, jamais), sourdine, ignorer @channel/@here/@all, suivre
-  automatiquement les nouveaux fils. Synchronisées avec les autres appareils.
-- « Parcourir les canaux » : canaux publics à rejoindre et canaux archivés,
-  ouverts en lecture seule.
-- Nouveau message direct ou de groupe (jusqu'à 7 personnes), depuis le
-  bouton « + », la catégorie Messages directs ou Ctrl+Maj+K.
-- Statut personnalisé : emoji et texte à côté des noms (messages, membres,
-  messages directs, carte de profil) ; réglage avec suggestions et échéance.
-- Vue « Fils » de toute l'équipe en haut de la barre latérale, avec sa
-  pastille, l'onglet « Non lus » et « Tout marquer comme lu ».
-- Recherche dans les fichiers et liens d'un canal.
-- Transférer un message vers un canal ou une personne, avec un commentaire.
-- Infobulle « qui a réagi » sur les réactions.
-- Message non envoyé : réessayer, le modifier ou l'abandonner.
-- Envoi avec Ctrl+Entrée si la préférence du serveur le demande (Entrée
-  va alors à la ligne) ; dans un bloc de code, Entrée va à la ligne.
-- Confirmation avant @channel, @all ou @here dans un canal de plus de
-  5 personnes.
-- En message direct : avertissement si la personne est en « Ne pas
-  déranger », absente, ou s'il fait nuit chez elle.
-- Mention d'une personne absente du canal : bouton pour l'y ajouter.
-- Emojis récents : en tête du sélecteur et comme réactions rapides.
-- Toasts : « N nouveaux messages » en bas, « Nouveaux messages depuis… »
-  en haut de la liste.
-- Paramètres du canal : nom, adresse, passage en privé, archivage et
-  désarchivage.
-- Membres : nommer ou retirer un administrateur, retirer du canal (clic droit).
-- Catégories : renommer, supprimer (leurs canaux reviennent dans « Canaux »).
-- Raccourcis : aide (Ctrl+/ ou F1), Maj+↑ répondre au dernier message,
-  Maj+Échap tout marquer comme lu, Ctrl+Maj+M mentions, Ctrl+Maj+L zone de
-  saisie, Alt+←/→ historique des canaux, Ctrl+Alt+↑/↓ équipe.
-- Bandeau en haut de l'écran quand la connexion au serveur est perdue.
-- Signets de canal : barre de liens et de fichiers sous l'en-tête, ajout
-  d'un lien, suppression (clic droit), mise à jour en direct.
-- Aperçu des PDF dans la visionneuse (Windows : pages rendues par le
-  système ; ailleurs, ouverture avec l'application par défaut).
-- Accessibilité : boutons à icône nommés, canaux, équipes et messages lus
-  par les lecteurs d'écran, zones de l'écran annoncées, F6 pour passer
-  d'une zone de saisie à l'autre.
+- The app is now called **Matterfew** (`orthagh/matterfew`); settings, cache
+  and sign-in saved under the old name are picked up on first launch.
+- Sidebar and status menu polish.
 
 ## [0.1.0] - 2026-11-21
 
-Première version publique.
+First public release.
 
-### Ajouté
+### Added
 
-- Connexion par la page du serveur (GitLab, mot de passe, double
-  authentification), par e-mail ou par jeton ; mémorisée dans le trousseau
-  du système.
-- Barre latérale fidèle à Mattermost : catégories, tri, non-lus, favoris,
-  sourdine (aussi par catégorie), réorganisation par glisser-déposer,
-  pastilles colorées des canaux ; création de canaux et de catégories,
-  invitations.
-- Messages : Markdown, emojis Twemoji, réactions, fils, épinglés, enregistrés,
-  pièces jointes, aperçus de liens, intégrations, notifications de bots
-  regroupées sur une ligne, liens automatiques (plugin Autolink).
-- Recherche avec filtres proposés, étiquettes et historique ; mentions
-  récentes ; fichiers, médias et liens du canal ; sélecteur Ctrl+K.
-- Cartes de profil, d'équipe et panneau « À propos » du canal ; liste des
-  membres par rôle et statut.
-- Éditeur : mise en forme, aperçu, autocomplétion (personnes, canaux, emojis,
-  commandes « / » et leurs paramètres), correction orthographique (Windows).
-- Thème du serveur, dégradés, mise en page adaptée aux fenêtres étroites.
-- Windows : notifications, pastille de la barre des tâches, zone de
-  notification, une seule instance.
-- Cache local des derniers messages ; WebSocket fiable avec rattrapage.
-- Interface en anglais, français et portugais du Brésil (catalogues
-  `locales/*.yml`), langue du système détectée, `MM_LANG` pour la forcer.
-- CI (format, Clippy, tests sur Windows, Linux, macOS, audit des dépendances)
-  et installateurs sur tag (Windows, macOS, Linux snap et flatpak).
+- Sign-in through the server page (GitLab, password, two-factor
+  authentication), by email or by token, stored in the system keyring.
+- Mattermost-style sidebar: categories, sorting, unreads, favorites, mute,
+  drag and drop; create channels and invite people.
+- Messages: Markdown, emojis, reactions, threads, pinned and saved messages,
+  attachments, link previews, integrations.
+- Search with filters and history, recent mentions, Ctrl+K switcher.
+- Profile and team cards, channel info panel, member list.
+- Composer: formatting, preview, autocomplete (people, channels, emojis,
+  slash commands).
+- Server theme and a layout that adapts to narrow windows.
+- Windows: notifications, taskbar badge, tray icon, single instance, spell
+  check.
+- Local message cache and a WebSocket that catches up after a disconnect.
+- Interface in English, French and Brazilian Portuguese (`MM_LANG` forces
+  one).
+- Installers for Windows, macOS and Linux (snap and flatpak).
