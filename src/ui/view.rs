@@ -7,7 +7,7 @@ use gpui_kit::assets::IconName;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::component::menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, Sizable as _, StyledExt as _,
+    ActiveTheme as _, Icon, Sizable as _, StyledExt as _, TitleBar,
     avatar::Avatar,
     button::{Button, ButtonVariants as _},
     h_flex,
@@ -5578,10 +5578,22 @@ impl Render for ChatApp {
         }
         self.update_badge();
         self.apply_pending_text(window, cx);
-        match self.screen {
+        let content = match self.screen {
             Screen::Login | Screen::Connecting => self.render_login(cx).into_any_element(),
             Screen::Chat => self.render_chat(cx).into_any_element(),
+        };
+        // Some Wayland compositors (GNOME) draw no title bar for applications:
+        // when the window ends up client-decorated, draw ours. The frame and
+        // its resize edges already come from the kit's root view.
+        if cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Client { .. }) {
+            let title = div().text_sm().child(crate::desktop::window_title());
+            return v_flex()
+                .size_full()
+                .child(TitleBar::new().child(title))
+                .child(div().flex_1().min_h_0().child(content))
+                .into_any_element();
         }
+        content
     }
 }
 
