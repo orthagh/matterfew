@@ -10,6 +10,10 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+### Fixed
+
+- Some emoji names (`:unicorn_face:`, `:male-teacher:`) showed as text.
+
 ## [0.2.1] - 2026-11-23
 
 ### Added

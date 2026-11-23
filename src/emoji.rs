@@ -14,7 +14,20 @@ pub fn find(name: &str) -> Option<String> {
     }
     let by_name = |n: &str| {
         let wanted = n.replace(['_', '-'], " ");
-        emojis::iter().find(|e| e.name().eq_ignore_ascii_case(&wanted)).or_else(|| emojis::get_by_shortcode(n))
+        emojis::iter().find(|e| e.name().eq_ignore_ascii_case(&wanted)).or_else(|| emojis::get_by_shortcode(n)).or_else(
+            || {
+                // Noms d'emoji-data : « male-teacher » (« man_teacher »),
+                // « woman-raising-hand » (« woman_raising_hand »).
+                let alt = if let Some(rest) = n.strip_prefix("female-") {
+                    format!("woman_{rest}")
+                } else if let Some(rest) = n.strip_prefix("male-") {
+                    format!("man_{rest}")
+                } else {
+                    n.to_string()
+                };
+                emojis::get_by_shortcode(&alt.replace('-', "_"))
+            },
+        )
     };
     if let Some(e) = by_name(name) {
         return Some(e.as_str().to_string());
@@ -38,6 +51,12 @@ pub fn find(name: &str) -> Option<String> {
         {
             return Some(e.with_skin_tone(tone).unwrap_or(e).as_str().to_string());
         }
+    }
+    // Noms d'emoji-data repris par Mattermost : « unicorn_face » (« unicorn »).
+    if let Some(base) = name.strip_suffix("_face")
+        && let Some(e) = by_name(base)
+    {
+        return Some(e.as_str().to_string());
     }
     None
 }
@@ -218,6 +237,11 @@ mod tests {
         assert_eq!(lookup("rolling_on_the_floor_laughing"), "🤣");
         assert_eq!(lookup("rofl"), "🤣");
         assert_eq!(lookup("thumbsup_tone3"), "👍🏽");
+        assert_eq!(lookup("unicorn_face"), "🦄");
+        assert_eq!(lookup("male-teacher"), "👨‍🏫");
+        assert_eq!(lookup("male-teacher_medium_skin_tone"), "👨🏽‍🏫");
+        assert_eq!(lookup("female-technologist"), "👩‍💻");
+        assert_eq!(lookup("woman-raising-hand"), "🙋‍♀️");
         assert_eq!(lookup("inconnu_perso"), ":inconnu_perso:");
     }
 
