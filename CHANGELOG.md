@@ -31,6 +31,7 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Snap: crash at startup on AMD GPUs; login page that did not load.
 - Linux: "Log in via Mattermost" failed under Wayland.
 - Linux: no title bar under GNOME on Wayland.
+- Flatpak: built on the GNOME 51 runtime (47 reached end of life).
 
 ## [0.2.0] - 2026-11-22
 

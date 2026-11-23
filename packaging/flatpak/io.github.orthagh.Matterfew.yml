@@ -1,8 +1,8 @@
-# Flatpak construit à partir de l'exécutable Linux compilé par la release
-# (déposé à côté de ce manifeste par le workflow).
+# Flatpak built from the Linux executable compiled by the release workflow
+# (dropped next to this manifest by that workflow).
 app-id: io.github.orthagh.Matterfew
 runtime: org.gnome.Platform
-runtime-version: '47'
+runtime-version: '51'
 sdk: org.gnome.Sdk
 command: matterfew
 finish-args:
@@ -11,10 +11,10 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
-  # Trousseau (jeton de connexion) et notifications.
+  # Keyring (login token) and notifications.
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.freedesktop.Notifications
-  # Téléchargement des pièces jointes.
+  # Attachment downloads.
   - --filesystem=xdg-download
 modules:
   - name: matterfew
