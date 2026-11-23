@@ -10,6 +10,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-23
+
 ### Added
 
 - Settings window: notifications (with a choice of sounds), display,
