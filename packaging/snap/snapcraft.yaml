@@ -20,6 +20,9 @@ apps:
     extensions: [gnome]
     plugs:
       - network
+      # The desktop portal refuses proxy lookups to snaps without this plug,
+      # and WebKitGTK (the login window) cannot load anything without them.
+      - network-status
       - home
       - desktop
       - wayland
