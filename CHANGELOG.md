@@ -10,6 +10,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
 ### Added
 
 - Mouse back and forward buttons move through the channel history.
