@@ -10,6 +10,10 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+### Fixed
+
+- The profile beside a direct message lines up with the channel header.
+
 ## [0.3.0] - 2026-11-24
 
 ### Added

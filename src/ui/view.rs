@@ -52,6 +52,9 @@ const TEAM_BAR_WIDTH: f32 = 64.;
 const TEAM_BADGE_BLUE: Hsla = Hsla { h: 0.6, s: 0.85, l: 0.52, a: 1. };
 const THREAD_WIDTH: f32 = 440.;
 const AVATAR: f32 = 32.;
+/// Height of the channel header, bottom border included. The banner of the
+/// profile shown beside a direct message ends on the same line.
+const HEADER_HEIGHT: f32 = 62.;
 /// Left edge of the line that ties an inline thread together: under the
 /// middle of the avatar of its first message (rows have 20 px of padding).
 const THREAD_LINE: f32 = 20. + AVATAR / 2. - 1.;
@@ -2785,7 +2788,7 @@ impl ChatApp {
         });
 
         h_flex()
-            .h(px(62.))
+            .h(px(HEADER_HEIGHT))
             .flex_none()
             .px_5()
             .gap_3()
@@ -3287,7 +3290,7 @@ impl ChatApp {
         let time = u.time_zone().and_then(|tz| local_time(&tz));
         let entity = cx.entity();
         v_flex()
-            .child(div().h(px(60.)).bg(linear_gradient(
+            .child(div().h(px(HEADER_HEIGHT)).bg(linear_gradient(
                 120.,
                 linear_color_stop(p.sidebar_bg, 0.),
                 linear_color_stop(p.button_bg, 1.),
