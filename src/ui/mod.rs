@@ -648,6 +648,9 @@ impl ChatApp {
             // Retour sur la fenêtre : le canal affiché devient « lu ».
             cx.observe_window_activation(window, |this, window, cx| {
                 if window.is_window_active() {
+                    if let Some(hwnd) = this.hwnd {
+                        desktop::attention_seen(hwnd);
+                    }
                     this.mark_current_read();
                     cx.notify();
                 }

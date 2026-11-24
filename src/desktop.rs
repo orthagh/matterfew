@@ -255,6 +255,10 @@ mod windows_impl {
         }
     }
 
+    /// The window is active again. Nothing to do here: `FLASHW_TIMERNOFG`
+    /// already stops the flashing when the window comes to the foreground.
+    pub fn attention_seen(_hwnd: isize) {}
+
     pub fn hide_window(hwnd: isize) {
         unsafe {
             let _ = ShowWindow(to_hwnd(hwnd), SW_HIDE);
@@ -498,6 +502,12 @@ mod unix_impl {
         macos::bounce();
     }
 
+    /// The window is active again: the launcher stops asking for attention.
+    pub fn attention_seen(_hwnd: isize) {
+        #[cfg(target_os = "linux")]
+        linux::calm();
+    }
+
     pub fn hide_window(_hwnd: isize) {}
     pub fn show_window(_hwnd: isize) {}
 
@@ -604,6 +614,12 @@ mod unix_impl {
         pub fn urgent() {
             if let Some(tx) = launcher() {
                 let _ = tx.send(Update::Urgent(true));
+            }
+        }
+
+        pub fn calm() {
+            if let Some(tx) = launcher() {
+                let _ = tx.send(Update::Urgent(false));
             }
         }
 
