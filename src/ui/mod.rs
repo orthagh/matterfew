@@ -906,7 +906,12 @@ impl ChatApp {
     fn listen(&mut self, events: async_channel::Receiver<Event>, window: &mut Window, cx: &mut Context<Self>) {
         self._event_task = Some(cx.spawn_in(window, async move |this, cx| {
             while let Ok(event) = events.recv().await {
-                let alive = this.update_in(cx, |this, window, cx| this.on_event(event, window, cx));
+                let alive = this.update_in(cx, |this, window, cx| {
+                    this.on_event(event, window, cx);
+                    // Not left to `render` alone: a hidden window is not redrawn,
+                    // and that is exactly when the badge is looked at.
+                    this.update_badge();
+                });
                 if alive.is_err() {
                     break;
                 }

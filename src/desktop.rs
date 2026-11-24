@@ -536,8 +536,13 @@ mod unix_impl {
             "matterfew".to_string()
         }
 
-        /// Mise à jour de la pastille : (nombre, visible, urgent).
-        type Update = (i64, bool, bool);
+        /// Launcher entry update: the mention count, or the urgency flag alone.
+        /// The launcher merges the properties it receives, so an update only
+        /// carries what it changes.
+        enum Update {
+            Count(i64),
+            Urgent(bool),
+        }
 
         /// Les signaux D-Bus partent d'un fil dédié (sa propre boucle tokio et
         /// sa connexion au bus de session), pour ne jamais bloquer l'interface.
@@ -554,11 +559,17 @@ mod unix_impl {
                         };
                         rt.block_on(async move {
                             let Ok(conn) = zbus::Connection::session().await else { return };
-                            while let Ok((count, visible, urgent)) = rx.recv() {
+                            while let Ok(update) = rx.recv() {
                                 let mut props: HashMap<&str, zbus::zvariant::Value> = HashMap::new();
-                                props.insert("count", count.into());
-                                props.insert("count-visible", visible.into());
-                                props.insert("urgent", urgent.into());
+                                match update {
+                                    Update::Count(count) => {
+                                        props.insert("count", count.into());
+                                        props.insert("count-visible", (count > 0).into());
+                                    }
+                                    Update::Urgent(urgent) => {
+                                        props.insert("urgent", urgent.into());
+                                    }
+                                }
                                 let _ = conn
                                     .emit_signal(
                                         None::<&str>,
@@ -578,17 +589,21 @@ mod unix_impl {
 
         pub fn badge(mentions: i64, unread: bool, expired: bool) {
             if let Some(tx) = launcher() {
-                // Le lanceur n'affiche qu'un nombre : les mentions ; « 1 » pour
-                // une session expirée, rien pour de simples non-lus.
+                // The launcher only shows a number: the mentions; "1" for an
+                // expired session, nothing for plain unread channels.
                 let count = if expired { 1 } else { mentions };
-                let _ = tx.send((count, count > 0, false));
+                let _ = tx.send(Update::Count(count));
+                // Nothing left to read: the launcher stops asking for attention.
+                if count == 0 {
+                    let _ = tx.send(Update::Urgent(false));
+                }
                 let _ = unread;
             }
         }
 
         pub fn urgent() {
             if let Some(tx) = launcher() {
-                let _ = tx.send((0, false, true));
+                let _ = tx.send(Update::Urgent(true));
             }
         }
 
