@@ -418,7 +418,9 @@ const DISPLAY_NAME: &str = "Matterfew";
 /// Linux (GNOME, KDE…) et macOS.
 #[cfg(not(windows))]
 mod unix_impl {
-    use super::{ClickTarget, TrayAction, clicks_pipe, tray_pipe};
+    #[cfg(not(target_os = "linux"))]
+    use super::clicks_pipe;
+    use super::{ClickTarget, TrayAction, tray_pipe};
 
     /// Pas de fermeture vers la zone de notification hors Windows : fermer la
     /// fenêtre quitte l'application, comme la plupart des applications GNOME.
@@ -467,20 +469,17 @@ mod unix_impl {
 
     /// Notification du bureau ; un clic ouvre le canal (actions XDG sous
     /// Linux, Centre de notifications sous macOS).
+    #[cfg(target_os = "linux")]
+    pub fn show_notification(title: &str, body: &str, target: Option<ClickTarget>) -> anyhow::Result<()> {
+        linux::notify(title, body, target)
+    }
+
+    #[cfg(not(target_os = "linux"))]
     pub fn show_notification(title: &str, body: &str, target: Option<ClickTarget>) -> anyhow::Result<()> {
         let mut notification = notify_rust::Notification::new();
         notification.summary(title).body(body).appname(super::DISPLAY_NAME);
-        #[cfg(target_os = "linux")]
-        {
-            notification.action("default", &t!("tray.open"));
-            notification.hint(notify_rust::Hint::DesktopEntry(linux::desktop_entry()));
-            // Le son choisi dans les paramètres est joué par l'application.
-            notification.hint(notify_rust::Hint::SuppressSound(true));
-        }
         let handle = notification.show()?;
         if let Some(target) = target {
-            #[cfg(target_os = "linux")]
-            linux::remember_notification(&target.channel_id, handle.id());
             let sender = clicks_pipe().0.clone();
             std::thread::spawn(move || {
                 handle.wait_for_action(|action| {
@@ -544,8 +543,12 @@ mod unix_impl {
         use super::super::{TrayAction, tray_pipe};
         use crate::icons;
         use std::collections::HashMap;
-        use std::sync::mpsc::{Sender, channel};
-        use std::sync::{Mutex, OnceLock};
+        use std::sync::OnceLock;
+
+        use futures::StreamExt as _;
+        use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+
+        use super::super::{ClickTarget, clicks_pipe};
 
         /// Fichier `.desktop` de l'application, selon l'emballage.
         pub fn desktop_entry() -> String {
@@ -558,54 +561,109 @@ mod unix_impl {
             "matterfew".to_string()
         }
 
-        /// Launcher entry update: the mention count, or the urgency flag alone.
-        /// The launcher merges the properties it receives, so an update only
-        /// carries what it changes.
+        /// What the session bus thread is asked to do.
         enum Update {
+            /// Launcher entry: the mention count. The launcher merges the
+            /// properties it receives, so an update only carries what it changes.
             Count(i64),
+            /// Launcher entry: the urgency flag.
             Urgent(bool),
-            /// Not a launcher update, but it shares the thread's bus connection.
-            CloseNotification(u32),
+            Notify {
+                title: String,
+                body: String,
+                target: Option<ClickTarget>,
+            },
+            /// The channel was read: its notifications leave the desktop's list.
+            Close(String),
         }
 
-        /// Notifications still listed by the desktop, by channel.
-        fn open_notifications() -> &'static Mutex<HashMap<String, Vec<u32>>> {
-            static OPEN: OnceLock<Mutex<HashMap<String, Vec<u32>>>> = OnceLock::new();
-            OPEN.get_or_init(Default::default)
-        }
+        const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
+        const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
-        pub fn remember_notification(channel_id: &str, id: u32) {
-            let mut open = open_notifications().lock().unwrap_or_else(|e| e.into_inner());
-            open.entry(channel_id.to_string()).or_default().push(id);
+        pub fn notify(title: &str, body: &str, target: Option<ClickTarget>) -> anyhow::Result<()> {
+            let tx = bus().as_ref().ok_or_else(|| anyhow::anyhow!("no session bus thread"))?;
+            tx.send(Update::Notify { title: title.to_string(), body: body.to_string(), target })
+                .map_err(|_| anyhow::anyhow!("no session bus connection"))
         }
 
         /// The dock also counts the notifications left in the desktop's list,
         /// so a channel that was read takes its own back.
         pub fn close_notifications(channel_id: &str) {
-            let ids = open_notifications().lock().unwrap_or_else(|e| e.into_inner()).remove(channel_id);
-            if let (Some(ids), Some(tx)) = (ids, launcher()) {
-                for id in ids {
-                    let _ = tx.send(Update::CloseNotification(id));
+            if let Some(tx) = bus() {
+                let _ = tx.send(Update::Close(channel_id.to_string()));
+            }
+        }
+
+        /// The next signal of the notification service, forever pending once
+        /// the stream is gone.
+        async fn next_signal(signals: &mut Option<zbus::MessageStream>) -> zbus::Message {
+            loop {
+                match signals {
+                    Some(stream) => match stream.next().await {
+                        Some(Ok(message)) => return message,
+                        Some(Err(_)) => {}
+                        None => *signals = None,
+                    },
+                    None => std::future::pending::<()>().await,
                 }
             }
         }
 
-        /// Les signaux D-Bus partent d'un fil dédié (sa propre boucle tokio et
-        /// sa connexion au bus de session), pour ne jamais bloquer l'interface.
-        fn launcher() -> &'static Option<Sender<Update>> {
-            static SENDER: OnceLock<Option<Sender<Update>>> = OnceLock::new();
+        /// Everything sent to the session bus leaves from one dedicated thread
+        /// (its own tokio loop and connection), so the interface never waits.
+        /// One connection matters: the desktop reports the clicks on a
+        /// notification to the connection that sent it, and GNOME lets no
+        /// other connection close it.
+        fn bus() -> &'static Option<UnboundedSender<Update>> {
+            static SENDER: OnceLock<Option<UnboundedSender<Update>>> = OnceLock::new();
             SENDER.get_or_init(|| {
-                let (tx, rx) = channel::<Update>();
+                let (tx, mut rx) = unbounded_channel::<Update>();
                 let uri = format!("application://{}.desktop", desktop_entry());
                 std::thread::Builder::new()
-                    .name("launcher-entry".into())
+                    .name("session-bus".into())
                     .spawn(move || {
                         let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_all().build() else {
                             return;
                         };
                         rt.block_on(async move {
                             let Ok(conn) = zbus::Connection::session().await else { return };
-                            while let Ok(update) = rx.recv() {
+                            let rule = zbus::MatchRule::builder()
+                                .msg_type(zbus::message::Type::Signal)
+                                .interface(NOTIFICATIONS)
+                                .map(|rule| rule.build());
+                            let mut signals = match rule {
+                                Ok(rule) => zbus::MessageStream::for_match_rule(rule, &conn, None).await.ok(),
+                                Err(_) => None,
+                            };
+                            // Notifications still listed by the desktop.
+                            let mut open: HashMap<u32, ClickTarget> = HashMap::new();
+                            loop {
+                                let update = tokio::select! {
+                                    update = rx.recv() => match update {
+                                        Some(update) => update,
+                                        None => break,
+                                    },
+                                    message = next_signal(&mut signals) => {
+                                        let header = message.header();
+                                        match header.member().map(|member| member.as_str()) {
+                                            Some("ActionInvoked") => {
+                                                if let Ok((id, action)) = message.body().deserialize::<(u32, String)>()
+                                                    && action == "default"
+                                                    && let Some(target) = open.get(&id)
+                                                {
+                                                    let _ = clicks_pipe().0.try_send(target.clone());
+                                                }
+                                            }
+                                            Some("NotificationClosed") => {
+                                                if let Ok((id, _reason)) = message.body().deserialize::<(u32, u32)>() {
+                                                    open.remove(&id);
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                        continue;
+                                    }
+                                };
                                 let mut props: HashMap<&str, zbus::zvariant::Value> = HashMap::new();
                                 match update {
                                     Update::Count(count) => {
@@ -615,16 +673,55 @@ mod unix_impl {
                                     Update::Urgent(urgent) => {
                                         props.insert("urgent", urgent.into());
                                     }
-                                    Update::CloseNotification(id) => {
-                                        let _ = conn
+                                    Update::Notify { title, body, target } => {
+                                        let open_label = t!("tray.open").to_string();
+                                        let mut hints: HashMap<&str, zbus::zvariant::Value> = HashMap::new();
+                                        hints.insert("desktop-entry", desktop_entry().into());
+                                        // The sound chosen in the settings is played by the app.
+                                        hints.insert("suppress-sound", true.into());
+                                        let reply = conn
                                             .call_method(
-                                                Some("org.freedesktop.Notifications"),
-                                                "/org/freedesktop/Notifications",
-                                                Some("org.freedesktop.Notifications"),
-                                                "CloseNotification",
-                                                &id,
+                                                Some(NOTIFICATIONS),
+                                                NOTIFICATIONS_PATH,
+                                                Some(NOTIFICATIONS),
+                                                "Notify",
+                                                &(
+                                                    super::super::DISPLAY_NAME,
+                                                    0u32,
+                                                    "",
+                                                    title.as_str(),
+                                                    body.as_str(),
+                                                    vec!["default", open_label.as_str()],
+                                                    hints,
+                                                    -1i32,
+                                                ),
                                             )
                                             .await;
+                                        if let (Ok(reply), Some(target)) = (reply, target)
+                                            && let Ok(id) = reply.body().deserialize::<u32>()
+                                        {
+                                            open.insert(id, target);
+                                        }
+                                        continue;
+                                    }
+                                    Update::Close(channel_id) => {
+                                        let ids: Vec<u32> = open
+                                            .iter()
+                                            .filter(|(_, target)| target.channel_id == channel_id)
+                                            .map(|(id, _)| *id)
+                                            .collect();
+                                        for id in ids {
+                                            open.remove(&id);
+                                            let _ = conn
+                                                .call_method(
+                                                    Some(NOTIFICATIONS),
+                                                    NOTIFICATIONS_PATH,
+                                                    Some(NOTIFICATIONS),
+                                                    "CloseNotification",
+                                                    &id,
+                                                )
+                                                .await;
+                                        }
                                         continue;
                                     }
                                 }
@@ -646,7 +743,7 @@ mod unix_impl {
         }
 
         pub fn badge(mentions: i64, unread: bool, expired: bool) {
-            if let Some(tx) = launcher() {
+            if let Some(tx) = bus() {
                 // The launcher only shows a number: the mentions; "1" for an
                 // expired session, nothing for plain unread channels.
                 let count = if expired { 1 } else { mentions };
@@ -660,13 +757,13 @@ mod unix_impl {
         }
 
         pub fn urgent() {
-            if let Some(tx) = launcher() {
+            if let Some(tx) = bus() {
                 let _ = tx.send(Update::Urgent(true));
             }
         }
 
         pub fn calm() {
-            if let Some(tx) = launcher() {
+            if let Some(tx) = bus() {
                 let _ = tx.send(Update::Urgent(false));
             }
         }
@@ -785,6 +882,24 @@ mod unix_impl {
             NSApplication::sharedApplication(mtm)
                 .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
         }
+    }
+}
+
+/// Shows a real notification, then closes it as reading the channel does.
+/// Watch the session bus for `NotificationClosed` with reason 3:
+/// `cargo test -- --ignored notification_closes_when_read`.
+#[cfg(all(test, target_os = "linux"))]
+mod manual_tests_linux {
+    use super::ClickTarget;
+
+    #[test]
+    #[ignore = "shows a desktop notification"]
+    fn notification_closes_when_read() {
+        let target = ClickTarget { team_id: String::new(), channel_id: "probe-channel".into() };
+        super::show_notification("Matterfew", "Test notification, closes by itself", Some(target)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2500));
+        super::close_notifications("probe-channel");
+        std::thread::sleep(std::time::Duration::from_millis(1500));
     }
 }
 

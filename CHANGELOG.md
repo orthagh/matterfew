@@ -16,6 +16,9 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ### Fixed
 
+- Linux: notifications of a read channel are now really closed (GNOME only
+  lets the connection that sent a notification close it).
+- Flatpak: the launcher badge count was dropped by the sandbox.
 - The profile beside a direct message lines up with the channel header.
 
 ## [0.3.0] - 2026-11-24
