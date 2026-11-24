@@ -873,3 +873,23 @@ fn e2e_clic_sur_l_heure() {
         });
     }
 }
+
+#[test]
+fn e2e_molette_en_bas() {
+    // Tout en bas, la molette vers le bas ne fait pas apparaître « Aller au
+    // présent » ; vers le haut, la liste défile toujours.
+    use gpui_kit::{ScrollDelta, ScrollEvent};
+    let mut w = demo_app();
+    w.1.draw();
+    let at = point(px(600.), px(300.));
+    let wheel = |y: f32| ScrollEvent { position: at, delta: ScrollDelta::Lines(point(0., y)), ..Default::default() };
+    let scrolled_up = |w: &(TestApp, TestAppWindow<ChatApp>)| w.1.read(|a, cx| a.scroller.read(cx).is_scrolled_up());
+    for _ in 0..3 {
+        w.1.simulate_event(wheel(-3.));
+        w.1.draw();
+        assert!(!scrolled_up(&w));
+    }
+    w.1.simulate_event(wheel(3.));
+    w.1.draw();
+    assert!(scrolled_up(&w), "la molette vers le haut fait toujours défiler");
+}

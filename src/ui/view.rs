@@ -2964,6 +2964,7 @@ impl ChatApp {
                     // Pas d'espace imposé entre les lignes : chaque message gère le sien.
                     .with_row_style(StyleRefinement::default().pb(px(0.))),
                 )
+                .child(swallow_wheel_at_tail(self.scroller.clone()))
                 .children(toast)
                 .into_any_element()
         };
@@ -5955,6 +5956,37 @@ fn local(ms: i64) -> Option<chrono::DateTime<chrono::Local>> {
 
 fn day_of(ms: i64) -> Option<chrono::NaiveDate> {
     local(ms).map(|t| t.date_naive())
+}
+
+/// Calque sur la liste des messages : une molette vers le bas alors que la
+/// liste suit déjà le dernier message n'a rien à faire défiler, on l'arrête
+/// avant le rebond. Sinon, dans un long canal aux hauteurs encore estimées,
+/// le rebond repositionne la liste un peu au-dessus du bas, elle cesse de
+/// suivre et le bouton « Aller au présent » apparaît.
+fn swallow_wheel_at_tail(
+    scroller: Entity<gpui_kit::component::message_scroller::MessageScrollerState>,
+) -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let scroller = scroller.clone();
+            window.on_mouse_event(move |ev: &ScrollEvent, phase, _, cx| {
+                let down = match ev.delta {
+                    ScrollDelta::Lines(d) => d.y < 0.,
+                    ScrollDelta::Pixels(d) => d.y < px(0.),
+                };
+                if phase == DispatchPhase::Capture
+                    && down
+                    && bounds.contains(&ev.position)
+                    && scroller.read(cx).is_following_tail()
+                {
+                    cx.stop_propagation();
+                }
+            });
+        },
+    )
+    .absolute()
+    .size_full()
 }
 
 /// « 14:32 ».
