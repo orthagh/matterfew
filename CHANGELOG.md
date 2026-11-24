@@ -14,8 +14,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 - Channels read or marked unread in another client (web, mobile) now update here.
 - Some emoji names (`:unicorn_face:`, `:male-teacher:`) showed as text.
-- Linux: the launcher badge was not updated while the window was hidden, and
-  a new mention could clear it.
+- Linux: the launcher badge follows server events instead of redraws, and the
+  urgency hint no longer resets its count.
 
 ## [0.2.1] - 2026-11-23
 
