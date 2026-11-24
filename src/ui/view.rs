@@ -1503,11 +1503,17 @@ impl ChatApp {
                             // Tout tient dans le résumé : rien à déplier.
                             let expandable = bot_expandable(post, &summary, self.line_chars(pane));
                             let expanded = expandable && self.expanded_bots.contains(&post.id);
+                            // Colours guessed from the wording only suit code-host
+                            // notifications: elsewhere "closed" or "review" is plain prose.
+                            let code_host = self
+                                .users
+                                .get(&post.user_id)
+                                .is_some_and(|u| matches!(u.username.as_str(), "github" | "gitlab"));
                             let bar = color
                                 .as_deref()
                                 .and_then(rich::attachment_color)
                                 .and_then(crate::theme::parse_color)
-                                .or_else(|| notification_color(&post.message));
+                                .or_else(|| if code_host { notification_color(&post.message) } else { None });
                             let (entity, id) = (entity.clone(), post.id.clone());
                             let meta = h_flex()
                                 .flex_none()
