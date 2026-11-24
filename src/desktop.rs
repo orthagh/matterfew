@@ -474,6 +474,9 @@ mod unix_impl {
         linux::notify(title, body, target)
     }
 
+    #[cfg(target_os = "linux")]
+    pub use linux::activate_with_token;
+
     #[cfg(not(target_os = "linux"))]
     pub fn show_notification(title: &str, body: &str, target: Option<ClickTarget>) -> anyhow::Result<()> {
         let mut notification = notify_rust::Notification::new();
@@ -543,7 +546,8 @@ mod unix_impl {
         use super::super::{TrayAction, tray_pipe};
         use crate::icons;
         use std::collections::HashMap;
-        use std::sync::OnceLock;
+        use std::sync::{Mutex, OnceLock};
+        use std::time::{Duration, Instant};
 
         use futures::StreamExt as _;
         use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -575,6 +579,115 @@ mod unix_impl {
             },
             /// The channel was read: its notifications leave the desktop's list.
             Close(String),
+        }
+
+        /// The activation token of the last notification click, and when it came.
+        fn activation_token() -> &'static Mutex<Option<(String, Instant)>> {
+            static TOKEN: Mutex<Option<(String, Instant)>> = Mutex::new(None);
+            &TOKEN
+        }
+
+        /// Brings the window forward after a notification click, on Wayland.
+        ///
+        /// A Wayland compositor only gives focus to a window that shows a token
+        /// tied to a user action. GPUI asks for one of its own, which is refused
+        /// when the click happened in the desktop's notification: the window
+        /// stays behind. The desktop sends a valid token with the click, so it
+        /// is handed to the compositor here, over GPUI's own connection.
+        ///
+        /// Returns false when there is no fresh token or no Wayland window, and
+        /// GPUI's activation is all there is.
+        pub fn activate_with_token(window: &gpui_kit::Window) -> bool {
+            use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
+
+            let token = activation_token().lock().unwrap_or_else(|e| e.into_inner()).take();
+            let Some((token, at)) = token else { return false };
+            if at.elapsed() > Duration::from_secs(10) {
+                return false;
+            }
+            // GPUI's own `window_handle` is another thing: name the trait.
+            let (Ok(display), Ok(surface)) =
+                (HasDisplayHandle::display_handle(window), HasWindowHandle::window_handle(window))
+            else {
+                return false;
+            };
+            let (RawDisplayHandle::Wayland(display), RawWindowHandle::Wayland(surface)) =
+                (display.as_raw(), surface.as_raw())
+            else {
+                return false;
+            };
+            // SAFETY: both pointers come from GPUI's live window on this, the
+            // UI thread, where GPUI makes all its own Wayland calls.
+            unsafe { wayland::activate(display.display.as_ptr(), surface.surface.as_ptr(), token) }.is_some()
+        }
+
+        mod wayland {
+            use std::cell::RefCell;
+            use std::ffi::c_void;
+            use std::mem::ManuallyDrop;
+
+            use wayland_client::backend::{Backend, ObjectId};
+            use wayland_client::globals::{GlobalListContents, registry_queue_init};
+            use wayland_client::protocol::{wl_registry::WlRegistry, wl_surface::WlSurface};
+            use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
+            use wayland_protocols::xdg::activation::v1::client::xdg_activation_v1::XdgActivationV1;
+
+            struct State;
+
+            impl Dispatch<WlRegistry, GlobalListContents> for State {
+                fn event(
+                    _: &mut Self,
+                    _: &WlRegistry,
+                    _: <WlRegistry as Proxy>::Event,
+                    _: &GlobalListContents,
+                    _: &Connection,
+                    _: &QueueHandle<Self>,
+                ) {
+                }
+            }
+
+            impl Dispatch<XdgActivationV1, ()> for State {
+                fn event(
+                    _: &mut Self,
+                    _: &XdgActivationV1,
+                    _: <XdgActivationV1 as Proxy>::Event,
+                    _: &(),
+                    _: &Connection,
+                    _: &QueueHandle<Self>,
+                ) {
+                }
+            }
+
+            type Handle = (Connection, EventQueue<State>, XdgActivationV1);
+
+            thread_local! {
+                /// Our own event queue on GPUI's display, made once (a registry
+                /// cannot be destroyed) and never dropped: at exit GPUI may
+                /// already have closed the display under it.
+                static HANDLE: RefCell<Option<ManuallyDrop<Handle>>> = const { RefCell::new(None) };
+            }
+
+            /// # Safety
+            /// `display` and `surface` are the live `wl_display` and
+            /// `wl_surface` of a window of this thread.
+            pub unsafe fn activate(display: *mut c_void, surface: *mut c_void, token: String) -> Option<()> {
+                HANDLE.with(|handle| {
+                    let mut handle = handle.borrow_mut();
+                    if handle.is_none() {
+                        let backend = unsafe { Backend::from_foreign_display(display.cast()) };
+                        let conn = Connection::from_backend(backend);
+                        let (globals, queue) = registry_queue_init::<State>(&conn).ok()?;
+                        let activation: XdgActivationV1 = globals.bind(&queue.handle(), 1..=1, ()).ok()?;
+                        *handle = Some(ManuallyDrop::new((conn, queue, activation)));
+                    }
+                    let (conn, queue, activation) = &mut **handle.as_mut()?;
+                    let _ = queue.dispatch_pending(&mut State);
+                    let id = unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.cast()) }.ok()?;
+                    let surface = WlSurface::from_id(conn, id).ok()?;
+                    activation.activate(token, &surface);
+                    conn.flush().ok()
+                })
+            }
         }
 
         const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
@@ -652,6 +765,14 @@ mod unix_impl {
                                                     && let Some(target) = open.get(&id)
                                                 {
                                                     let _ = clicks_pipe().0.try_send(target.clone());
+                                                }
+                                            }
+                                            // Sent right before the click itself.
+                                            Some("ActivationToken") => {
+                                                if let Ok((_id, token)) = message.body().deserialize::<(u32, String)>() {
+                                                    let mut slot =
+                                                        activation_token().lock().unwrap_or_else(|e| e.into_inner());
+                                                    *slot = Some((token, Instant::now()));
                                                 }
                                             }
                                             Some("NotificationClosed") => {

@@ -106,6 +106,12 @@ notify-rust = "4"
 [target.'cfg(target_os = "linux")'.dependencies]
 ksni = { version = "0.3", features = ["blocking"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+# Wayland: a notification click brings the window forward with the activation
+# token the desktop hands out, which GPUI has no way to take.
+raw-window-handle = "0.6"
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 
 # macOS : pastille et rebond de l'icône du Dock, icône de la barre des menus.
 [target.'cfg(target_os = "macos")'.dependencies]

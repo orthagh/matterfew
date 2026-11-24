@@ -865,6 +865,12 @@ impl ChatApp {
         if let Some(hwnd) = self.hwnd {
             desktop::show_window(hwnd);
         }
+        // Wayland: after a notification click, only the desktop's own token
+        // lets the window come forward.
+        #[cfg(target_os = "linux")]
+        if desktop::activate_with_token(window) {
+            return;
+        }
         window.activate_window();
     }
 
