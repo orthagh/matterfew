@@ -587,6 +587,12 @@ impl ChatApp {
                     this.connect(window, cx);
                 }
             }),
+            // Enter in the server field: the main button of the login screen.
+            cx.subscribe_in(&url_input, window, |this, _, ev: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter { .. } = ev {
+                    this.login_browser(window, cx);
+                }
+            }),
             cx.subscribe_in(&password_input, window, |this, _, ev: &InputEvent, window, cx| {
                 if let InputEvent::PressEnter { .. } = ev {
                     this.login_password(window, cx);

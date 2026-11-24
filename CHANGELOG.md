@@ -15,11 +15,18 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Mouse back and forward buttons move through the channel history.
 - Clicking the text of a message opens its thread, unless "Click to open
   threads" is turned off in the display settings.
-- With threads shown in the channel, the messages of a thread share a rail,
-  and a reply away from its thread names the message it answers.
+- With threads shown in the channel, replies sit on a panel along a thread
+  line, and a run of replies away from its thread starts with the message
+  it answers.
+
+### Changed
+
+- Own messages keep their tint but no longer have a vertical bar, which now
+  only marks threads.
 
 ### Fixed
 
+- Enter in the server field of the login screen starts the login.
 - Quoted message previews keep their Markdown formatting.
 - Linux: bold text and unread channels were not bold when the system font is
   a variable font (Ubuntu Sans, Cantarell).
@@ -27,7 +34,6 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
   launcher badge no longer lingers.
 - Bot messages other than GitHub or GitLab notifications no longer get a
   colour guessed from their wording.
-
 - Channels read or marked unread in another client (web, mobile) now update here.
 - Some emoji names (`:unicorn_face:`, `:male-teacher:`) showed as text.
 - Linux: the launcher badge follows server events instead of redraws, and the

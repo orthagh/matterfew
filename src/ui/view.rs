@@ -53,6 +53,8 @@ const AVATAR: f32 = 32.;
 /// Left edge of the line that ties an inline thread together: under the
 /// middle of the avatar of its first message (rows have 20 px of padding).
 const THREAD_LINE: f32 = 20. + AVATAR / 2. - 1.;
+/// Space left above and below a run of inline replies, outside its panel.
+const THREAD_GAP: f32 = 10.;
 const BODY_TEXT: f32 = 14.5;
 
 impl ChatApp {
@@ -1268,8 +1270,9 @@ impl ChatApp {
             body
         };
 
-        // Inline threads, in the header: a lone reply names the message it
-        // answers, and a message with replies shows how many.
+        // Inline threads: a lone reply shows, above itself, the message it
+        // answers. That chip is where its stretch of the thread line starts,
+        // so the line does not seem to come from the message just above.
         let reply_chip = lone_reply.then(|| {
             let label = match list.iter().map(|v| &v.post).find(|r| r.id == post.root_id) {
                 Some(root) => {
@@ -1282,8 +1285,10 @@ impl ChatApp {
             let (entity, root) = (entity.clone(), post.root_id.clone());
             div()
                 .id(key("reply-to"))
-                .min_w_0()
-                .max_w(px(280.))
+                .absolute()
+                .left(px(THREAD_LINE + 14.))
+                .top(px(if lone_reply { THREAD_GAP } else { 0. } + 2.))
+                .max_w(px(460.))
                 .truncate()
                 .px_1p5()
                 .rounded(px(4.))
@@ -1310,24 +1315,66 @@ impl ChatApp {
                     entity.update(cx, |this, cx| this.open_thread(root.clone(), window, cx));
                 })
         });
-        let header = header.children(reply_chip).children(thread_count);
+        // A message with replies shows how many, in its header.
+        let header = header.children(thread_count);
         // The thread line starts under the avatar of the first message and
-        // runs along the replies, which are indented just right of it. A
-        // reply away from its thread starts its own stretch a little lower.
-        let line = |top: f32| {
-            let color = p.link.opacity(0.6);
-            div().absolute().left(px(THREAD_LINE)).top(px(top)).bottom_0().w(px(2.)).bg(color)
+        // runs along the replies, which are indented just right of it. For a
+        // lone reply it starts at the chip instead, through a small elbow.
+        // A run of replies is a block of its own: it stands a little apart
+        // from the messages around it (`THREAD_GAP`) on a faint panel.
+        let inset = in_thread && post.is_reply();
+        let run_end = inset && list.get(ix + 1).is_none_or(|v| v.post.root_id != post.root_id);
+        let (gap_top, gap_bottom) = (if lone_reply { THREAD_GAP } else { 0. }, if run_end { THREAD_GAP } else { 0. });
+        let line_color = p.link.opacity(0.85);
+        let line = |top: f32, bottom: f32| {
+            div().absolute().left(px(THREAD_LINE)).top(px(top)).bottom(px(bottom)).w(px(2.)).bg(line_color)
         };
         let next_in_thread = list.get(ix + 1).is_some_and(|v| v.post.root_id == post.id);
         let rail = if !in_thread {
             None
         } else if post.is_reply() {
-            Some(line(if follows_thread { 0. } else { 8. }))
+            Some(line(if follows_thread { 0. } else { gap_top + 22. }, gap_bottom))
         } else if next_in_thread && !compact {
-            Some(line(AVATAR + 20.))
+            Some(line(AVATAR + 20., 0.))
         } else {
             None
         };
+        let elbow = lone_reply.then(|| {
+            div()
+                .absolute()
+                .left(px(THREAD_LINE))
+                .top(px(gap_top + 11.))
+                .w(px(12.))
+                .h(px(11.))
+                .border_l_2()
+                .border_t_2()
+                .rounded_tl(px(6.))
+                .border_color(line_color)
+        });
+        // In a thread, the row colours (mine, mention, edition, hover) start
+        // at the line instead of running to the edge of the window.
+        let tint = if being_edited {
+            p.away.opacity(0.12)
+        } else if highlighted {
+            p.mention_highlight_bg.opacity(0.18)
+        } else if mine {
+            p.button_bg.opacity(0.09)
+        } else {
+            p.center_color.opacity(0.04)
+        };
+        let backdrop = inset.then(|| {
+            div()
+                .absolute()
+                .left(px(THREAD_LINE + 2.))
+                .right_0()
+                // Under the chip, which stays outside the panel.
+                .top(px(if lone_reply { gap_top + 26. } else { 0. }))
+                .bottom(px(gap_bottom))
+                .when(lone_reply, |el| el.rounded_tr(px(6.)))
+                .when(run_end, |el| el.rounded_br(px(6.)))
+                .bg(tint)
+                .when(!highlighted && !being_edited, |el| el.group_hover(group.clone(), |s| s.bg(p.hover())))
+        });
 
         // Réactions : cliquer sur une pastille ajoute ou retire la sienne.
         let reactions = group_reactions(&post.metadata.reactions, me);
@@ -1474,21 +1521,25 @@ impl ChatApp {
             .gap_3()
             .w_full()
             .px_5()
-            .when(in_thread && post.is_reply(), |el| el.pl(px(THREAD_LINE + 14.)))
+            .when(inset, |el| el.pl(px(THREAD_LINE + 14.)))
+            .children(backdrop)
             .children(rail)
+            .children(elbow)
+            .children(reply_chip)
             .map(|el| match (bot_block, run_prev) {
                 (true, true) => el,
                 (true, false) => el.pt_2(),
                 (false, _) if !compact => el.pt_3(),
                 _ => el,
             })
+            // Room for the chip that names the message a lone reply answers.
+            .when(lone_reply, |el| el.pt(px(gap_top + 30.)))
             .when(!(bot_block && run_next), |el| el.pb_1())
-            .when(mine && !highlighted, |el| el.bg(p.button_bg.opacity(0.05)))
-            // In a thread the line is the only vertical mark: no border of my own.
-            .when(mine && !highlighted && !in_thread, |el| el.border_l_2().border_color(p.button_bg.opacity(0.55)))
-            .when(highlighted, |el| el.bg(p.mention_highlight_bg.opacity(0.18)))
-            .when(being_edited, |el| el.bg(p.away.opacity(0.12)))
-            .when(!highlighted && !being_edited, |el| el.hover(|s| s.bg(p.hover())))
+            .when(run_end, |el| el.pb(px(gap_bottom + 6.)))
+            .when(mine && !highlighted && !inset, |el| el.bg(p.button_bg.opacity(0.05)))
+            .when(highlighted && !inset, |el| el.bg(p.mention_highlight_bg.opacity(0.18)))
+            .when(being_edited && !inset, |el| el.bg(p.away.opacity(0.12)))
+            .when(!highlighted && !being_edited && !inset, |el| el.hover(|s| s.bg(p.hover())))
             .child(left)
             .child(
                 v_flex()
