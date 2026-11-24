@@ -791,3 +791,49 @@ fn e2e_lu_ailleurs() {
         assert_eq!(a.channels[&id].mentions, 2);
     });
 }
+
+/// Linux: text selected with the mouse becomes the primary selection, and a
+/// middle click pastes the one of any application.
+#[cfg(target_os = "linux")]
+#[test]
+fn e2e_primary_selection_and_middle_click() {
+    use gpui_kit::{ClipboardItem, MouseButton};
+
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.composer.update(cx, |s, cx| {
+            s.set_value("bonjour", window, cx);
+            s.focus(window, cx);
+        });
+    });
+    w.1.simulate_keystroke("ctrl-a");
+    // The test window only knows what is under the pointer once it has moved
+    // and a frame was drawn.
+    let (messages, composer) = w.1.update(|_, window, _| {
+        let size = window.viewport_size();
+        (point(size.width / 2., size.height / 2.), point(size.width / 2., size.height - px(60.)))
+    });
+    let primary =
+        |w: &(TestApp, TestAppWindow<ChatApp>)| w.0.read(|cx| cx.read_from_primary().and_then(|item| item.text()));
+
+    // Releasing the button publishes what is selected.
+    w.1.simulate_mouse_move(messages);
+    w.1.draw();
+    w.1.simulate_mouse_up(messages, MouseButton::Left);
+    w.0.run_until_parked();
+    assert_eq!(primary(&w).as_deref(), Some("bonjour"));
+
+    // Another application selects text; a middle click in the composer pastes it.
+    w.0.update(|cx| cx.write_to_primary(ClipboardItem::new_string(" monde".into())));
+    w.1.simulate_keystroke("end");
+    w.1.simulate_mouse_move(composer);
+    w.1.draw();
+    w.1.simulate_mouse_down(composer, MouseButton::Middle);
+    w.0.run_until_parked();
+    w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value().as_ref(), "bonjour monde"));
+
+    // A click that selects nothing new leaves the other application's selection alone.
+    w.1.simulate_mouse_up(composer, MouseButton::Left);
+    w.0.run_until_parked();
+    assert_eq!(primary(&w).as_deref(), Some(" monde"));
+}

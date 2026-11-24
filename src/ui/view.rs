@@ -2178,6 +2178,19 @@ impl ChatApp {
                     cx.stop_propagation();
                 }
             }))
+            // Linux: a middle click pastes the primary selection.
+            .on_mouse_down(
+                MouseButton::Middle,
+                cx.listener(move |this, _, window, cx| {
+                    if let Some(text) = primary_text(cx) {
+                        this.composer_for(pane).update(cx, |state, cx| {
+                            state.focus(window, cx);
+                            state.insert(text, window, cx);
+                        });
+                        cx.stop_propagation();
+                    }
+                }),
+            )
             .capture_action(cx.listener(move |this, _: &MoveDown, window, cx| this.ac_action(pane, "down", window, cx)))
             .capture_action(cx.listener(move |this, _: &Enter, window, cx| this.ac_action(pane, "enter", window, cx)))
             .capture_action(
@@ -3116,6 +3129,11 @@ impl ChatApp {
             }))
             .on_drop(cx.listener(|this, _: &SidebarResize, _, _| this.end_resize()))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.end_resize()))
+            .capture_any_mouse_up(cx.listener(|this, ev: &MouseUpEvent, window, cx| {
+                if ev.button == MouseButton::Left {
+                    this.selection_to_primary(window, cx);
+                }
+            }))
             // Mouse side buttons: channel history, like Alt+←/→.
             .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, window, cx| {
                 if let MouseButton::Navigate(direction) = ev.button {
@@ -4074,7 +4092,25 @@ impl ChatApp {
                     } else {
                         p.muted()
                     }))
-                    .child(div().flex_1().min_w_0().child(Input::new(&self.search_input).appearance(false).small()))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            // Linux: a middle click pastes the primary selection.
+                            .on_mouse_down(
+                                MouseButton::Middle,
+                                cx.listener(|this, _, window, cx| {
+                                    if let Some(text) = primary_text(cx) {
+                                        this.search_input.update(cx, |state, cx| {
+                                            state.focus(window, cx);
+                                            state.insert(text, window, cx);
+                                        });
+                                        cx.stop_propagation();
+                                    }
+                                }),
+                            )
+                            .child(Input::new(&self.search_input).appearance(false).small()),
+                    )
                     .when(!open && empty, |el| {
                         el.child(
                             div()
@@ -6142,6 +6178,16 @@ fn extract_urls(text: &str) -> Vec<String> {
 struct TagData {
     hashtag: bool,
     value: String,
+}
+
+/// Text of the primary selection: what was last selected with the mouse, in
+/// any application. Linux only.
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+fn primary_text(cx: &App) -> Option<String> {
+    #[cfg(target_os = "linux")]
+    return cx.read_from_primary().and_then(|item| item.text()).filter(|text| !text.is_empty());
+    #[cfg(not(target_os = "linux"))]
+    None
 }
 
 type DiffHighlighter = dyn Fn(&CodeBlock) -> Vec<(Range<usize>, HighlightStyle)> + Send + Sync;

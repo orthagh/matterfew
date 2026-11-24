@@ -13,6 +13,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 ### Added
 
 - The Unreads section of the sidebar can be collapsed, like a category.
+- Linux: text selected with the mouse is pasted by a middle click, in the
+  message box and the search field too.
 
 ### Fixed
 

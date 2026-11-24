@@ -382,6 +382,9 @@ pub struct ChatApp {
     nav_jumping: bool,
     /// Canal dont on a fermé le toast « Nouveaux messages depuis… ».
     unread_toast_closed: Option<String>,
+    /// Text last handed to the primary selection (Linux), so that a click
+    /// elsewhere does not take the selection back from another application.
+    primary_selection: String,
     search_input: Entity<InputState>,
     /// Sélecteur de canaux (Ctrl+K) ouvert, avec la ligne choisie.
     switcher: Option<usize>,
@@ -750,6 +753,7 @@ impl ChatApp {
             channel_teams: HashMap::new(),
             pending_jump: None,
             threads: None,
+            primary_selection: String::new(),
             search_input,
             switcher: None,
             switcher_input,
@@ -779,8 +783,9 @@ impl ChatApp {
             root_focus: cx.focus_handle(),
             settings,
             resizing: false,
-            hwnd: desktop::hwnd(window),
-            tray: Tray::new(),
+            // Tests leave the real desktop alone: no launcher badge, no tray icon.
+            hwnd: if cfg!(test) { None } else { desktop::hwnd(window) },
+            tray: if cfg!(test) { None } else { Tray::new() },
             badge: (0, false, false),
             session_expired: false,
             statuses: HashMap::new(),
@@ -1854,6 +1859,42 @@ impl ChatApp {
                 self.focus_composer(window, cx);
             }
             _ => self.send(Command::OpenChannelLink { team_name: team, channel_name: name }),
+        }
+    }
+
+    /// Linux: text selected with the mouse becomes the primary selection,
+    /// which a middle click pastes in any application.
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+    fn selection_to_primary(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        #[cfg(target_os = "linux")]
+        {
+            let entity = cx.entity();
+            // Once the event is over: the text has finished its selection by then.
+            window.defer(cx, move |window, cx| {
+                let mut text = gpui_kit::base::TextSelection::selected_text(window, cx);
+                if text.trim().is_empty() {
+                    let this = entity.read(cx);
+                    let composers = [Pane::Channel, Pane::Thread].map(|pane| this.composer_for(pane));
+                    text = composers
+                        .iter()
+                        .map(|composer| composer.read(cx))
+                        .find(|state| state.focus_handle(cx).is_focused(window))
+                        .map(|state| state.selected_value().to_string())
+                        .or_else(|| {
+                            let search = this.search_input.read(cx);
+                            search.focus_handle(cx).is_focused(window).then(|| search.selected_value().to_string())
+                        })
+                        .unwrap_or_default();
+                }
+                entity.update(cx, |this, cx| {
+                    if text.trim().is_empty() {
+                        this.primary_selection.clear();
+                    } else if this.primary_selection != text {
+                        cx.write_to_primary(ClipboardItem::new_string(text.clone()));
+                        this.primary_selection = text;
+                    }
+                });
+            });
         }
     }
 
