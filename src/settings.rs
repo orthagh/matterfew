@@ -27,6 +27,8 @@ pub struct UiSettings {
     pub rich_editor: bool,
     /// Rechercher les nouvelles versions de l'application.
     pub check_updates: bool,
+    /// The Unreads section of the sidebar is collapsed.
+    pub unreads_collapsed: bool,
 }
 
 impl Default for UiSettings {
@@ -40,6 +42,7 @@ impl Default for UiSettings {
             show_formatting: false,
             rich_editor: false,
             check_updates: true,
+            unreads_collapsed: false,
         }
     }
 }

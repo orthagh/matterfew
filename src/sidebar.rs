@@ -67,15 +67,19 @@ impl SidebarPrefs {
     }
 }
 
-/// Une section affichée dans la barre latérale.
+/// Id of the Unreads section, which is not a server category.
+pub const UNREADS: &str = "unreads";
+
+/// A section shown in the sidebar.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Section {
-    /// Identifiant de la catégorie, ou `"unreads"` pour la section Non lus.
+    /// Id of the category, or [`UNREADS`].
     pub id: String,
     pub title: String,
-    /// La section peut être repliée (pas la section Non lus).
     pub collapsible: bool,
     pub collapsed: bool,
+    /// Channels of the section, including the ones a collapsed section hides.
+    pub total: usize,
     pub channel_ids: Vec<String>,
 }
 
@@ -89,6 +93,9 @@ pub struct Input<'a, F: Fn(&Channel) -> String> {
     pub sticky_unread: Option<&'a str>,
     /// Filtre « Non lus seulement » (Ctrl+Maj+U).
     pub unread_only: bool,
+    /// The Unreads section is collapsed (kept locally: the server has no
+    /// such setting).
+    pub unreads_collapsed: bool,
     /// Conversations directes fermées (masquées sauf non lues ou ouvertes).
     pub closed: &'a HashSet<String>,
     pub title: F,
@@ -111,11 +118,17 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
         ids.sort_by_key(|x| std::cmp::Reverse(x.channel.recency()));
         in_unreads = ids.iter().map(|c| c.channel.id.clone()).collect();
         if !ids.is_empty() {
+            let total = ids.len();
+            // Collapsed, only the open channel stays, as in a category.
+            if input.unreads_collapsed {
+                ids.retain(|c| is_current(&c.channel.id));
+            }
             sections.push(Section {
-                id: "unreads".into(),
+                id: UNREADS.into(),
                 title: t!("sidebar.unreads").into(),
-                collapsible: false,
-                collapsed: false,
+                collapsible: true,
+                collapsed: input.unreads_collapsed,
+                total,
                 channel_ids: ids.into_iter().map(|c| c.channel.id.clone()).collect(),
             });
         }
@@ -166,6 +179,7 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
             });
         }
 
+        let total = members.len();
         if category.collapsed {
             members.retain(|c| is_unread(&c.channel.id) || is_current(&c.channel.id));
         }
@@ -180,6 +194,7 @@ pub fn build<F: Fn(&Channel) -> String>(input: &Input<'_, F>) -> Vec<Section> {
             title: category_title(category),
             collapsible: true,
             collapsed: category.collapsed,
+            total,
             channel_ids: members.into_iter().map(|c| c.channel.id.clone()).collect(),
         });
     }
@@ -310,6 +325,7 @@ mod tests {
             current,
             sticky_unread: None,
             unread_only,
+            unreads_collapsed: false,
             closed,
             title: |c: &Channel| c.display_name.clone(),
         })
@@ -380,9 +396,40 @@ mod tests {
         .into();
         let prefs = SidebarPrefs { show_unread_section: true, dm_limit: 40 };
         let s = run(&channels, &[category("x", "channels", "alpha", &["a", "b", "c", "d"])], &prefs, None);
-        assert_eq!(s[0].id, "unreads");
+        assert_eq!(s[0].id, UNREADS);
         assert_eq!(s[0].channel_ids, ["b", "a"]); // par activité récente
         assert_eq!(s[1].channel_ids, ["d", "c"]);
+    }
+
+    #[test]
+    fn collapsed_unread_section_keeps_only_the_open_channel() {
+        let channels: HashMap<_, _> = [
+            state(channel("a", "O", "a", 1), true, 0, false),
+            state(channel("b", "O", "b", 5), true, 0, false),
+            state(channel("c", "O", "c", 1), false, 0, false),
+        ]
+        .into();
+        let prefs = SidebarPrefs { show_unread_section: true, dm_limit: 40 };
+        let categories = [category("x", "channels", "alpha", &["a", "b", "c"])];
+        let build_with = |current| {
+            build(&Input {
+                channels: &channels,
+                categories: &categories,
+                prefs: &prefs,
+                current,
+                sticky_unread: None,
+                unread_only: false,
+                unreads_collapsed: true,
+                closed: &HashSet::new(),
+                title: |c: &Channel| c.display_name.clone(),
+            })
+        };
+        let s = build_with(None);
+        assert!(s[0].collapsed && s[0].collapsible);
+        assert_eq!((s[0].total, s[0].channel_ids.len()), (2, 0));
+        // Hidden unread channels do not go back to their category.
+        assert_eq!(s[1].channel_ids, ["c"]);
+        assert_eq!(build_with(Some("a"))[0].channel_ids, ["a"]);
     }
 
     #[test]

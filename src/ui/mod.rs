@@ -1283,6 +1283,15 @@ impl ChatApp {
     }
 
     fn toggle_category(&mut self, category_id: &str, cx: &mut Context<Self>) {
+        // Unreads is not a server category: its state stays on this device.
+        if category_id == crate::sidebar::UNREADS {
+            self.settings.unreads_collapsed = !self.settings.unreads_collapsed;
+            if !self.demo {
+                self.settings.save();
+            }
+            cx.notify();
+            return;
+        }
         let Some(team_id) = self.team_id.clone() else { return };
         let Some(category) = self.categories.iter_mut().find(|c| c.id == category_id) else { return };
         category.collapsed = !category.collapsed;

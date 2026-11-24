@@ -374,6 +374,7 @@ impl ChatApp {
             current: self.channel_id.as_deref(),
             sticky_unread: self.sticky_unread.as_deref(),
             unread_only: self.unread_filter,
+            unreads_collapsed: self.settings.unreads_collapsed,
             closed: &self.closed_dms(),
             title: |c| self.channel_title(c),
         })
@@ -600,20 +601,27 @@ impl ChatApp {
         for section in self.sidebar_sections() {
             let category_id = section.id.clone();
             let group = SharedString::from(format!("catg-{}", section.id));
-            let options = section.collapsible.then(|| self.category_options(&section.id, group.clone(), cx));
+            let unreads = section.id == sidebar::UNREADS;
+            // Sorting and "mark all as read" only make sense for a category.
+            let options =
+                (section.collapsible && !unreads).then(|| self.category_options(&section.id, group.clone(), cx));
             // Catégorie triée à la main : ses canaux se réordonnent par glisser-déposer.
             let manual =
                 self.categories.iter().find(|c| c.id == section.id && c.sorting == "manual").map(|c| c.id.clone());
             let unread_inside = section.collapsed
-                && self.categories.iter().find(|c| c.id == section.id).is_some_and(|c| {
-                    c.channel_ids.iter().any(|id| self.channels.get(id).is_some_and(|s| s.shows_unread()))
-                });
+                && if unreads {
+                    self.channels.values().any(|s| s.shows_unread())
+                } else {
+                    self.categories.iter().find(|c| c.id == section.id).is_some_and(|c| {
+                        c.channel_ids.iter().any(|id| self.channels.get(id).is_some_and(|s| s.shows_unread()))
+                    })
+                };
             let count = self
                 .categories
                 .iter()
                 .find(|c| c.id == section.id)
                 .map(|c| c.channel_ids.iter().filter(|id| self.channels.contains_key(*id)).count())
-                .unwrap_or(section.channel_ids.len());
+                .unwrap_or(section.total);
             let dm_section = self.categories.iter().any(|c| c.id == section.id && c.kind == "direct_messages");
             let header = h_flex()
                 .id(SharedString::from(format!("cat-{}", section.id)))

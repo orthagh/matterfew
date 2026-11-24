@@ -10,6 +10,10 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+### Added
+
+- The Unreads section of the sidebar can be collapsed, like a category.
+
 ### Fixed
 
 - The profile beside a direct message lines up with the channel header.
