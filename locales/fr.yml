@@ -439,6 +439,7 @@ account:
   status: "Statut"
   log_out: "Se déconnecter"
 post:
+  not_found: "Message introuvable dans l'historique chargé."
   only_visible_to_you: "(visible uniquement par vous)"
   pinned: "Épinglé"
   saved: "Enregistré"

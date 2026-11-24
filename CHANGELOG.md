@@ -15,6 +15,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - The Unreads section of the sidebar can be collapsed, like a category.
 - Linux: text selected with the mouse is pasted by a middle click, in the
   message box and the search field too.
+- Clicking the time of a message shows it in context, as in the web client:
+  from a thread, in the channel; a reply in the channel opens its thread.
 
 ### Fixed
 
@@ -23,6 +25,7 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Flatpak: the launcher badge count was dropped by the sandbox.
 - Linux (Wayland): clicking a notification brings the window forward.
 - The profile beside a direct message lines up with the channel header.
+- A server error shown at startup now clears once the connection is back.
 
 ## [0.3.0] - 2026-11-24
 

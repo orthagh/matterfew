@@ -1084,6 +1084,23 @@ impl ChatApp {
     }
 
     /// Une ligne de la liste des messages (canal ou fil).
+    /// Heure d'un message, cliquable : montre le message dans son contexte.
+    fn time_link(
+        &self,
+        entity: &Entity<Self>,
+        pane: Pane,
+        post: &Post,
+        id: SharedString,
+        label: String,
+    ) -> Stateful<Div> {
+        let (entity, post) = (entity.clone(), post.clone());
+        div().id(id).cursor_pointer().hover(|s| s.underline()).child(label).on_click(move |_, window, cx| {
+            cx.stop_propagation();
+            let post = post.clone();
+            entity.update(cx, |this, cx| this.on_time_click(pane, post, window, cx));
+        })
+    }
+
     fn render_post(&self, entity: &Entity<Self>, pane: Pane, ix: usize, cx: &App) -> AnyElement {
         let list = match pane {
             Pane::Channel => &self.posts,
@@ -1138,7 +1155,7 @@ impl ChatApp {
         let group = key("g");
         let being_edited = self.editing.as_ref().is_some_and(|(p, id)| *p == pane && *id == post.id);
         let confirming = self.confirm_delete.as_deref() == Some(post.id.as_str());
-        let highlighted = self.mentions_me(post);
+        let highlighted = self.mentions_me(post) || self.revealed.as_deref() == Some(post.id.as_str());
 
         let bot_name = rich::override_username(post);
         // Bots (GitHub…) : longs messages réduits, dépliables.
@@ -1198,7 +1215,11 @@ impl ChatApp {
                         .child("BOT"),
                 )
             })
-            .child(div().text_xs().text_color(p.muted()).child(format_time(post.create_at)))
+            .child(
+                self.time_link(entity, pane, post, key("time"), format_time(post.create_at))
+                    .text_xs()
+                    .text_color(p.muted()),
+            )
             .when(ephemeral, |el| {
                 el.child(div().text_xs().italic().text_color(p.muted()).child(t!("post.only_visible_to_you")))
             })
@@ -1498,7 +1519,7 @@ impl ChatApp {
                     .text_color(p.muted())
                     .invisible()
                     .group_hover(group.clone(), |s| s.visible())
-                    .child(format_hour(post.create_at))
+                    .child(self.time_link(entity, pane, post, key("htime"), format_hour(post.create_at)))
             } else {
                 let (entity, uid) = (entity.clone(), post.user_id.clone());
                 el.pt(px(2.)).child(

@@ -439,6 +439,7 @@ account:
   status: "Status"
   log_out: "Log out"
 post:
+  not_found: "Message not found in the loaded history."
   only_visible_to_you: "(Only visible to you)"
   pinned: "Pinned"
   saved: "Saved"

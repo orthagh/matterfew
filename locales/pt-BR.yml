@@ -439,6 +439,7 @@ account:
   status: "Status"
   log_out: "Sair"
 post:
+  not_found: "Mensagem não encontrada no histórico carregado."
   only_visible_to_you: "(Visível apenas para você)"
   pinned: "Fixada"
   saved: "Salva"

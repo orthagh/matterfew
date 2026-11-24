@@ -242,6 +242,8 @@ pub(crate) enum Pane {
 }
 
 /// Délai entre deux signaux « en train d'écrire » envoyés au serveur.
+/// Pages d'historique chargées au plus pour retrouver un message.
+const REVEAL_PAGES: u8 = 10;
 const TYPING_SEND_INTERVAL: Duration = Duration::from_secs(3);
 /// Durée d'affichage d'un « X est en train d'écrire » sans nouveau signal.
 const TYPING_DISPLAY: Duration = Duration::from_secs(5);
@@ -349,6 +351,11 @@ pub struct ChatApp {
     channel_teams: HashMap<String, String>,
     /// Message à ouvrir une fois l'équipe chargée.
     pending_jump: Option<Post>,
+    /// Message à montrer (clic sur son heure) : (canal, message, pages
+    /// d'historique encore permises pour le trouver).
+    pending_reveal: Option<(String, String, u8)>,
+    /// Message mis en évidence quelques secondes après y être allé.
+    revealed: Option<String>,
     /// Fils suivis (panneau « Fils »), `None` pendant le chargement.
     threads: Option<Vec<UserThread>>,
     /// Panneau « Fils » : tous ceux de l'équipe (sinon ceux du canal affiché),
@@ -753,6 +760,8 @@ impl ChatApp {
             cache_dir: None,
             channel_teams: HashMap::new(),
             pending_jump: None,
+            pending_reveal: None,
+            revealed: None,
             threads: None,
             primary_selection: String::new(),
             search_input,
@@ -3110,6 +3119,74 @@ impl ChatApp {
         self.open_thread(root, window, cx);
     }
 
+    /// Clic sur l'heure d'un message : le montrer dans son contexte, comme le
+    /// lien permanent du client web. Depuis le fil, le message est montré dans
+    /// le canal ; une réponse affichée dans le canal ouvre son fil.
+    pub(crate) fn on_time_click(&mut self, pane: Pane, post: Post, window: &mut Window, cx: &mut Context<Self>) {
+        if pane == Pane::Channel && post.is_reply() {
+            self.open_thread(post.root_id.clone(), window, cx);
+            self.highlight_post(post.id, cx);
+            return;
+        }
+        if !self.channels.contains_key(&post.channel_id) {
+            self.jump_to_post(post, window, cx);
+            return;
+        }
+        // Fils réduits : une réponse n'est pas dans le canal, on montre son message racine.
+        let target = if self.crt && post.is_reply() { post.root_id.clone() } else { post.id.clone() };
+        self.pending_reveal = Some((post.channel_id.clone(), target, REVEAL_PAGES));
+        if self.channel_id.as_deref() == Some(post.channel_id.as_str()) {
+            self.try_reveal(cx);
+        } else {
+            // Le canal chargé, `ChannelPosts` reprend la recherche.
+            self.select_channel(post.channel_id, cx);
+        }
+    }
+
+    /// Va au message attendu s'il est chargé, sinon remonte l'historique page
+    /// par page. Faux s'il n'y avait rien à chercher dans ce canal.
+    fn try_reveal(&mut self, cx: &mut Context<Self>) -> bool {
+        let Some((channel_id, target, pages)) = self.pending_reveal.clone() else { return false };
+        if self.channel_id.as_deref() != Some(channel_id.as_str()) {
+            self.pending_reveal = None;
+            return false;
+        }
+        if let Some(ix) = self.posts.iter().position(|p| p.post.id == target) {
+            self.pending_reveal = None;
+            self.scroller.update(cx, |s, cx| {
+                s.scroll_to_item(ix.saturating_sub(1), cx);
+            });
+            self.highlight_post(target, cx);
+        } else if pages > 0 && self.has_more && !self.posts.is_empty() {
+            if !self.loading_older {
+                self.pending_reveal = Some((channel_id.clone(), target, pages - 1));
+                self.loading_older = true;
+                let before = self.posts[0].post.id.clone();
+                self.send(Command::LoadOlder { channel_id, before });
+            }
+        } else {
+            self.pending_reveal = None;
+            self.flash(t!("post.not_found").into(), cx);
+        }
+        true
+    }
+
+    /// Met un message en évidence quelques secondes.
+    fn highlight_post(&mut self, id: String, cx: &mut Context<Self>) {
+        self.revealed = Some(id.clone());
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(Duration::from_secs(3)).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.revealed.as_deref() == Some(id.as_str()) {
+                    this.revealed = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     // ------------------------------------------------------------------
     // Sélecteur de canaux (Ctrl+K)
     // ------------------------------------------------------------------
@@ -3729,7 +3806,8 @@ impl ChatApp {
                     self.scroller.update(cx, |s, cx| s.reset(n, cx));
                     // Beaucoup de nouveaux messages : on ouvre sur la ligne
                     // « Nouveaux messages » plutôt qu'en bas.
-                    match self.first_new_index().filter(|ix| n - ix > 8) {
+                    let reveal = self.try_reveal(cx);
+                    match self.first_new_index().filter(|ix| n - ix > 8 && !reveal) {
                         Some(ix) => {
                             self.scroller.update(cx, |s, cx| {
                                 s.scroll_to_item(ix.saturating_sub(1), cx);
@@ -3737,6 +3815,7 @@ impl ChatApp {
                         }
                         // Sinon tout en bas, même si des messages changent de hauteur
                         // après le premier affichage (bots réduits, emojis, aperçus).
+                        None if reveal => {}
                         None => {
                             let scroller = self.scroller.clone();
                             cx.spawn(async move |_, cx| {
@@ -3769,6 +3848,7 @@ impl ChatApp {
                         self.posts.splice(0..0, older);
                         self.scroller.update(cx, |s, cx| s.prepend(n, cx));
                     }
+                    self.try_reveal(cx);
                 }
             }
             Event::Thread { root_id, posts } => {
@@ -3820,6 +3900,11 @@ impl ChatApp {
             Event::Connection(up) => {
                 self.connected = up;
                 self.was_connected |= up;
+                // Erreur passagère (serveur redémarré, réseau pas encore prêt
+                // au lancement) : la connexion revenue, le bandeau s'efface.
+                if up && self.screen == Screen::Chat && !self.session_expired {
+                    self.error = None;
+                }
             }
             // Le serveur n'a pas pu rejouer les événements manqués pendant une
             // coupure : on rattrape ce qui a changé (comme le client web).

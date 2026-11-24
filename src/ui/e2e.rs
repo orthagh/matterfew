@@ -837,3 +837,39 @@ fn e2e_primary_selection_and_middle_click() {
     w.0.run_until_parked();
     assert_eq!(primary(&w).as_deref(), Some(" monde"));
 }
+
+#[test]
+fn e2e_erreur_passagere_effacee() {
+    // Erreur au lancement (serveur qui redémarre) : effacée quand la
+    // connexion revient, sans avoir à fermer le bandeau.
+    use crate::backend::Event;
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.on_event(Event::Error { message: "HTTP 502".into(), expired: false }, window, cx);
+    });
+    w.1.read(|a, _| assert!(a.error.is_some()));
+    w.1.update(|a, window, cx| a.on_event(Event::Connection(true), window, cx));
+    w.1.read(|a, _| assert!(a.error.is_none()));
+}
+
+#[test]
+fn e2e_clic_sur_l_heure() {
+    // Depuis le fil, l'heure d'un message le montre dans le canal.
+    let mut w = demo_app();
+    let first = w.1.read(|a, _| a.posts[0].post.clone());
+    w.1.update(|a, window, cx| a.on_time_click(super::Pane::Thread, first.clone(), window, cx));
+    w.1.read(|a, _| {
+        assert_eq!(a.revealed.as_deref(), Some(first.id.as_str()));
+        assert!(a.pending_reveal.is_none());
+    });
+    w.1.draw();
+    // Une réponse affichée dans le canal ouvre son fil.
+    let reply = w.1.read(|a, _| a.posts.iter().find(|v| v.post.is_reply()).map(|v| v.post.clone()));
+    if let Some(reply) = reply {
+        w.1.update(|a, window, cx| a.on_time_click(super::Pane::Channel, reply.clone(), window, cx));
+        w.1.read(|a, _| {
+            assert_eq!(a.thread.as_ref().map(|t| t.root_id.as_str()), Some(reply.root_id.as_str()));
+            assert_eq!(a.revealed.as_deref(), Some(reply.id.as_str()));
+        });
+    }
+}
