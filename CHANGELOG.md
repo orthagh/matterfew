@@ -24,6 +24,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Own messages keep their tint but no longer have a vertical bar, which now
   only marks threads.
 - Bot notifications show their time right after the title.
+- GitHub issue and pull request notifications are a single muted line where
+  only the title stands out.
 - The "Threads" entry of the sidebar only shows with collapsed threads, as
   in the web client.
 
@@ -32,6 +34,7 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Enter in the server field of the login screen starts the login.
 - Direct and group messages closed in another client, or never opened, no
   longer show in the sidebar.
+- `diff` and `patch` code blocks had no colours.
 - Quoted message previews keep their Markdown formatting.
 - Linux: bold text and unread channels were not bold when the system font is
   a variable font (Ubuntu Sans, Cantarell).

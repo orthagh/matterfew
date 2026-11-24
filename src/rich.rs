@@ -67,6 +67,88 @@ pub fn attachments(post: &Post) -> Vec<Attachment> {
         .unwrap_or_default()
 }
 
+/// What happened to an issue or a pull request, as told by the GitHub plugin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodeEventKind {
+    IssueOpened,
+    IssueClosed,
+    IssueReopened,
+    PrOpened,
+    PrDraft,
+    PrMerged,
+    PrClosed,
+    PrReopened,
+}
+
+/// A GitHub plugin notification about an issue or a pull request, taken apart
+/// so that the interface can show its title alone and the rest as metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeEvent {
+    pub kind: CodeEventKind,
+    /// "#123 Title", without Markdown.
+    pub title: String,
+    pub url: String,
+    /// Repository name, without its owner.
+    pub repo: String,
+    pub author: String,
+}
+
+/// Reads a notification of the form
+/// `[\[owner/repo\]](url) New issue [#12 Title](url) opened by [user](url).`
+/// Anything else (comments, reviews, pushes, other integrations) is `None`
+/// and keeps its plain rendering.
+pub fn code_event(message: &str) -> Option<CodeEvent> {
+    let line = message.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let (repo, rest) = line.strip_prefix("[\\[")?.split_once("\\]](")?;
+    let (_, rest) = rest.split_once(')')?;
+    let (before, rest) = rest.split_once("[#")?;
+    let (item, rest) = rest.split_once("](")?;
+    let (url, after) = rest.split_once(')')?;
+    let (number, title) = item.split_once(' ')?;
+    if number.is_empty() || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let (before, verb) = (before.to_lowercase(), after.to_lowercase());
+    let has = |word: &str| verb.contains(word);
+    let kind = if before.contains("pull request") {
+        if has("merged") {
+            CodeEventKind::PrMerged
+        } else if has("reopened") {
+            CodeEventKind::PrReopened
+        } else if has("closed") {
+            CodeEventKind::PrClosed
+        } else if has("opened") && before.contains("draft") {
+            CodeEventKind::PrDraft
+        } else if has("opened") {
+            CodeEventKind::PrOpened
+        } else {
+            return None;
+        }
+    } else if before.contains("issue") {
+        if has("reopened") {
+            CodeEventKind::IssueReopened
+        } else if has("closed") {
+            CodeEventKind::IssueClosed
+        } else if has("opened") {
+            CodeEventKind::IssueOpened
+        } else {
+            return None;
+        }
+    } else {
+        return None;
+    };
+    // "... by [name](url)." or "... by @name."
+    let by = after.rsplit_once(" by ")?.1.trim().trim_end_matches('.');
+    let author = by.strip_prefix('[').and_then(|link| link.split_once("](")).map_or(by, |(name, _)| name);
+    Some(CodeEvent {
+        kind,
+        title: format!("#{number} {}", title.replace('`', "")),
+        url: url.to_string(),
+        repo: repo.rsplit('/').next().unwrap_or(repo).to_string(),
+        author: author.trim_start_matches('@').to_string(),
+    })
+}
+
 /// Nom affiché à la place de l'auteur (webhooks avec `override_username`).
 pub fn override_username(post: &Post) -> Option<String> {
     post.props.get("override_username").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
@@ -186,6 +268,36 @@ mod tests {
         let e = embeds(&post);
         assert!(matches!(&e[0], Embed::Link { title, image: Some(_), .. } if title == "GLPI Project"));
         assert_eq!(e[1], Embed::Image { url: "https://x/y.png".into(), width: 800, height: 600 });
+    }
+
+    #[test]
+    fn code_events_are_taken_apart() {
+        let merged = "[\\[glpi-project/glpi\\]](https://github.com/glpi-project/glpi) Pull request \
+                      [#26406 Use the GLPI `HttpClient`](https://github.com/glpi-project/glpi/pull/26406) \
+                      was merged by [AdrienClairembault](https://github.com/AdrienClairembault).";
+        assert_eq!(
+            code_event(merged),
+            Some(CodeEvent {
+                kind: CodeEventKind::PrMerged,
+                title: "#26406 Use the GLPI HttpClient".into(),
+                url: "https://github.com/glpi-project/glpi/pull/26406".into(),
+                repo: "glpi".into(),
+                author: "AdrienClairembault".into(),
+            })
+        );
+        let kind = |before: &str, after: &str| {
+            let message = format!("[\\[o/r\\]](https://x) {before} [#1 T](https://x/1) {after}");
+            code_event(&message).map(|e| (e.kind, e.author))
+        };
+        assert_eq!(kind("New issue", "opened by @skita."), Some((CodeEventKind::IssueOpened, "skita".into())));
+        assert_eq!(kind("Issue", "reopened by [h](https://x/h)."), Some((CodeEventKind::IssueReopened, "h".into())));
+        assert_eq!(kind("Issue", "closed by @g."), Some((CodeEventKind::IssueClosed, "g".into())));
+        assert_eq!(kind("New draft pull request", "was opened by @r."), Some((CodeEventKind::PrDraft, "r".into())));
+        assert_eq!(kind("New pull request", "was opened by @r."), Some((CodeEventKind::PrOpened, "r".into())));
+        assert_eq!(kind("Pull request", "was closed by @r."), Some((CodeEventKind::PrClosed, "r".into())));
+        // Other shapes keep their plain rendering.
+        assert_eq!(code_event("Updated plugins\nSecureScan 2.0.0"), None);
+        assert_eq!(code_event("[\\[o/r\\]](https://x) New comment by [u](https://x/u) on [#1 T](https://x/1):"), None);
     }
 
     #[test]

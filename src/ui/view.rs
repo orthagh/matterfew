@@ -20,16 +20,18 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use super::{ChatApp, FilesTab, Pane, PanelKind, PickerTarget, Screen, SidebarResize, search_tokens};
 use crate::api::{Channel, FileInfo, Post, User, human_size};
 use crate::backend::group_reactions;
 use crate::editor::Format;
-use crate::rich::{self, Embed};
+use crate::rich::{self, CodeEventKind, Embed};
 use crate::sidebar::{self, Section};
 use crate::theme::Palette;
 use crate::{emoji, markdown};
+use gpui_kit::base::text::CodeBlock;
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
 
 pub(super) mod bookmarks;
@@ -1226,6 +1228,7 @@ impl ChatApp {
                     TextView::markdown(ElementId::Name(key("body")), view.md.clone())
                         .image_source(emoji_resolver(self.custom_emojis.clone()))
                         .plugin(self.tag_plugin(entity))
+                        .plugin(self.diff_plugin())
                         .on_link_click({
                             let entity = entity.clone();
                             move |url, _, window, cx| {
@@ -1654,36 +1657,90 @@ impl ChatApp {
                                         .size(px(13.)),
                                 )
                             });
-                            // Dépliée : le résumé laisse la place au contenu (sinon il se répète).
-                            let line = h_flex()
-                                .gap_2()
-                                .h(px(30.))
-                                .child(
-                                    div().flex_none().w(px(3.)).h(px(14.)).rounded(px(2.)).bg(bar.unwrap_or(p.muted())),
-                                )
-                                .child(
-                                    div()
-                                        .w(px(title_width))
-                                        .min_w_0()
-                                        .h(line_height)
-                                        .line_height(line_height)
-                                        .overflow_hidden()
-                                        .text_size(title_size)
-                                        .when(!expanded, |d| {
-                                            d.child(
-                                                TextView::markdown(
-                                                    key("bot-sum"),
-                                                    markdown::prepare_for(&summary, &[], Some(&post.channel_id)),
+                            let bar =
+                                div().flex_none().w(px(3.)).h(px(14.)).rounded(px(2.)).bg(bar.unwrap_or(p.muted()));
+                            // An issue or pull request event shows its title alone, without link
+                            // colours: what happened is a small label before it, and the repository,
+                            // the author and the time follow as metadata.
+                            let event = if expanded { None } else { rich::code_event(&post.message) };
+                            let line = match event {
+                                Some(event) => {
+                                    let small = |text: String| {
+                                        div()
+                                            .flex_none()
+                                            .relative()
+                                            .top(drop)
+                                            .h(line_height)
+                                            .line_height(line_height)
+                                            .text_size(time_size)
+                                            .text_color(p.muted())
+                                            .child(text)
+                                    };
+                                    let label = match event.kind {
+                                        CodeEventKind::IssueOpened => t!("code_event.issue_opened"),
+                                        CodeEventKind::IssueClosed => t!("code_event.issue_closed"),
+                                        CodeEventKind::IssueReopened => t!("code_event.issue_reopened"),
+                                        CodeEventKind::PrOpened => t!("code_event.pr_opened"),
+                                        CodeEventKind::PrDraft => t!("code_event.pr_draft"),
+                                        CodeEventKind::PrMerged => t!("code_event.pr_merged"),
+                                        CodeEventKind::PrClosed => t!("code_event.pr_closed"),
+                                        CodeEventKind::PrReopened => t!("code_event.pr_reopened"),
+                                    };
+                                    let meta =
+                                        format!("{} · {} · {}", event.repo, event.author, format_hour(post.create_at));
+                                    let url = event.url;
+                                    h_flex()
+                                        .gap_2()
+                                        .h(px(30.))
+                                        .child(bar)
+                                        .child(small(label.to_string()))
+                                        .child(
+                                            div()
+                                                .id(key("bot-title"))
+                                                .min_w_0()
+                                                .h(line_height)
+                                                .line_height(line_height)
+                                                .truncate()
+                                                .text_size(title_size)
+                                                .text_color(p.center_color.opacity(0.82))
+                                                .cursor_pointer()
+                                                .hover(|s| s.underline())
+                                                .child(event.title)
+                                                .on_click(move |_, _, cx| open_link(&url, cx)),
+                                        )
+                                        .child(small(meta))
+                                        .child(div().flex_1())
+                                        .child(chevron)
+                                }
+                                // Dépliée : le résumé laisse la place au contenu (sinon il se répète).
+                                None => h_flex()
+                                    .gap_2()
+                                    .h(px(30.))
+                                    .child(bar)
+                                    .child(
+                                        div()
+                                            .w(px(title_width))
+                                            .min_w_0()
+                                            .h(line_height)
+                                            .line_height(line_height)
+                                            .overflow_hidden()
+                                            .text_size(title_size)
+                                            .when(!expanded, |d| {
+                                                d.child(
+                                                    TextView::markdown(
+                                                        key("bot-sum"),
+                                                        markdown::prepare_for(&summary, &[], Some(&post.channel_id)),
+                                                    )
+                                                    .selectable(false)
+                                                    .max_lines(1)
+                                                    .on_link_click(|url, _, _, cx| open_link(url, cx)),
                                                 )
-                                                .selectable(false)
-                                                .max_lines(1)
-                                                .on_link_click(|url, _, _, cx| open_link(url, cx)),
-                                            )
-                                        }),
-                                )
-                                .child(time)
-                                .child(div().flex_1())
-                                .child(chevron);
+                                            }),
+                                    )
+                                    .child(time)
+                                    .child(div().flex_1())
+                                    .child(chevron),
+                            };
                             // Au repos : rien qu'une ligne ; au survol, un fond et une bordure.
                             v_flex()
                                 .id(key("bot-line"))
@@ -2070,6 +2127,7 @@ impl ChatApp {
                     div().text_color(p.muted()).child(t!("composer.nothing_to_preview")).into_any_element()
                 } else {
                     TextView::markdown(SharedString::from(format!("preview-text-{pane:?}")), prepared)
+                        .plugin(self.diff_plugin())
                         .into_any_element()
                 })
                 .into_any_element()
@@ -2200,6 +2258,7 @@ impl ChatApp {
                 card = card.child(
                     div().text_size(px(BODY_TEXT)).child(
                         TextView::markdown(ElementId::Name(id("text")), markdown::prepare(&a.text))
+                            .plugin(self.diff_plugin())
                             .on_link_click(link_click),
                     ),
                 );
@@ -3916,6 +3975,11 @@ impl ChatApp {
             palette: self.palette,
             app: entity.downgrade(),
         }
+    }
+
+    /// Colours for `diff` code blocks.
+    fn diff_plugin(&self) -> DiffPlugin {
+        DiffPlugin { dark: self.palette.is_dark() }
     }
 
     /// Champ de recherche permanent de l'en-tête, avec ses propositions.
@@ -6067,6 +6131,98 @@ fn extract_urls(text: &str) -> Vec<String> {
 struct TagData {
     hashtag: bool,
     value: String,
+}
+
+type DiffHighlighter = dyn Fn(&CodeBlock) -> Vec<(Range<usize>, HighlightStyle)> + Send + Sync;
+
+/// The highlighter of diff blocks, one per colour mode: a code block keeps
+/// its highlights only while it is handed the same `Arc`.
+fn diff_highlighter(dark: bool) -> Arc<DiffHighlighter> {
+    static SHARED: [OnceLock<Arc<DiffHighlighter>>; 2] = [OnceLock::new(), OnceLock::new()];
+    SHARED[usize::from(dark)]
+        .get_or_init(|| {
+            let text = |hex: u32| HighlightStyle { color: Some(rgb(hex).into()), ..Default::default() };
+            let line = |hex: u32, tint: u32, opacity: f32| HighlightStyle {
+                color: Some(rgb(hex).into()),
+                background_color: Some(Hsla::from(rgb(tint)).opacity(opacity)),
+                ..Default::default()
+            };
+            let (added, removed, hunk, header) = if dark {
+                (line(0xaff5b4, 0x2ea043, 0.25), line(0xffdcd7, 0xf85149, 0.22), text(0xd2a8ff), text(0x8b949e))
+            } else {
+                (line(0x116329, 0x2da44e, 0.15), line(0x82071e, 0xcf222e, 0.12), text(0x8250df), text(0x57606a))
+            };
+            Arc::new(move |block: &CodeBlock| {
+                let code = block.code();
+                // Runs without gaps, as the kit's own highlighter returns them.
+                let mut runs = Vec::new();
+                let mut cursor = 0;
+                for (range, kind) in markdown::diff_lines(&code) {
+                    if range.is_empty() {
+                        continue;
+                    }
+                    if cursor < range.start {
+                        runs.push((cursor..range.start, HighlightStyle::default()));
+                    }
+                    cursor = range.end;
+                    let style = match kind {
+                        markdown::DiffLine::Added => added,
+                        markdown::DiffLine::Removed => removed,
+                        markdown::DiffLine::Hunk => hunk,
+                        markdown::DiffLine::Header => header,
+                    };
+                    runs.push((range, style));
+                }
+                if cursor < code.len() {
+                    runs.push((cursor..code.len(), HighlightStyle::default()));
+                }
+                runs
+            })
+        })
+        .clone()
+}
+
+/// The fenced source of a diff block, as its nested view parses it.
+struct DiffSource(SharedString);
+
+/// Fenced `diff` and `patch` blocks. The kit's highlighter knows the language
+/// but has no colour for added and removed lines, and it cannot be replaced
+/// for one language only, so these blocks are drawn by a nested view that has
+/// a highlighter of its own.
+struct DiffPlugin {
+    dark: bool,
+}
+
+impl MarkdownPlugin for DiffPlugin {
+    fn is_block(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &str {
+        "mm-diff"
+    }
+
+    fn parse(&self, node: &markdown_ast::Node, _cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let markdown_ast::Node::Code(code) = node else { return None };
+        if !markdown::is_diff(code.lang.as_deref()?) {
+            return None;
+        }
+        // A fence longer than any run of backticks in the code.
+        let longest = code.value.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+        let fence = "`".repeat(longest.max(2) + 1);
+        let source = format!("{fence}diff\n{}\n{fence}", code.value);
+        Some(MarkdownNode::new("mm-diff", DiffSource(source.clone().into())).text(code.value.clone()).markdown(source))
+    }
+
+    fn render(&self, node: &MarkdownNode, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
+        let Some(DiffSource(source)) = node.data::<DiffSource>() else {
+            return div().child(node.as_text().to_string()).into_any_element();
+        };
+        let start = node.source_range().map(|range| range.start).unwrap_or_default();
+        gpui_kit::base::TextView::markdown(SharedString::from(format!("diff-{start}")), source.clone())
+            .shared_code_block_highlighter(diff_highlighter(self.dark))
+            .into_any_element()
+    }
 }
 
 /// Affiche `@nom` et `#étiquette` en pastilles cliquables : carte de profil

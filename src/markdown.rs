@@ -439,9 +439,92 @@ pub fn plain_text(source: &str) -> String {
     emoji::replace_shortcodes(out.trim())
 }
 
+/// What a line of a `diff` code block is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLine {
+    Added,
+    Removed,
+    /// `@@ -1,4 +1,6 @@`
+    Hunk,
+    /// File names, and the lines git and svn put around them.
+    Header,
+}
+
+/// Whether the language of a code fence is a diff.
+pub fn is_diff(lang: &str) -> bool {
+    matches!(lang.trim().to_ascii_lowercase().as_str(), "diff" | "patch" | "udiff")
+}
+
+/// The lines of a unified diff that carry a meaning, as byte ranges without
+/// the line ending. Context lines are left out.
+pub fn diff_lines(code: &str) -> Vec<(Range<usize>, DiffLine)> {
+    const HEADERS: [&str; 14] = [
+        "diff ",
+        "index ",
+        "Index: ",
+        "====",
+        "new file mode",
+        "deleted file mode",
+        "old mode",
+        "new mode",
+        "similarity index",
+        "rename from",
+        "rename to",
+        "copy from",
+        "copy to",
+        "Binary files ",
+    ];
+    let lines: Vec<&str> = code.split('\n').collect();
+    let mut out = Vec::new();
+    let mut offset = 0;
+    for (i, raw) in lines.iter().enumerate() {
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+        // `--- a/file` names a file only when `+++ b/file` follows: a removed
+        // line can start with dashes of its own (`-- comment` in SQL).
+        let names_file = (line.starts_with("--- ") && lines.get(i + 1).is_some_and(|next| next.starts_with("+++ ")))
+            || (line.starts_with("+++ ") && i > 0 && lines[i - 1].starts_with("--- "));
+        let kind = if line.starts_with("@@") {
+            Some(DiffLine::Hunk)
+        } else if names_file || HEADERS.iter().any(|header| line.starts_with(header)) {
+            Some(DiffLine::Header)
+        } else if line.starts_with('+') {
+            Some(DiffLine::Added)
+        } else if line.starts_with('-') {
+            Some(DiffLine::Removed)
+        } else {
+            None
+        };
+        if let Some(kind) = kind {
+            out.push((offset..offset + line.len(), kind));
+        }
+        offset += raw.len() + 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diff_lines_are_told_apart() {
+        let code = "diff --git a/f.sql b/f.sql\n--- a/f.sql\n+++ b/f.sql\n@@ -1,3 +1,3 @@\n keep\n--- gone\n+été\r\n";
+        let found: Vec<(&str, DiffLine)> =
+            diff_lines(code).into_iter().map(|(range, kind)| (&code[range], kind)).collect();
+        assert_eq!(
+            found,
+            vec![
+                ("diff --git a/f.sql b/f.sql", DiffLine::Header),
+                ("--- a/f.sql", DiffLine::Header),
+                ("+++ b/f.sql", DiffLine::Header),
+                ("@@ -1,3 +1,3 @@", DiffLine::Hunk),
+                // A removed SQL comment, not a file name.
+                ("--- gone", DiffLine::Removed),
+                ("+été", DiffLine::Added),
+            ]
+        );
+        assert!(is_diff("Diff") && is_diff("patch") && !is_diff("rust"));
+    }
 
     #[test]
     fn emojis_outside_code_only() {

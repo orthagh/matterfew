@@ -862,3 +862,12 @@ update:
   auto_check: "Check for updates"
   auto_check_hint: "At startup, then every 6 hours. Nothing is installed without your click."
   check_now: "Check now"
+code_event:
+  issue_opened: "issue opened"
+  issue_closed: "issue closed"
+  issue_reopened: "issue reopened"
+  pr_opened: "PR opened"
+  pr_draft: "draft PR"
+  pr_merged: "PR merged"
+  pr_closed: "PR closed"
+  pr_reopened: "PR reopened"

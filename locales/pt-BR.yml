@@ -862,3 +862,12 @@ update:
   auto_check: "Procurar atualizações"
   auto_check_hint: "Ao abrir e depois a cada 6 horas. Nada é instalado sem o seu clique."
   check_now: "Verificar agora"
+code_event:
+  issue_opened: "issue aberta"
+  issue_closed: "issue fechada"
+  issue_reopened: "issue reaberta"
+  pr_opened: "PR aberto"
+  pr_draft: "PR rascunho"
+  pr_merged: "PR mesclado"
+  pr_closed: "PR fechado"
+  pr_reopened: "PR reaberto"
