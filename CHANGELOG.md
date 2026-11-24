@@ -23,10 +23,15 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 - Own messages keep their tint but no longer have a vertical bar, which now
   only marks threads.
+- Bot notifications show their time right after the title.
+- The "Threads" entry of the sidebar only shows with collapsed threads, as
+  in the web client.
 
 ### Fixed
 
 - Enter in the server field of the login screen starts the login.
+- Direct and group messages closed in another client, or never opened, no
+  longer show in the sidebar.
 - Quoted message previews keep their Markdown formatting.
 - Linux: bold text and unread channels were not bold when the system font is
   a variable font (Ubuntu Sans, Cantarell).

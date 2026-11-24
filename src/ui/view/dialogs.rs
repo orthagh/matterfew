@@ -1305,7 +1305,10 @@ impl ChatApp {
 
     /// Entrée « Fils » en haut de la barre latérale, avec sa pastille.
     pub(crate) fn render_threads_entry(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.threads_available() {
+        // Like the web client: only with collapsed threads. Shown in the
+        // channel, threads need no view of their own in the sidebar; the
+        // header button still opens the followed threads.
+        if !self.threads_available() || !self.crt {
             return None;
         }
         let p = self.palette;

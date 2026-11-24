@@ -636,23 +636,23 @@ impl ChatApp {
         }
     }
 
-    /// Conversations fermées (préférence `*_channel_show` à « false »).
+    /// Closed conversations. As in the web client, a direct or group message
+    /// is listed only when its `*_channel_show` preference exists and is not
+    /// "false": one that was never opened, or whose preference is gone, stays
+    /// out of the sidebar until it is opened or receives a message.
     pub(crate) fn closed_dms(&self) -> std::collections::HashSet<String> {
-        let hidden: std::collections::HashSet<(&str, &str)> = self
+        let shown: std::collections::HashSet<(&str, &str)> = self
             .raw_prefs
             .iter()
             .filter(|p| {
-                p.value == "false" && matches!(p.category.as_str(), "direct_channel_show" | "group_channel_show")
+                p.value != "false" && matches!(p.category.as_str(), "direct_channel_show" | "group_channel_show")
             })
             .map(|p| (p.category.as_str(), p.name.as_str()))
             .collect();
-        if hidden.is_empty() {
-            return Default::default();
-        }
         let me = self.me_id();
         self.channels
             .values()
-            .filter(|s| Self::dm_pref(&s.channel, me).is_some_and(|(cat, name)| hidden.contains(&(cat, name.as_str()))))
+            .filter(|s| Self::dm_pref(&s.channel, me).is_some_and(|(cat, name)| !shown.contains(&(cat, name.as_str()))))
             .map(|s| s.channel.id.clone())
             .collect()
     }
@@ -665,8 +665,7 @@ impl ChatApp {
         };
         let value = visible.to_string();
         let current = self.raw_prefs.iter().find(|p| p.category == category && p.name == name).map(|p| p.value.clone());
-        // Visible par défaut : rien à écrire tant qu'elle n'a pas été fermée.
-        if current.as_deref() == Some(value.as_str()) || (visible && current.is_none()) {
+        if current.as_deref() == Some(value.as_str()) {
             return;
         }
         let pref = crate::api::Preference { user_id: me, category: category.into(), name, value };

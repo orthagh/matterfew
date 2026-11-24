@@ -1439,6 +1439,15 @@ fn demo_preferences() -> Vec<Preference> {
         name: "show_unread_section".into(),
         value: "true".into(),
     }];
+    // As on a real account: the conversations in the sidebar are the ones marked shown.
+    for partner in ["u1", "u2", "u4"] {
+        prefs.push(Preference {
+            user_id: String::new(),
+            category: "direct_channel_show".into(),
+            name: partner.into(),
+            value: "true".into(),
+        });
+    }
     let args: Vec<String> = std::env::args().collect();
     if let Some(path) = args.iter().position(|a| a == "--theme").and_then(|i| args.get(i + 1)) {
         match std::fs::read_to_string(path) {

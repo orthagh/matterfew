@@ -1620,18 +1620,40 @@ impl ChatApp {
                                 .and_then(crate::theme::parse_color)
                                 .or_else(|| if code_host { notification_color(&post.message) } else { None });
                             let (entity, id) = (entity.clone(), post.id.clone());
-                            let meta = h_flex()
+                            // The time sits right after the title; the chevron stays at the far right.
+                            // The title box gets the width of its text, measured here: left to size
+                            // itself, the Markdown view keeps the width of an earlier, narrower layout.
+                            // A title longer than the line still shrinks to it.
+                            let title_width = if expanded {
+                                0.
+                            } else {
+                                // Inline code is set in another font, with padding: a few pixels each.
+                                let code_spans = summary.matches('`').count() / 2;
+                                (text_width(&markdown::plain_text(&summary), 14., cx) + 2.).ceil()
+                                    + 10. * code_spans as f32
+                            };
+                            // Title and time share a line of the same height; the time, set
+                            // smaller, is moved down by the difference of their baselines in it.
+                            let (title_size, time_size, line_height) = (px(14.), px(12.), px(20.));
+                            let system = cx.text_system();
+                            let ui_font = system.resolve_font(&font(cx.theme().font_family.clone()));
+                            let drop = system.baseline_offset(ui_font, title_size, line_height)
+                                - system.baseline_offset(ui_font, time_size, line_height);
+                            let time = div()
                                 .flex_none()
-                                .gap_2()
-                                .text_xs()
+                                .relative()
+                                .top(drop)
+                                .h(line_height)
+                                .line_height(line_height)
+                                .text_size(time_size)
                                 .text_color(p.muted())
-                                .child(format_hour(post.create_at))
-                                .child(div().w(px(13.)).when(expandable, |d| {
-                                    d.child(
-                                        Icon::new(if expanded { IconName::ChevronUp } else { IconName::ChevronDown })
-                                            .size(px(13.)),
-                                    )
-                                }));
+                                .child(format_hour(post.create_at));
+                            let chevron = div().flex_none().w(px(13.)).text_color(p.muted()).when(expandable, |d| {
+                                d.child(
+                                    Icon::new(if expanded { IconName::ChevronUp } else { IconName::ChevronDown })
+                                        .size(px(13.)),
+                                )
+                            });
                             // Dépliée : le résumé laisse la place au contenu (sinon il se répète).
                             let line = h_flex()
                                 .gap_2()
@@ -1639,21 +1661,29 @@ impl ChatApp {
                                 .child(
                                     div().flex_none().w(px(3.)).h(px(14.)).rounded(px(2.)).bg(bar.unwrap_or(p.muted())),
                                 )
-                                .child(div().flex_1().min_w_0().max_h(px(20.)).overflow_hidden().text_sm().when(
-                                    !expanded,
-                                    |d| {
-                                        d.child(
-                                            TextView::markdown(
-                                                key("bot-sum"),
-                                                markdown::prepare_for(&summary, &[], Some(&post.channel_id)),
+                                .child(
+                                    div()
+                                        .w(px(title_width))
+                                        .min_w_0()
+                                        .h(line_height)
+                                        .line_height(line_height)
+                                        .overflow_hidden()
+                                        .text_size(title_size)
+                                        .when(!expanded, |d| {
+                                            d.child(
+                                                TextView::markdown(
+                                                    key("bot-sum"),
+                                                    markdown::prepare_for(&summary, &[], Some(&post.channel_id)),
+                                                )
+                                                .selectable(false)
+                                                .max_lines(1)
+                                                .on_link_click(|url, _, _, cx| open_link(url, cx)),
                                             )
-                                            .selectable(false)
-                                            .max_lines(1)
-                                            .on_link_click(|url, _, _, cx| open_link(url, cx)),
-                                        )
-                                    },
-                                ))
-                                .child(meta);
+                                        }),
+                                )
+                                .child(time)
+                                .child(div().flex_1())
+                                .child(chevron);
                             // Au repos : rien qu'une ligne ; au survol, un fond et une bordure.
                             v_flex()
                                 .id(key("bot-line"))
@@ -6532,6 +6562,19 @@ mod expand_tests {
 /// Sens des dégradés : vers le clair en thème sombre, vers le foncé sinon.
 fn depth(p: &Palette, amount: f32) -> f32 {
     if p.center_bg.l < 0.5 { amount } else { -amount }
+}
+
+/// Width of a line of interface text at `size`, as the text system shapes it.
+fn text_width(text: &str, size: f32, cx: &App) -> f32 {
+    let run = TextRun {
+        len: text.len(),
+        font: font(cx.theme().font_family.clone()),
+        color: Hsla::default(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    WindowTextSystem::new(cx.text_system().clone()).layout_line(text, px(size), &[run], None).width / px(1.)
 }
 
 /// Chiffres d'une pastille, centrés sur leur dessin et non sur leur boîte :
