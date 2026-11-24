@@ -449,7 +449,6 @@ post:
   show_more: "Show more"
   show_less: "Show less"
   permalink_from: "Message from %{author} in %{channel}"
-  reply_to: "Replying to %{author}: %{excerpt}"
   reply_to_thread: "Replying to a thread"
 threads:
   sidebar: "Threads"

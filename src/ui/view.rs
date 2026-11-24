@@ -1086,11 +1086,25 @@ impl ChatApp {
         let ephemeral = post.kind == "system_ephemeral";
         let prev = ix.checked_sub(1).and_then(|i| list.get(i)).map(|v| &v.post);
 
+        // Threads shown in the channel (not collapsed): the messages of a
+        // thread share a rail, and a reply away from its thread names it.
+        let inline_threads = pane == Pane::Channel && !self.crt;
+        let follows_thread = prev.is_some_and(|prev| prev.id == post.root_id || prev.root_id == post.root_id);
+        let lone_reply = inline_threads && post.is_reply() && !follows_thread;
+        let thread_replies = if inline_threads && !post.is_reply() {
+            post.reply_count.max(list.iter().filter(|v| v.post.root_id == post.id).count() as i64)
+        } else {
+            0
+        };
+        let in_thread = inline_threads && (post.is_reply() || thread_replies > 0);
+
         let new_day = prev.is_none_or(|prev| day_of(prev.create_at) != day_of(post.create_at));
         let first_new = pane == Pane::Channel && self.first_new_index() == Some(ix);
         // Messages successifs du même auteur (< 5 min, même jour) : en-tête masqué.
+        // A lone reply keeps its header: that is where it names its thread.
         let compact = !new_day
             && !first_new
+            && !lone_reply
             && prev.is_some_and(|prev| {
                 prev.user_id == post.user_id
                     && post.create_at - prev.create_at < 5 * 60 * 1000
@@ -1251,24 +1265,28 @@ impl ChatApp {
             body
         };
 
-        // Threads shown in the channel: a reply says what it answers, unless
-        // it comes right after that message or another reply to it.
-        let follows_thread = prev.is_some_and(|prev| prev.id == post.root_id || prev.root_id == post.root_id);
-        let reply_to = (pane == Pane::Channel && post.is_reply() && !follows_thread).then(|| {
-            let label = match list.iter().map(|v| &v.post).find(|p| p.id == post.root_id) {
+        // Inline threads, in the header: a lone reply names the message it
+        // answers, and a message with replies shows how many.
+        let reply_chip = lone_reply.then(|| {
+            let label = match list.iter().map(|v| &v.post).find(|r| r.id == post.root_id) {
                 Some(root) => {
                     let text = markdown::plain_text(&root.message);
                     let excerpt: String = text.lines().next().unwrap_or_default().chars().take(80).collect();
-                    t!("post.reply_to", author = self.user_name(&root.user_id), excerpt = excerpt).to_string()
+                    format!("↩ {} · {excerpt}", self.user_name(&root.user_id))
                 }
-                None => t!("post.reply_to_thread").to_string(),
+                None => format!("↩ {}", t!("post.reply_to_thread")),
             };
             let (entity, root) = (entity.clone(), post.root_id.clone());
             div()
                 .id(key("reply-to"))
-                .text_size(px(12.))
-                .text_color(p.muted())
+                .min_w_0()
+                .max_w(px(280.))
                 .truncate()
+                .px_1p5()
+                .rounded(px(4.))
+                .bg(p.link.opacity(0.13))
+                .text_size(px(12.))
+                .text_color(p.link)
                 .cursor_pointer()
                 .hover(|s| s.underline())
                 .child(label)
@@ -1276,6 +1294,22 @@ impl ChatApp {
                     entity.update(cx, |this, cx| this.open_thread(root.clone(), window, cx));
                 })
         });
+        let thread_count = (thread_replies > 0).then(|| {
+            let (entity, root) = (entity.clone(), post.id.clone());
+            div()
+                .id(key("thread-count"))
+                .text_size(px(12.))
+                .text_color(p.link)
+                .cursor_pointer()
+                .hover(|s| s.underline())
+                .child(format!("↩ {thread_replies}"))
+                .on_click(move |_, window, cx| {
+                    entity.update(cx, |this, cx| this.open_thread(root.clone(), window, cx));
+                })
+        });
+        let header = header.children(reply_chip).children(thread_count);
+        let rail_color = p.link.opacity(0.6);
+        let rail = in_thread.then(|| div().absolute().left(px(8.)).top_0().bottom_0().w(px(3.)).bg(rail_color));
 
         // Réactions : cliquer sur une pastille ajoute ou retire la sienne.
         let reactions = group_reactions(&post.metadata.reactions, me);
@@ -1343,7 +1377,8 @@ impl ChatApp {
                     })
             });
 
-        let replies = (pane == Pane::Channel && post.reply_count > 0).then(|| {
+        // Collapsed threads only: shown inline, a thread has its count in the header.
+        let replies = (pane == Pane::Channel && self.crt && post.reply_count > 0).then(|| {
             let entity = entity.clone();
             let root = post.id.clone();
             let label = if post.reply_count == 1 {
@@ -1421,6 +1456,8 @@ impl ChatApp {
             .gap_3()
             .w_full()
             .px_5()
+            .when(in_thread && post.is_reply(), |el| el.pl(px(44.)))
+            .children(rail)
             .map(|el| match (bot_block, run_prev) {
                 (true, true) => el,
                 (true, false) => el.pt_2(),
@@ -1442,7 +1479,6 @@ impl ChatApp {
                     .when(!compact && !bot_block, |el| el.child(header))
                     .child({
                         let inner = v_flex()
-                            .children(reply_to)
                             .child(body)
                             .children(self.render_rich(entity, post, &key("rich"), &p))
                             .when(!post.metadata.files.is_empty(), |el| {
