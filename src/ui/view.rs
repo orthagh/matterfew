@@ -50,6 +50,9 @@ const TEAM_BAR_WIDTH: f32 = 64.;
 const TEAM_BADGE_BLUE: Hsla = Hsla { h: 0.6, s: 0.85, l: 0.52, a: 1. };
 const THREAD_WIDTH: f32 = 440.;
 const AVATAR: f32 = 32.;
+/// Left edge of the line that ties an inline thread together: under the
+/// middle of the avatar of its first message (rows have 20 px of padding).
+const THREAD_LINE: f32 = 20. + AVATAR / 2. - 1.;
 const BODY_TEXT: f32 = 14.5;
 
 impl ChatApp {
@@ -1308,8 +1311,23 @@ impl ChatApp {
                 })
         });
         let header = header.children(reply_chip).children(thread_count);
-        let rail_color = p.link.opacity(0.6);
-        let rail = in_thread.then(|| div().absolute().left(px(8.)).top_0().bottom_0().w(px(3.)).bg(rail_color));
+        // The thread line starts under the avatar of the first message and
+        // runs along the replies, which are indented just right of it. A
+        // reply away from its thread starts its own stretch a little lower.
+        let line = |top: f32| {
+            let color = p.link.opacity(0.6);
+            div().absolute().left(px(THREAD_LINE)).top(px(top)).bottom_0().w(px(2.)).bg(color)
+        };
+        let next_in_thread = list.get(ix + 1).is_some_and(|v| v.post.root_id == post.id);
+        let rail = if !in_thread {
+            None
+        } else if post.is_reply() {
+            Some(line(if follows_thread { 0. } else { 8. }))
+        } else if next_in_thread && !compact {
+            Some(line(AVATAR + 20.))
+        } else {
+            None
+        };
 
         // Réactions : cliquer sur une pastille ajoute ou retire la sienne.
         let reactions = group_reactions(&post.metadata.reactions, me);
@@ -1456,7 +1474,7 @@ impl ChatApp {
             .gap_3()
             .w_full()
             .px_5()
-            .when(in_thread && post.is_reply(), |el| el.pl(px(44.)))
+            .when(in_thread && post.is_reply(), |el| el.pl(px(THREAD_LINE + 14.)))
             .children(rail)
             .map(|el| match (bot_block, run_prev) {
                 (true, true) => el,
@@ -1465,9 +1483,9 @@ impl ChatApp {
                 _ => el,
             })
             .when(!(bot_block && run_next), |el| el.pb_1())
-            .when(mine && !highlighted, |el| {
-                el.bg(p.button_bg.opacity(0.05)).border_l_2().border_color(p.button_bg.opacity(0.55))
-            })
+            .when(mine && !highlighted, |el| el.bg(p.button_bg.opacity(0.05)))
+            // In a thread the line is the only vertical mark: no border of my own.
+            .when(mine && !highlighted && !in_thread, |el| el.border_l_2().border_color(p.button_bg.opacity(0.55)))
             .when(highlighted, |el| el.bg(p.mention_highlight_bg.opacity(0.18)))
             .when(being_edited, |el| el.bg(p.away.opacity(0.12)))
             .when(!highlighted && !being_edited, |el| el.hover(|s| s.bg(p.hover())))
