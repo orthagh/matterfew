@@ -1228,6 +1228,29 @@ impl ChatApp {
                 .into_any_element()
         };
 
+        // Like the web client: a plain click on the text of a message opens its
+        // thread. Links and tags keep the click for themselves, and a drag is
+        // a text selection, not a click.
+        let body = if pane == Pane::Channel && !post.is_system() && !being_edited && self.click_opens_thread() {
+            let entity = entity.clone();
+            let root = if post.root_id.is_empty() { post.id.clone() } else { post.root_id.clone() };
+            div()
+                .id(key("open"))
+                .child(body)
+                .on_click(move |event, window, cx| {
+                    if let ClickEvent::Mouse(click) = event {
+                        let moved = click.up.position - click.down.position;
+                        if moved.x.abs() > px(4.) || moved.y.abs() > px(4.) {
+                            return;
+                        }
+                    }
+                    entity.update(cx, |this, cx| this.open_thread(root.clone(), window, cx));
+                })
+                .into_any_element()
+        } else {
+            body
+        };
+
         // Réactions : cliquer sur une pastille ajoute ou retire la sienne.
         let reactions = group_reactions(&post.metadata.reactions, me);
         let reaction_row = h_flex()
@@ -2157,7 +2180,13 @@ impl ChatApp {
                         author = self.user_name(&user_id),
                         channel = channel
                     )))
-                    .child(div().text_sm().line_clamp(4).child(markdown::plain_text(&message)))
+                    // The quoted message keeps its formatting; its height stays bounded.
+                    .child(
+                        div().text_sm().max_h(px(90.)).overflow_hidden().child(
+                            TextView::markdown(ElementId::Name(id), markdown::prepare(&message))
+                                .on_link_click(link_click),
+                        ),
+                    )
                     .into_any_element(),
             };
             out.push(element);
@@ -2852,6 +2881,13 @@ impl ChatApp {
             }))
             .on_drop(cx.listener(|this, _: &SidebarResize, _, _| this.end_resize()))
             .on_mouse_up(MouseButton::Left, cx.listener(|this, _, _, _| this.end_resize()))
+            // Mouse side buttons: channel history, like Alt+←/→.
+            .capture_any_mouse_down(cx.listener(|this, ev: &MouseDownEvent, window, cx| {
+                if let MouseButton::Navigate(direction) = ev.button {
+                    this.navigate_history(matches!(direction, NavigationDirection::Forward), window, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .when(!narrow_sidebar, |el| el.children(self.render_team_bar(cx)).child(self.render_sidebar(cx)))
             .child(main)
             .children(thread_panel)
@@ -3698,6 +3734,13 @@ impl ChatApp {
                 )
                 .into_any_element(),
         )
+    }
+
+    /// "Click to open threads" (Display settings of the web client): on
+    /// unless the user turned it off.
+    fn click_opens_thread(&self) -> bool {
+        let pref = self.raw_prefs.iter().find(|p| p.category == "display_settings" && p.name == "click_to_reply");
+        pref.is_none_or(|p| p.value != "false")
     }
 
     /// Pastilles des @mentions et #étiquettes dans le texte des messages.
@@ -5931,6 +5974,8 @@ impl MarkdownPlugin for TagPlugin {
             .hover(|s| s.underline())
             .child(node.as_text().to_string())
             .on_click(move |ev, window, cx| {
+                // The click is for the tag, not for the message around it.
+                cx.stop_propagation();
                 let (value, at) = (value.clone(), ev.position());
                 let _ = app.update(cx, |this, cx| {
                     if hashtag {

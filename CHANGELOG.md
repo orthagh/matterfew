@@ -10,7 +10,15 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+### Added
+
+- Mouse back and forward buttons move through the channel history.
+- Clicking the text of a message opens its thread, unless "Click to open
+  threads" is turned off in the display settings.
+
 ### Fixed
+
+- Quoted message previews keep their Markdown formatting.
 
 - Channels read or marked unread in another client (web, mobile) now update here.
 - Some emoji names (`:unicorn_face:`, `:male-teacher:`) showed as text.
