@@ -259,6 +259,9 @@ mod windows_impl {
     /// already stops the flashing when the window comes to the foreground.
     pub fn attention_seen(_hwnd: isize) {}
 
+    /// The channel was read. Nothing to take back here: toasts leave on their own.
+    pub fn close_notifications(_channel_id: &str) {}
+
     pub fn hide_window(hwnd: isize) {
         unsafe {
             let _ = ShowWindow(to_hwnd(hwnd), SW_HIDE);
@@ -476,6 +479,8 @@ mod unix_impl {
         }
         let handle = notification.show()?;
         if let Some(target) = target {
+            #[cfg(target_os = "linux")]
+            linux::remember_notification(&target.channel_id, handle.id());
             let sender = clicks_pipe().0.clone();
             std::thread::spawn(move || {
                 handle.wait_for_action(|action| {
@@ -508,6 +513,13 @@ mod unix_impl {
         linux::calm();
     }
 
+    /// The channel was read: its notifications leave the desktop's list.
+    #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+    pub fn close_notifications(channel_id: &str) {
+        #[cfg(target_os = "linux")]
+        linux::close_notifications(channel_id);
+    }
+
     pub fn hide_window(_hwnd: isize) {}
     pub fn show_window(_hwnd: isize) {}
 
@@ -532,7 +544,7 @@ mod unix_impl {
         use super::super::{TrayAction, tray_pipe};
         use crate::icons;
         use std::collections::HashMap;
-        use std::sync::OnceLock;
+        use std::sync::{Mutex, OnceLock};
         use std::sync::mpsc::{Sender, channel};
 
         /// Fichier `.desktop` de l'application, selon l'emballage.
@@ -552,6 +564,30 @@ mod unix_impl {
         enum Update {
             Count(i64),
             Urgent(bool),
+            /// Not a launcher update, but it shares the thread's bus connection.
+            CloseNotification(u32),
+        }
+
+        /// Notifications still listed by the desktop, by channel.
+        fn open_notifications() -> &'static Mutex<HashMap<String, Vec<u32>>> {
+            static OPEN: OnceLock<Mutex<HashMap<String, Vec<u32>>>> = OnceLock::new();
+            OPEN.get_or_init(Default::default)
+        }
+
+        pub fn remember_notification(channel_id: &str, id: u32) {
+            let mut open = open_notifications().lock().unwrap_or_else(|e| e.into_inner());
+            open.entry(channel_id.to_string()).or_default().push(id);
+        }
+
+        /// The dock also counts the notifications left in the desktop's list,
+        /// so a channel that was read takes its own back.
+        pub fn close_notifications(channel_id: &str) {
+            let ids = open_notifications().lock().unwrap_or_else(|e| e.into_inner()).remove(channel_id);
+            if let (Some(ids), Some(tx)) = (ids, launcher()) {
+                for id in ids {
+                    let _ = tx.send(Update::CloseNotification(id));
+                }
+            }
         }
 
         /// Les signaux D-Bus partent d'un fil dédié (sa propre boucle tokio et
@@ -578,6 +614,18 @@ mod unix_impl {
                                     }
                                     Update::Urgent(urgent) => {
                                         props.insert("urgent", urgent.into());
+                                    }
+                                    Update::CloseNotification(id) => {
+                                        let _ = conn
+                                            .call_method(
+                                                Some("org.freedesktop.Notifications"),
+                                                "/org/freedesktop/Notifications",
+                                                Some("org.freedesktop.Notifications"),
+                                                "CloseNotification",
+                                                &id,
+                                            )
+                                            .await;
+                                        continue;
                                     }
                                 }
                                 let _ = conn

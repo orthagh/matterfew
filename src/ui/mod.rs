@@ -1227,6 +1227,7 @@ impl ChatApp {
             state.unread_messages = false;
             state.mentions = 0;
         }
+        desktop::close_notifications(&channel_id);
         self.channel_id = Some(channel_id.clone());
         self.attachments.clear();
         self.posts.clear();
@@ -1270,6 +1271,7 @@ impl ChatApp {
                 state.unread_messages = false;
                 state.mentions = 0;
             }
+            desktop::close_notifications(&id);
             self.send(Command::MarkRead { channel_id: id });
         }
     }
@@ -2087,6 +2089,7 @@ impl ChatApp {
                 state.unread_messages = false;
                 state.mentions = 0;
             }
+            desktop::close_notifications(id);
         }
         self.send(Command::MarkChannelsRead { channel_ids });
         cx.notify();
@@ -2102,6 +2105,7 @@ impl ChatApp {
             if self.manually_unread.as_deref() == Some(id.as_str()) {
                 self.manually_unread = None;
             }
+            desktop::close_notifications(&id);
             match self.channels.get_mut(&id) {
                 Some(state) => {
                     state.unread_messages = false;
