@@ -19,6 +19,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 ### Fixed
 
 - Quoted message previews keep their Markdown formatting.
+- Linux: bold text and unread channels were not bold when the system font is
+  a variable font (Ubuntu Sans, Cantarell).
 
 - Channels read or marked unread in another client (web, mobile) now update here.
 - Some emoji names (`:unicorn_face:`, `:male-teacher:`) showed as text.
