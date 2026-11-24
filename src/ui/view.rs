@@ -2181,12 +2181,9 @@ impl ChatApp {
                         channel = channel
                     )))
                     // The quoted message keeps its formatting; its height stays bounded.
-                    .child(
-                        div().text_sm().max_h(px(90.)).overflow_hidden().child(
-                            TextView::markdown(ElementId::Name(id), markdown::prepare(&message))
-                                .on_link_click(link_click),
-                        ),
-                    )
+                    .child(div().text_sm().max_h(px(90.)).overflow_hidden().child(
+                        TextView::markdown(ElementId::Name(id), markdown::prepare(&message)).on_link_click(link_click),
+                    ))
                     .into_any_element(),
             };
             out.push(element);
