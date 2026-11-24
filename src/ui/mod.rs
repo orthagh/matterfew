@@ -384,6 +384,7 @@ pub struct ChatApp {
     unread_toast_closed: Option<String>,
     /// Text last handed to the primary selection (Linux), so that a click
     /// elsewhere does not take the selection back from another application.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     primary_selection: String,
     search_input: Entity<InputState>,
     /// Sélecteur de canaux (Ctrl+K) ouvert, avec la ligne choisie.
