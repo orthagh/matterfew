@@ -544,8 +544,8 @@ mod unix_impl {
         use super::super::{TrayAction, tray_pipe};
         use crate::icons;
         use std::collections::HashMap;
-        use std::sync::{Mutex, OnceLock};
         use std::sync::mpsc::{Sender, channel};
+        use std::sync::{Mutex, OnceLock};
 
         /// Fichier `.desktop` de l'application, selon l'emballage.
         pub fn desktop_entry() -> String {

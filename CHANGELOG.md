@@ -15,6 +15,7 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Mouse back and forward buttons move through the channel history.
 - Clicking the text of a message opens its thread, unless "Click to open
   threads" is turned off in the display settings.
+- With threads shown in the channel, a reply says which message it answers.
 
 ### Fixed
 

@@ -449,6 +449,8 @@ post:
   show_more: "Afficher tout"
   show_less: "Réduire"
   permalink_from: "Message de %{author} dans %{channel}"
+  reply_to: "En réponse à %{author} : %{excerpt}"
+  reply_to_thread: "En réponse à un fil"
 threads:
   sidebar: "Fils"
   all_channels: "Tous les canaux"

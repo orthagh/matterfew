@@ -1251,6 +1251,32 @@ impl ChatApp {
             body
         };
 
+        // Threads shown in the channel: a reply says what it answers, unless
+        // it comes right after that message or another reply to it.
+        let follows_thread = prev.is_some_and(|prev| prev.id == post.root_id || prev.root_id == post.root_id);
+        let reply_to = (pane == Pane::Channel && post.is_reply() && !follows_thread).then(|| {
+            let label = match list.iter().map(|v| &v.post).find(|p| p.id == post.root_id) {
+                Some(root) => {
+                    let text = markdown::plain_text(&root.message);
+                    let excerpt: String = text.lines().next().unwrap_or_default().chars().take(80).collect();
+                    t!("post.reply_to", author = self.user_name(&root.user_id), excerpt = excerpt).to_string()
+                }
+                None => t!("post.reply_to_thread").to_string(),
+            };
+            let (entity, root) = (entity.clone(), post.root_id.clone());
+            div()
+                .id(key("reply-to"))
+                .text_size(px(12.))
+                .text_color(p.muted())
+                .truncate()
+                .cursor_pointer()
+                .hover(|s| s.underline())
+                .child(label)
+                .on_click(move |_, window, cx| {
+                    entity.update(cx, |this, cx| this.open_thread(root.clone(), window, cx));
+                })
+        });
+
         // Réactions : cliquer sur une pastille ajoute ou retire la sienne.
         let reactions = group_reactions(&post.metadata.reactions, me);
         let reaction_row = h_flex()
@@ -1416,6 +1442,7 @@ impl ChatApp {
                     .when(!compact && !bot_block, |el| el.child(header))
                     .child({
                         let inner = v_flex()
+                            .children(reply_to)
                             .child(body)
                             .children(self.render_rich(entity, post, &key("rich"), &p))
                             .when(!post.metadata.files.is_empty(), |el| {
