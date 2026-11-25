@@ -32,6 +32,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - The profile beside a direct message lines up with the channel header.
 - A server error shown at startup now clears once the connection is back.
 - A right click on a link no longer opens it.
+- Flatpak: a dropped file the sandbox cannot read (anywhere but Downloads)
+  is no longer silently ignored; a message suggests the paperclip instead.
 - No more "server not responding" error for a quiet connection or after the
   computer wakes up; a dropped connection only shows the offline banner
   while it reconnects.

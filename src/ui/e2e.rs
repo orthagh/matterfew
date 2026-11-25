@@ -943,4 +943,13 @@ fn e2e_glisser_deposer_un_fichier() {
         assert_eq!(a.attachments.len(), 1);
     });
     let _ = std::fs::remove_file(file);
+    // Fichier hors de portée (chemin de l'hôte vu d'un bac à sable) : signalé.
+    let ghost = std::env::temp_dir().join("matterfew-introuvable").join("rapport.pdf");
+    w.1.simulate_event(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![ghost].into()) });
+    w.1.simulate_event(FileDropEvent::Submit { position: at });
+    w.1.draw();
+    w.1.read(|a, _| {
+        assert_eq!(a.attachments.len(), 1);
+        assert!(a.info.as_deref().is_some_and(|i| i.contains("rapport.pdf")), "{:?}", a.info);
+    });
 }

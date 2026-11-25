@@ -1497,7 +1497,20 @@ impl ChatApp {
     fn add_files(&mut self, pane: Pane, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
         let Some(channel_id) = self.channel_id.clone() else { return };
         let max_size = self.max_file_size();
-        for path in paths.into_iter().filter(|p| p.is_file()) {
+        // Un fichier déposé hors de portée (bac à sable flatpak : seul le
+        // dossier Téléchargements est visible) : le dire, plutôt que rien.
+        let (paths, missing): (Vec<PathBuf>, Vec<PathBuf>) =
+            paths.into_iter().filter(|p| !p.is_dir()).partition(|p| p.is_file());
+        if let Some(first) = missing.first() {
+            let name = first.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let key = if std::env::var_os("FLATPAK_ID").is_some() {
+                "composer.file_unreachable_flatpak"
+            } else {
+                "composer.file_unreachable"
+            };
+            self.flash(t!(key, name = name).to_string(), cx);
+        }
+        for path in paths {
             let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let size = std::fs::metadata(&path).map(|m| m.len() as i64).unwrap_or(0);
             if self.attachments.iter().filter(|a| a.pane == pane).count() >= MAX_FILES {
