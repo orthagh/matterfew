@@ -10,6 +10,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
 ### Added
 
 - Redesigned message box: a rounded card with only "+" (attach, mention,
