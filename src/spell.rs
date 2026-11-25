@@ -19,6 +19,21 @@ pub struct Misspelling {
     pub suggestions: Vec<String>,
 }
 
+/// Fautes encore à leur place dans le texte modifié (le mot n'a pas changé) :
+/// elles restent soulignées en attendant la prochaine vérification.
+pub fn still_valid(found: &[Misspelling], text: &str) -> Vec<Misspelling> {
+    let word_char = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '\'' || c == '’');
+    found
+        .iter()
+        .filter(|m| {
+            text.get(m.range.clone()) == Some(m.word.as_str())
+                && !word_char(text[..m.range.start].chars().next_back())
+                && !word_char(text[m.range.end..].chars().next())
+        })
+        .cloned()
+        .collect()
+}
+
 /// Faut-il ignorer ce mot ? (mention, étiquette, code, adresse, identifiant…)
 pub fn skip(text: &str, range: &Range<usize>) -> bool {
     let word = &text[range.clone()];
@@ -217,5 +232,22 @@ mod tests {
         let c = super::Checker::new().expect("correcteur");
         let found = c.check("Bonjour, je suis tres contant.", 5);
         assert!(found.iter().any(|m| m.word == "tres"), "{found:?}");
+    }
+
+    #[test]
+    fn fautes_encore_valables() {
+        use super::{Misspelling, still_valid};
+        let m = |start: usize, word: &str| Misspelling {
+            range: start..start + word.len(),
+            word: word.into(),
+            suggestions: vec![],
+        };
+        let found = vec![m(0, "bonjuor"), m(8, "tuot")];
+        // Frappe à la fin : les deux fautes restent à leur place.
+        assert_eq!(still_valid(&found, "bonjuor tuot le monde").len(), 2);
+        // Mot prolongé : il n'est plus le même, sa marque disparaît.
+        assert_eq!(still_valid(&found, "bonjuor tuots"), vec![m(0, "bonjuor")]);
+        // Texte inséré avant : les positions ont bougé, rien n'est gardé à tort.
+        assert!(still_valid(&found, "Ah bonjuor tuot").is_empty());
     }
 }

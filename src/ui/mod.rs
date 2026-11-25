@@ -246,6 +246,8 @@ pub(crate) enum Pane {
 pub(crate) const LINK_MENU_WIDTH: f32 = 220.;
 /// Pages d'historique chargées au plus pour retrouver un message.
 const REVEAL_PAGES: u8 = 10;
+/// Pause de frappe après laquelle la correction orthographique passe.
+const SPELL_PAUSE: Duration = Duration::from_millis(700);
 const TYPING_SEND_INTERVAL: Duration = Duration::from_secs(3);
 /// Durée d'affichage d'un « X est en train d'écrire » sans nouveau signal.
 const TYPING_DISPLAY: Duration = Duration::from_secs(5);
@@ -337,6 +339,8 @@ pub struct ChatApp {
     /// Correcteur orthographique de Windows, et mots signalés par zone de saisie.
     spell: Option<crate::spell::Checker>,
     misspellings: HashMap<Pane, Vec<crate::spell::Misspelling>>,
+    /// Frappes dans chaque zone de saisie : la correction attend une pause.
+    spell_generation: HashMap<Pane, u64>,
     /// Règles Autolink du serveur (en plus de celles de ui.json).
     server_autolinks: Vec<crate::autolink::RuleDef>,
     /// Images sans aperçu possible (affichées en carte de fichier).
@@ -572,7 +576,7 @@ impl ChatApp {
                     InputEvent::Change => {
                         this.signal_typing(pane);
                         this.update_autocomplete(pane, cx);
-                        this.check_spelling(pane, cx);
+                        this.schedule_spelling(pane, cx);
                     }
                     _ => {}
                 }
@@ -762,6 +766,7 @@ impl ChatApp {
             expanded_bots: HashSet::new(),
             spell: crate::spell::Checker::new(),
             misspellings: HashMap::new(),
+            spell_generation: HashMap::new(),
             server_autolinks: Vec::new(),
             failed_previews: HashSet::new(),
             channel_files: HashMap::new(),
@@ -2970,14 +2975,40 @@ impl ChatApp {
 
     /// Décorations d'une zone de saisie : mots inconnus du correcteur
     /// soulignés, et mise en forme visible avec l'éditeur riche (bêta).
+    /// Pendant la frappe : la mise en forme suit tout de suite, mais la
+    /// correction attend une pause (sinon les mots en cours de frappe se
+    /// soulignent). Les fautes déjà signalées restent, si le mot n'a pas bougé.
+    fn schedule_spelling(&mut self, pane: Pane, cx: &mut Context<Self>) {
+        let text = self.composer_for(pane).read(cx).value().to_string();
+        let kept = crate::spell::still_valid(self.misspellings.get(&pane).map(Vec::as_slice).unwrap_or(&[]), &text);
+        self.show_spelling(pane, &text, kept, cx);
+        let generation = self.spell_generation.entry(pane).or_default();
+        *generation += 1;
+        let expected = *generation;
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SPELL_PAUSE).await;
+            let _ = this.update(cx, |this, cx| {
+                if this.spell_generation.get(&pane) == Some(&expected) {
+                    this.check_spelling(pane, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
     fn check_spelling(&mut self, pane: Pane, cx: &mut Context<Self>) {
-        let state = self.composer_for(pane);
-        let text = state.read(cx).value().to_string();
+        let text = self.composer_for(pane).read(cx).value().to_string();
         // Une commande « / » n'est pas du texte à corriger.
         let found = match &self.spell {
             Some(checker) if !text.trim_start().starts_with('/') => checker.check(&text, 12),
             _ => Vec::new(),
         };
+        self.show_spelling(pane, &text, found, cx);
+    }
+
+    /// Fautes soulignées (et mise en forme de l'éditeur riche).
+    fn show_spelling(&mut self, pane: Pane, text: &str, found: Vec<crate::spell::Misspelling>, cx: &mut Context<Self>) {
+        let state = self.composer_for(pane);
         let color = self.palette.error;
         let mut decorations: Vec<gpui_kit::component::input::TextDecoration> = found
             .iter()
@@ -2990,7 +3021,7 @@ impl ChatApp {
             })
             .collect();
         if self.settings.rich_editor {
-            decorations.extend(self.live_markdown_decorations(&text));
+            decorations.extend(self.live_markdown_decorations(text));
             // La zone de saisie cherche les décorations visibles dans une liste triée.
             decorations.sort_by_key(|d| (d.range.start, d.range.end));
         }
