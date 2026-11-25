@@ -1263,8 +1263,12 @@ impl ChatApp {
                         .plugin(self.diff_plugin())
                         .on_link_click({
                             let entity = entity.clone();
-                            move |url, _, window, cx| {
-                                if let Some(name) = url.strip_prefix(markdown::MENTION_SCHEME) {
+                            move |url, ev, window, cx| {
+                                if is_right_click(ev) {
+                                    cx.stop_propagation();
+                                    let (url, at) = (url.to_string(), window.mouse_position());
+                                    entity.update(cx, |this, cx| this.open_link_menu(url, at, window, cx));
+                                } else if let Some(name) = url.strip_prefix(markdown::MENTION_SCHEME) {
                                     let (name, at) = (name.to_string(), window.mouse_position());
                                     entity.update(cx, |this, cx| this.open_profile_by_name(name, at, window, cx));
                                 } else if let Some(tag) = url.strip_prefix(markdown::HASHTAG_SCHEME) {
@@ -1765,7 +1769,7 @@ impl ChatApp {
                                                     )
                                                     .selectable(false)
                                                     .max_lines(1)
-                                                    .on_link_click(|url, _, _, cx| open_link(url, cx)),
+                                                    .on_link_click(external_link_click(entity.clone())),
                                                 )
                                             }),
                                     )
@@ -2272,9 +2276,12 @@ impl ChatApp {
         let p = *p;
         let mut out = Vec::new();
         let open = |url: String| move |_: &ClickEvent, _: &mut Window, cx: &mut App| open_link(&url, cx);
-        let link_click = |url: &SharedString, _: &ClickEvent, _: &mut Window, cx: &mut App| {
-            if !url.starts_with(markdown::MENTION_SCHEME) {
-                open_link(url, cx);
+        let link_click = || {
+            let external = external_link_click(entity.clone());
+            move |url: &SharedString, ev: &ClickEvent, window: &mut Window, cx: &mut App| {
+                if !url.starts_with(markdown::MENTION_SCHEME) {
+                    external(url, ev, window, cx);
+                }
             }
         };
 
@@ -2304,7 +2311,7 @@ impl ChatApp {
                     div().text_size(px(BODY_TEXT)).child(
                         TextView::markdown(ElementId::Name(id("text")), markdown::prepare(&a.text))
                             .plugin(self.diff_plugin())
-                            .on_link_click(link_click),
+                            .on_link_click(link_click()),
                     ),
                 );
             }
@@ -2371,7 +2378,7 @@ impl ChatApp {
                 block = block.child(
                     div().text_size(px(BODY_TEXT)).child(
                         TextView::markdown(ElementId::Name(id("pretext")), markdown::prepare(&a.pretext))
-                            .on_link_click(link_click),
+                            .on_link_click(link_click()),
                     ),
                 );
             }
@@ -2453,9 +2460,12 @@ impl ChatApp {
                         channel = channel
                     )))
                     // The quoted message keeps its formatting; its height stays bounded.
-                    .child(div().text_sm().max_h(px(90.)).overflow_hidden().child(
-                        TextView::markdown(ElementId::Name(id), markdown::prepare(&message)).on_link_click(link_click),
-                    ))
+                    .child(
+                        div().text_sm().max_h(px(90.)).overflow_hidden().child(
+                            TextView::markdown(ElementId::Name(id), markdown::prepare(&message))
+                                .on_link_click(link_click()),
+                        ),
+                    )
                     .into_any_element(),
             };
             out.push(element);
@@ -2731,7 +2741,7 @@ impl ChatApp {
                                 div().flex_1().min_w(px(60.)).max_h(px(18.)).overflow_hidden().child(
                                     TextView::markdown("channel-header-text", markdown::prepare(&header))
                                         .max_lines(1)
-                                        .on_link_click(|url, _, _, cx| open_link(url, cx)),
+                                        .on_link_click(external_link_click(cx.entity())),
                                 ),
                             )
                         })
@@ -3294,6 +3304,7 @@ impl ChatApp {
             .children(self.render_dialog(cx))
             .children(self.render_emoji_picker(cx))
             .children(self.render_profile_card(cx))
+            .children(self.render_link_menu(cx))
             .children(self.render_team_card(cx))
             .children(self.render_add_members(cx))
             .children(self.render_create(cx))
@@ -3417,6 +3428,69 @@ impl ChatApp {
     }
 
     /// Mini-carte de profil : photo en médaillon, statut, adresse, heure locale.
+    /// Menu d'un lien (clic droit) : copier ou ouvrir l'adresse.
+    fn render_link_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (url, at) = self.link_menu.clone()?;
+        let p = self.palette;
+        let row = |id: &'static str, icon: IconName, label: SharedString| {
+            h_flex()
+                .id(id)
+                .gap_2()
+                .px_3()
+                .py_1p5()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|s| s.bg(p.hover()))
+                .child(Icon::new(icon).size(px(15.)).text_color(p.muted()))
+                .child(label)
+        };
+        let copy_url = url.clone();
+        Some(
+            div()
+                .id("link-menu-backdrop")
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .on_mouse_down(MouseButton::Left, cx.listener(|this, _, _, cx| this.close_link_menu(cx)))
+                .on_mouse_down(MouseButton::Right, cx.listener(|this, _, _, cx| this.close_link_menu(cx)))
+                .child(
+                    v_flex()
+                        .id("link-menu")
+                        .occlude()
+                        .absolute()
+                        .left(at.x)
+                        .top(at.y)
+                        .w(px(super::LINK_MENU_WIDTH))
+                        .p_1()
+                        .rounded(px(8.))
+                        .border_1()
+                        .border_color(p.border())
+                        .bg(p.center_bg)
+                        .text_color(p.center_color)
+                        .text_sm()
+                        .shadow_lg()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(
+                            div().px_3().pt_1().pb_1p5().text_xs().text_color(p.muted()).truncate().child(url.clone()),
+                        )
+                        .child(row("link-menu-copy", IconName::Copy, t!("link_menu.copy").into()).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.link_menu = None;
+                                this.copy(copy_url.clone(), &t!("clipboard.link"), cx);
+                            }),
+                        ))
+                        .child(row("link-menu-open", IconName::Link, t!("link_menu.open").into()).on_click(
+                            cx.listener(move |this, _, _, cx| {
+                                this.close_link_menu(cx);
+                                open_link(&url, cx);
+                            }),
+                        )),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_profile_card(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let card = self.profile.as_ref()?;
         let p = self.palette;
@@ -5062,6 +5136,7 @@ impl ChatApp {
         let favorite = self.is_favorite(&id);
         let section = |title: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(title);
         // Markdown rendu (liens cliquables), ou une invite si vide.
+        let entity = cx.entity();
         let text_or = |key: &str, text: &str, empty: SharedString| {
             let id = SharedString::from(format!("ch-info-{key}"));
             div().min_w_0().text_sm().when(text.is_empty(), |d| d.italic().text_color(p.muted())).child(
@@ -5069,7 +5144,7 @@ impl ChatApp {
                     empty.into_any_element()
                 } else {
                     TextView::markdown(id, markdown::prepare(text))
-                        .on_link_click(|url, _, _, cx| open_link(url, cx))
+                        .on_link_click(external_link_click(entity.clone()))
                         .into_any_element()
                 },
             )
@@ -6608,6 +6683,27 @@ fn bot_post_lines(post: &Post) -> usize {
 
 /// Ouvre un lien d'un message : seulement le web et le courriel. Jamais
 /// `file:`, un chemin local ou un protocole qui lancerait un programme.
+/// Clic droit (et non gauche ou du milieu) sur un lien.
+fn is_right_click(ev: &ClickEvent) -> bool {
+    matches!(ev, ClickEvent::Mouse(click) if click.up.button == MouseButton::Right)
+}
+
+/// Clic sur un lien web : le bouton gauche ou du milieu l'ouvre, le droit
+/// propose de le copier.
+fn external_link_click(
+    entity: Entity<ChatApp>,
+) -> impl Fn(&SharedString, &ClickEvent, &mut Window, &mut App) + Send + Sync + 'static {
+    move |url, ev, window, cx| {
+        if is_right_click(ev) {
+            cx.stop_propagation();
+            let (url, at) = (url.to_string(), window.mouse_position());
+            entity.update(cx, |this, cx| this.open_link_menu(url, at, window, cx));
+        } else {
+            open_link(url, cx);
+        }
+    }
+}
+
 fn open_link(url: &str, cx: &mut App) {
     cx.stop_propagation();
     if is_safe_link(url) {

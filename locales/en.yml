@@ -348,6 +348,9 @@ composer:
   cancel_edit: "Cancel editing (Esc)"
   upload_failed: "failed: %{error}"
   uploading: "uploading…"
+link_menu:
+  copy: "Copy link"
+  open: "Open link"
 clipboard:
   link: "Link"
   copied: "%{what} copied to clipboard."

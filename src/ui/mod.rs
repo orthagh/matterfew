@@ -242,6 +242,8 @@ pub(crate) enum Pane {
 }
 
 /// Délai entre deux signaux « en train d'écrire » envoyés au serveur.
+/// Largeur du menu d'un lien (clic droit).
+pub(crate) const LINK_MENU_WIDTH: f32 = 220.;
 /// Pages d'historique chargées au plus pour retrouver un message.
 const REVEAL_PAGES: u8 = 10;
 const TYPING_SEND_INTERVAL: Duration = Duration::from_secs(3);
@@ -356,6 +358,8 @@ pub struct ChatApp {
     pending_reveal: Option<(String, String, u8)>,
     /// Message mis en évidence quelques secondes après y être allé.
     revealed: Option<String>,
+    /// Menu d'un lien (clic droit) : adresse et position.
+    link_menu: Option<(String, Point<Pixels>)>,
     /// Fils suivis (panneau « Fils »), `None` pendant le chargement.
     threads: Option<Vec<UserThread>>,
     /// Panneau « Fils » : tous ceux de l'équipe (sinon ceux du canal affiché),
@@ -762,6 +766,7 @@ impl ChatApp {
             pending_jump: None,
             pending_reveal: None,
             revealed: None,
+            link_menu: None,
             threads: None,
             primary_selection: String::new(),
             search_input,
@@ -1822,6 +1827,26 @@ impl ChatApp {
     fn team_name(&self) -> String {
         let id = self.team_id.as_deref().unwrap_or_default();
         self.teams.iter().find(|t| t.id == id).map(|t| t.name.clone()).unwrap_or_default()
+    }
+
+    /// Clic droit sur un lien web : menu pour le copier ou l'ouvrir.
+    pub(crate) fn open_link_menu(&mut self, url: String, at: Point<Pixels>, window: &Window, cx: &mut Context<Self>) {
+        let lower = url.trim().to_ascii_lowercase();
+        if !["https://", "http://", "mailto:"].iter().any(|p| lower.starts_with(p)) {
+            return;
+        }
+        let size = window.viewport_size();
+        let at = point(
+            at.x.min(size.width - px(LINK_MENU_WIDTH + 8.)).max(px(8.)),
+            at.y.min(size.height - px(96.)).max(px(8.)),
+        );
+        self.link_menu = Some((url, at));
+        cx.notify();
+    }
+
+    pub(crate) fn close_link_menu(&mut self, cx: &mut Context<Self>) {
+        self.link_menu = None;
+        cx.notify();
     }
 
     fn copy(&mut self, text: String, what: &str, cx: &mut Context<Self>) {

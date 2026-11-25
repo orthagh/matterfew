@@ -17,6 +17,7 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
   message box and the search field too.
 - Clicking the time of a message shows it in context, as in the web client:
   from a thread, in the channel; a reply in the channel opens its thread.
+- Right-clicking a link offers to copy or open it.
 
 ### Fixed
 
@@ -26,6 +27,7 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Linux (Wayland): clicking a notification brings the window forward.
 - The profile beside a direct message lines up with the channel header.
 - A server error shown at startup now clears once the connection is back.
+- A right click on a link no longer opens it.
 - No more "server not responding" error for a quiet connection or after the
   computer wakes up; a dropped connection only shows the offline banner
   while it reconnects.

@@ -348,6 +348,9 @@ composer:
   cancel_edit: "Cancelar edição (Esc)"
   upload_failed: "falhou: %{error}"
   uploading: "enviando…"
+link_menu:
+  copy: "Copiar link"
+  open: "Abrir link"
 clipboard:
   link: "Link"
   copied: "%{what} copiado para a área de transferência."

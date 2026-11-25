@@ -893,3 +893,20 @@ fn e2e_molette_en_bas() {
     w.1.draw();
     assert!(scrolled_up(&w), "la molette vers le haut fait toujours défiler");
 }
+
+#[test]
+fn e2e_menu_d_un_lien() {
+    // Clic droit sur un lien web : menu pour le copier ; rien pour les autres adresses.
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| a.open_link_menu("file:///etc/passwd".into(), point(px(100.), px(100.)), window, cx));
+    w.1.read(|a, _| assert!(a.link_menu.is_none()));
+    w.1.update(|a, window, cx| {
+        a.open_link_menu("https://example.org/page".into(), point(px(100.), px(100.)), window, cx)
+    });
+    w.1.read(|a, _| assert!(a.link_menu.is_some()));
+    w.1.draw();
+    w.1.simulate_click(point(px(160.), px(145.)), gpui_kit::MouseButton::Left);
+    wait_for(&w, "menu fermé", |a| a.link_menu.is_none());
+    let copied = w.0.update(|cx| cx.read_from_clipboard().and_then(|c| c.text()));
+    assert_eq!(copied.as_deref(), Some("https://example.org/page"));
+}

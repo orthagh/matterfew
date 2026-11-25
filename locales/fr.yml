@@ -348,6 +348,9 @@ composer:
   cancel_edit: "Annuler la modification (Échap)"
   upload_failed: "échec : %{error}"
   uploading: "envoi…"
+link_menu:
+  copy: "Copier le lien"
+  open: "Ouvrir le lien"
 clipboard:
   link: "Lien"
   copied: "%{what} copié dans le presse-papiers."
