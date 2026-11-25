@@ -2162,7 +2162,6 @@ impl ChatApp {
             (count * 10 > max * 9).then(|| {
                 div()
                     .px_1()
-                    .pb_1p5()
                     .text_xs()
                     .when(count > max, |el| el.text_color(p.error).font_semibold())
                     .when(count <= max, |el| el.text_color(p.muted()))
@@ -2192,6 +2191,9 @@ impl ChatApp {
             .child(Icon::new(if editing { IconName::Check } else { IconName::ArrowUp }).size(px(16.)))
             .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(send_tip.clone()).build(window, cx))
             .on_click(cx.listener(move |this, _, window, cx| this.send_from(pane, window, cx)));
+        // Boutons de la ligne : centrés sur la première ligne de texte (au
+        // repos, tout est aligné ; quand le texte grandit, ils restent en bas).
+        let slot = |el: AnyElement| div().flex_none().h(px(COMPOSER_LINE)).flex().items_center().child(el);
         // Texte sélectionné : la mise en forme au-dessus de la zone.
         let selection_bar = (self.composer_selection.contains(&pane) && !show_formatting && !previewing).then(|| {
             h_flex()
@@ -2232,7 +2234,7 @@ impl ChatApp {
                 })
                 .into_any_element()
         } else {
-            div().pt(px(11.)).pb(px(1.)).child(Textarea::new(&state).appearance(false)).into_any_element()
+            Textarea::new(&state).appearance(false).into_any_element()
         };
 
         v_flex()
@@ -2294,6 +2296,7 @@ impl ChatApp {
             .capture_action(cx.listener(move |this, _: &Escape, window, cx| this.ac_action(pane, "escape", window, cx)))
             .children(popup)
             .children(selection_bar)
+            .children(self.render_spelling(pane, cx))
             .child(
                 v_flex()
                     .rounded(px(16.))
@@ -2329,19 +2332,18 @@ impl ChatApp {
                         )
                     })
                     .children(self.render_attachments(pane, cx))
-                    .children(self.render_spelling(pane, cx))
                     .children(format_bar)
                     .child(
                         h_flex()
                             .items_end()
                             .gap_1()
                             .px_1p5()
-                            .py_1p5()
-                            .child(plus)
+                            .py_1()
+                            .child(slot(plus.into_any_element()))
                             .child(div().flex_1().min_w_0().child(input))
-                            .children(char_count)
-                            .child(emoji_button)
-                            .child(send),
+                            .children(char_count.map(|c| slot(c.into_any_element())))
+                            .child(slot(emoji_button.into_any_element()))
+                            .child(slot(send.into_any_element())),
                     ),
             )
             .child(div().h(px(18.)).px_1().pt_0p5().text_size(px(11.)).italic().text_color(p.muted()).children(typing))
@@ -4172,58 +4174,65 @@ impl ChatApp {
 
     /// Bandeau d'orthographe au-dessus de la saisie : premier mot inconnu,
     /// propositions cliquables, « Ajouter au dictionnaire ».
+    /// Bulle d'un mot souligné (curseur posé dessus) : propositions et
+    /// « Ajouter au dictionnaire », au-dessus de la zone de saisie.
     fn render_spelling(&self, pane: Pane, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let list = self.misspellings.get(&pane)?;
-        let first = list.first()?;
+        let (popup_pane, word) = self.spell_popup.as_ref()?;
+        if *popup_pane != pane {
+            return None;
+        }
+        let found = self.misspellings.get(&pane)?.iter().find(|m| &m.word == word)?;
         let p = self.palette;
-        let more = list.len() - 1;
-        let word = first.word.clone();
+        let word = word.clone();
+        let learn = word.clone();
         Some(
             h_flex()
-                .flex_wrap()
-                .gap_1p5()
-                .px_3()
-                .py_1p5()
-                .text_xs()
-                .child(Icon::new(IconName::SpellCheck).size(px(14.)).text_color(p.error))
-                .child(div().text_color(p.muted()).child(t!("spelling.label")))
-                .child(div().font_semibold().text_color(p.error).child(t!("spelling.word", word = word)))
-                .children(first.suggestions.iter().enumerate().map(|(i, s)| {
+                .id(SharedString::from(format!("spell-popup-{pane:?}")))
+                .occlude()
+                .absolute()
+                .bottom_full()
+                .left(px(56.))
+                .mb_0p5()
+                .p_1()
+                .gap_1()
+                .rounded(px(8.))
+                .border_1()
+                .border_color(p.border())
+                .bg(p.center_bg)
+                .shadow_md()
+                .text_sm()
+                .children(found.suggestions.iter().enumerate().map(|(i, s)| {
                     let (w, s2) = (word.clone(), s.clone());
                     div()
                         .id(SharedString::from(format!("sp-{pane:?}-{i}")))
                         .px_2()
                         .py_0p5()
-                        .rounded_full()
-                        .bg(p.button_bg.opacity(0.12))
-                        .text_color(p.button_bg)
+                        .rounded(px(6.))
                         .font_semibold()
                         .cursor_pointer()
-                        .hover(|st| st.bg(p.button_bg.opacity(0.2)))
+                        .hover(|st| st.bg(p.hover()))
                         .child(s.clone())
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.correct_spelling(pane, w.clone(), s2.clone(), window, cx)
                         }))
                 }))
-                .when(first.suggestions.is_empty(), |el| {
-                    el.child(div().text_color(p.muted()).child(t!("spelling.no_suggestions")))
+                .when(found.suggestions.is_empty(), |el| {
+                    el.child(div().px_2().text_color(p.muted()).child(t!("spelling.no_suggestions")))
                 })
-                .child(div().flex_1())
-                .when(more > 0, |el| {
-                    el.child(div().text_color(p.muted()).child(if more == 1 {
-                        t!("spelling.more.one")
-                    } else {
-                        t!("spelling.more.other", count = more)
-                    }))
-                })
+                .child(div().w(px(1.)).h(px(16.)).mx_0p5().bg(p.border()))
                 .child(
-                    div()
+                    h_flex()
                         .id(SharedString::from(format!("sp-learn-{pane:?}")))
-                        .text_color(p.link)
+                        .gap_1()
+                        .px_2()
+                        .py_0p5()
+                        .rounded(px(6.))
+                        .text_color(p.muted())
                         .cursor_pointer()
-                        .hover(|st| st.underline())
+                        .hover(|st| st.bg(p.hover()).text_color(p.center_color))
+                        .child(Icon::new(IconName::Plus).size(px(14.)))
                         .child(t!("spelling.add_to_dictionary"))
-                        .on_click(cx.listener(move |this, _, _, cx| this.learn_word(pane, word.clone(), cx))),
+                        .on_click(cx.listener(move |this, _, _, cx| this.learn_word(pane, learn.clone(), cx))),
                 )
                 .into_any_element(),
         )
@@ -6216,6 +6225,9 @@ fn swallow_wheel_at_tail(
     .absolute()
     .size_full()
 }
+
+/// Hauteur d'une ligne de la zone de saisie (texte et marges internes).
+const COMPOSER_LINE: f32 = 36.;
 
 /// « 14:32 ».
 fn format_hour(ms: i64) -> String {

@@ -101,6 +101,7 @@ team:
   created: "Created %{day}"
   edit_description: "Edit description"
 demo:
+  composer_typo: "Here is the aproved mockup for the mobile version"
   composer_draft: "Here is the approved mockup, let me know if the mobile version works for you"
   rich_draft: "## Release 0.3\n\n**Done**: the _keyword_ highlights and the `settings` window.\n> Thanks @nathan.simon for the review!\n\n- [notes](https://example.org/notes)\n- ~~old export~~ removed"
   long_draft: "Summary of this morning: the CSV export fix is merged, the index on tickets is in production, and CI is green again. Still to do before Friday: check the slow queries on the search page, update the release notes, and ask the support team to try the new version on their test server."

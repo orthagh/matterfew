@@ -347,6 +347,12 @@ pub struct ChatApp {
     composer_selection: HashSet<Pane>,
     /// Zone de saisie qui a le focus (contour accentué).
     composer_focused: Option<Pane>,
+    /// Mot souligné sous le curseur (après un clic ou une flèche, pas pendant
+    /// la frappe) : ses propositions s'affichent au-dessus de la zone.
+    spell_popup: Option<(Pane, String)>,
+    /// Dernier texte vu par zone de saisie : distingue la frappe d'un
+    /// simple déplacement du curseur.
+    composer_seen: HashMap<Pane, String>,
     /// Règles Autolink du serveur (en plus de celles de ui.json).
     server_autolinks: Vec<crate::autolink::RuleDef>,
     /// Images sans aperçu possible (affichées en carte de fichier).
@@ -568,15 +574,37 @@ impl ChatApp {
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
         let thread_scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
         // Texte sélectionné : la barre de mise en forme apparaît au-dessus.
+        // Curseur posé sur un mot souligné : ses propositions.
         for (pane, state) in [(Pane::Channel, composer.clone()), (Pane::Thread, thread_composer.clone())] {
             cx.observe(&state, move |this: &mut Self, state, cx| {
-                let selected = !state.read(cx).selected_range().is_empty();
+                let (selected, cursor, text) = {
+                    let s = state.read(cx);
+                    (!s.selected_range().is_empty(), s.cursor(), s.value().to_string())
+                };
                 if selected != this.composer_selection.contains(&pane) {
                     if selected {
                         this.composer_selection.insert(pane);
                     } else {
                         this.composer_selection.remove(&pane);
                     }
+                    cx.notify();
+                }
+                let typed = this.composer_seen.get(&pane) != Some(&text);
+                if typed {
+                    this.composer_seen.insert(pane, text);
+                }
+                let word = if typed || selected {
+                    None
+                } else {
+                    this.misspellings
+                        .get(&pane)
+                        .and_then(|l| l.iter().find(|m| m.range.start <= cursor && cursor <= m.range.end))
+                        .map(|m| m.word.clone())
+                };
+                let next = word.map(|w| (pane, w));
+                let mine = this.spell_popup.as_ref().is_some_and(|(p, _)| *p == pane);
+                if (mine || next.is_some()) && this.spell_popup != next {
+                    this.spell_popup = next;
                     cx.notify();
                 }
             })
@@ -791,6 +819,8 @@ impl ChatApp {
             spell_text: HashMap::new(),
             composer_selection: HashSet::new(),
             composer_focused: None,
+            spell_popup: None,
+            composer_seen: HashMap::new(),
             server_autolinks: Vec::new(),
             failed_previews: HashSet::new(),
             channel_files: HashMap::new(),
@@ -2881,6 +2911,26 @@ impl ChatApp {
             "aide-markdown" => after(self, 500, window, cx, |this, _, cx| this.open_markdown_help(cx)),
             "saisie" => after(self, 500, window, cx, |this, window, cx| this.demo_composer(false, window, cx)),
             "saisie-selection" => after(self, 500, window, cx, |this, window, cx| this.demo_composer(true, window, cx)),
+            "saisie-faute" => after(self, 500, window, cx, |this, window, cx| {
+                let text = t!("demo.composer_typo").to_string();
+                this.composer.update(cx, |s, cx| {
+                    s.set_value(text, window, cx);
+                    s.focus(window, cx);
+                });
+                this.check_spelling(Pane::Channel, cx);
+                // Puis le curseur posé dans le mot, comme après un clic.
+                cx.spawn_in(window, async move |this, cx| {
+                    cx.background_executor().timer(Duration::from_millis(300)).await;
+                    let _ = this.update_in(cx, |this, _, cx| {
+                        let at =
+                            this.misspellings.get(&Pane::Channel).and_then(|l| l.first()).map(|m| m.range.start + 2);
+                        if let Some(at) = at {
+                            this.composer.update(cx, |s, cx| s.set_selected_range(at..at, cx));
+                        }
+                    });
+                })
+                .detach();
+            }),
             "envoi-fichier" => after(self, 500, window, cx, |this, window, cx| {
                 this.server_config.insert("MaxPostSize".into(), "300".into());
                 this.next_local_id += 2;
@@ -3156,6 +3206,7 @@ impl ChatApp {
         if text.get(m.range.clone()) != Some(word.as_str()) {
             return;
         }
+        self.spell_popup = None;
         let fixed = format!("{}{}{}", &text[..m.range.start], replacement, &text[m.range.end..]);
         state.update(cx, |s, cx| {
             s.set_value(fixed, window, cx);
@@ -3166,6 +3217,7 @@ impl ChatApp {
 
     /// Ajoute un mot au dictionnaire de Windows.
     fn learn_word(&mut self, pane: Pane, word: String, cx: &mut Context<Self>) {
+        self.spell_popup = None;
         if let Some(checker) = &self.spell {
             checker.add(&word);
         }

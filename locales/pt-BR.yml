@@ -101,6 +101,7 @@ team:
   created: "Criada %{day}"
   edit_description: "Editar descrição"
 demo:
+  composer_typo: "Aqui está a maquete aprovadda para a versão mobile"
   composer_draft: "Aqui está a maquete aprovada, me digam se a versão mobile funciona para vocês"
   rich_draft: "## Versão 0.3\n\n**Feito**: as _palavras-chave_ destacadas e a janela de `configurações`.\n> Obrigado @nathan.simon pela revisão!\n\n- [notas](https://example.org/notes)\n- ~~exportação antiga~~ removida"
   long_draft: "Resumo desta manhã: a correção da exportação CSV foi mesclada, o índice dos tickets está em produção e o CI voltou ao verde. Falta antes de sexta: verificar as consultas lentas da busca, atualizar as notas de versão e pedir ao suporte que teste a nova versão."

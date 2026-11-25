@@ -16,6 +16,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
   formatting bar, preview, Markdown help), emoji and a round send button
   that lights up when there is something to send; formatting appears above
   selected text.
+- Spelling suggestions and "Add to dictionary" show in a small bubble when
+  the cursor is on an underlined word, instead of a bar in the message box.
 - The Unreads section of the sidebar can be collapsed, like a category.
 - Linux: text selected with the mouse is pasted by a middle click, in the
   message box and the search field too.

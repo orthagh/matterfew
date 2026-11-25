@@ -1128,3 +1128,33 @@ fn e2e_zone_de_saisie_epuree() {
     w.1.simulate_keystroke("secondary-b");
     w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value().as_ref(), "une phrase à mettre en **gras**"));
 }
+
+#[test]
+fn e2e_bulle_d_orthographe() {
+    // Curseur posé sur un mot souligné : bulle ; pendant la frappe : rien.
+    use crate::spell::Misspelling;
+    let mut w = demo_app();
+    let text = "Voici la maquete validée";
+    w.1.update(|a, window, cx| {
+        a.composer.update(cx, |s, cx| {
+            s.set_value(text, window, cx);
+            s.focus(window, cx);
+        });
+        a.misspellings.insert(
+            super::Pane::Channel,
+            vec![Misspelling { range: 9..16, word: "maquete".into(), suggestions: vec!["maquette".into()] }],
+        );
+    });
+    w.1.draw();
+    w.1.read(|a, _| assert!(a.spell_popup.is_none(), "pas pendant la frappe"));
+    w.1.update(|a, _, cx| a.composer.update(cx, |s, cx| s.set_selected_range(11..11, cx)));
+    w.1.draw();
+    w.1.read(|a, _| assert_eq!(a.spell_popup.as_ref().map(|(_, w)| w.as_str()), Some("maquete")));
+    w.1.update(|a, window, cx| {
+        a.correct_spelling(super::Pane::Channel, "maquete".into(), "maquette".into(), window, cx)
+    });
+    w.1.read(|a, cx| {
+        assert!(a.spell_popup.is_none());
+        assert_eq!(a.composer.read(cx).value().as_ref(), "Voici la maquette validée");
+    });
+}
