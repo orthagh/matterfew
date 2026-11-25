@@ -46,17 +46,18 @@ impl Hunspell {
         std::thread::Builder::new()
             .name("dictionnaires".into())
             .spawn(move || {
-                let _ = slot.set(load(&languages));
+                let _ = slot.set(load(&languages, true));
             })
             .ok()?;
         Some(Self { dictionaries, personal: Mutex::new(read_personal()) })
     }
 
-    /// Chargement immédiat (tests).
+    /// Chargement immédiat des seuls dictionnaires embarqués (tests : même
+    /// résultat sur toutes les machines).
     #[cfg(test)]
     pub fn new_blocking(languages: Vec<&'static str>) -> Self {
         let dictionaries: Arc<OnceLock<Vec<spellbook::Dictionary>>> = Arc::default();
-        let _ = dictionaries.set(load(&languages));
+        let _ = dictionaries.set(load(&languages, false));
         Self { dictionaries, personal: Mutex::default() }
     }
 
@@ -111,7 +112,7 @@ fn read_personal() -> HashSet<String> {
 
 /// Un dictionnaire par langue : celui du système s'il est lisible, sinon
 /// l'embarqué (français, anglais).
-fn load(languages: &[&str]) -> Vec<spellbook::Dictionary> {
+fn load(languages: &[&str], system: bool) -> Vec<spellbook::Dictionary> {
     let mut done: Vec<&str> = Vec::new();
     let mut out = Vec::new();
     for tag in languages {
@@ -119,7 +120,7 @@ fn load(languages: &[&str]) -> Vec<spellbook::Dictionary> {
         if done.contains(&base) {
             continue;
         }
-        let dict = system_dictionary(tag).or_else(|| embedded_dictionary(base));
+        let dict = system.then(|| system_dictionary(tag)).flatten().or_else(|| embedded_dictionary(base));
         if let Some(dict) = dict {
             done.push(base);
             out.push(dict);
