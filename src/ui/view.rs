@@ -2188,6 +2188,12 @@ impl ChatApp {
                     (true, true, false, "x") => Some(Format::Strike),
                     (true, false, true, "k") => Some(Format::Link),
                     (true, false, true, "c") => Some(Format::Code),
+                    // Alt+Entrée va à la ligne, comme dans le client web.
+                    (false, false, true, "enter") => {
+                        this.composer_for(pane).update(cx, |s, cx| s.insert("\n", window, cx));
+                        cx.stop_propagation();
+                        return;
+                    }
                     _ => None,
                 };
                 if let Some(format) = format {

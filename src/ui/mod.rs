@@ -565,6 +565,9 @@ impl ChatApp {
                   window: &mut Window,
                   cx: &mut Context<Self>| {
                 match ev {
+                    // Maj+Entrée : la zone de saisie a déjà inséré le saut de
+                    // ligne (et le signale quand même) ; rien à envoyer.
+                    InputEvent::PressEnter { shift: true, .. } => {}
                     InputEvent::PressEnter { secondary, .. } => this.composer_enter(pane, *secondary, window, cx),
                     InputEvent::Change => {
                         this.signal_typing(pane);

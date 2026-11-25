@@ -953,3 +953,34 @@ fn e2e_glisser_deposer_un_fichier() {
         assert!(a.info.as_deref().is_some_and(|i| i.contains("rapport.pdf")), "{:?}", a.info);
     });
 }
+
+#[test]
+fn e2e_maj_et_alt_entree_vont_a_la_ligne() {
+    // Comme le client web : Maj+Entrée et Alt+Entrée vont à la ligne sans
+    // envoyer, Entrée envoie, Ctrl+Entrée ferme un bloc de code ouvert.
+    let mut w = demo_app();
+    let sent_before = w.1.read(|a, _| a.posts.len());
+    w.1.update(|a, window, cx| {
+        a.composer.update(cx, |s, cx| s.focus(window, cx));
+    });
+    w.1.simulate_input("ligne 1");
+    w.1.simulate_keystroke("shift-enter");
+    w.1.simulate_input("ligne 2");
+    w.1.simulate_keystroke("alt-enter");
+    w.1.simulate_input("ligne 3");
+    w.0.run_until_parked();
+    w.1.read(|a, cx| {
+        assert_eq!(a.posts.len(), sent_before, "rien n'est envoyé");
+        assert_eq!(a.composer.read(cx).value().as_ref(), "ligne 1\nligne 2\nligne 3");
+    });
+    w.1.simulate_keystroke("enter");
+    wait_for(&w, "message de trois lignes envoyé", |a| {
+        a.posts.last().is_some_and(|v| v.post.message == "ligne 1\nligne 2\nligne 3")
+    });
+
+    w.1.update(|a, window, cx| a.composer.update(cx, |s, cx| s.set_value("```\nlet x = 1;", window, cx)));
+    w.1.simulate_keystroke("secondary-enter");
+    wait_for(&w, "bloc de code fermé puis envoyé", |a| {
+        a.posts.last().is_some_and(|v| v.post.message == "```\nlet x = 1;\n```")
+    });
+}

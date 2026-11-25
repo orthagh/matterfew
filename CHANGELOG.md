@@ -32,6 +32,9 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - The profile beside a direct message lines up with the channel header.
 - A server error shown at startup now clears once the connection is back.
 - A right click on a link no longer opens it.
+- Shift+Enter inserted a line break and then sent the message; it now only
+  goes to the next line. Alt+Enter goes to the next line too, and
+  Ctrl+Enter closes an open code block before sending, as in the web client.
 - Flatpak: files dragged from the home folder can be attached (the app now
   has read-only access to it; flatpak asks to confirm this on update). A
   dropped file still out of reach shows a message pointing to the paperclip.

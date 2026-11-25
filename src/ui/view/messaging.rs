@@ -239,6 +239,12 @@ impl ChatApp {
             self.composer_for(pane).update(cx, |s, cx| s.insert("\n", window, cx));
             return;
         }
+        // Ctrl+Entrée dans un bloc de code resté ouvert : on le ferme avant
+        // d'envoyer, comme le client web.
+        if secondary && open_code_block {
+            let closed = format!("{}\n```", text.trim_end());
+            self.composer_for(pane).update(cx, |s, cx| s.set_value(closed, window, cx));
+        }
         self.send_from(pane, window, cx);
     }
 
