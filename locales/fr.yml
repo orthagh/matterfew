@@ -101,6 +101,7 @@ team:
   created: "Créée %{day}"
   edit_description: "Modifier la description"
 demo:
+  composer_typo_multi: "Bonjour à tous,\nla nouvelle version est prête pour les tests de recette.\nVoici la maquete validée pour la version mobile"
   composer_typo: "Voici la maquete validée pour la version mobile"
   composer_draft: "Voici la maquette validée, dites-moi si la version mobile vous convient"
   rich_draft: "## Version 0.3\n\n**Fait** : les _mots-clés_ surlignés et la fenêtre `paramètres`.\n> Merci @nathan.simon pour la relecture !\n\n- [notes](https://example.org/notes)\n- ~~ancien export~~ retiré"

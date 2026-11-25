@@ -101,6 +101,7 @@ team:
   created: "Criada %{day}"
   edit_description: "Editar descrição"
 demo:
+  composer_typo_multi: "Olá a todos,\na nova versão está pronta para os testes de aceitação.\nAqui está a maquete aprovadda para a versão mobile"
   composer_typo: "Aqui está a maquete aprovadda para a versão mobile"
   composer_draft: "Aqui está a maquete aprovada, me digam se a versão mobile funciona para vocês"
   rich_draft: "## Versão 0.3\n\n**Feito**: as _palavras-chave_ destacadas e a janela de `configurações`.\n> Obrigado @nathan.simon pela revisão!\n\n- [notas](https://example.org/notes)\n- ~~exportação antiga~~ removida"

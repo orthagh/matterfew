@@ -2713,6 +2713,27 @@ impl ChatApp {
 
     /// Démo seulement : `MM_DEMO_SCENE` ouvre directement un écran à montrer
     /// (captures pour la documentation, sans piloter la souris).
+    /// Démo : une faute soulignée (sur la dernière de plusieurs lignes avec
+    /// `multi`), puis le curseur posé dans le mot, comme après un clic.
+    fn demo_typo(&mut self, multi: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let text = if multi { t!("demo.composer_typo_multi") } else { t!("demo.composer_typo") }.to_string();
+        self.composer.update(cx, |s, cx| {
+            s.set_value(text, window, cx);
+            s.focus(window, cx);
+        });
+        self.check_spelling(Pane::Channel, cx);
+        cx.spawn_in(window, async move |this, cx| {
+            cx.background_executor().timer(Duration::from_millis(300)).await;
+            let _ = this.update_in(cx, |this, _, cx| {
+                let at = this.misspellings.get(&Pane::Channel).and_then(|l| l.last()).map(|m| m.range.start + 2);
+                if let Some(at) = at {
+                    this.composer.update(cx, |s, cx| s.set_selected_range(at..at, cx));
+                }
+            });
+        })
+        .detach();
+    }
+
     /// Démo : un message en cours, avec une pièce jointe ou une sélection.
     fn demo_composer(&mut self, select: bool, window: &mut Window, cx: &mut Context<Self>) {
         let text = t!("demo.composer_draft").to_string();
@@ -2911,26 +2932,8 @@ impl ChatApp {
             "aide-markdown" => after(self, 500, window, cx, |this, _, cx| this.open_markdown_help(cx)),
             "saisie" => after(self, 500, window, cx, |this, window, cx| this.demo_composer(false, window, cx)),
             "saisie-selection" => after(self, 500, window, cx, |this, window, cx| this.demo_composer(true, window, cx)),
-            "saisie-faute" => after(self, 500, window, cx, |this, window, cx| {
-                let text = t!("demo.composer_typo").to_string();
-                this.composer.update(cx, |s, cx| {
-                    s.set_value(text, window, cx);
-                    s.focus(window, cx);
-                });
-                this.check_spelling(Pane::Channel, cx);
-                // Puis le curseur posé dans le mot, comme après un clic.
-                cx.spawn_in(window, async move |this, cx| {
-                    cx.background_executor().timer(Duration::from_millis(300)).await;
-                    let _ = this.update_in(cx, |this, _, cx| {
-                        let at =
-                            this.misspellings.get(&Pane::Channel).and_then(|l| l.first()).map(|m| m.range.start + 2);
-                        if let Some(at) = at {
-                            this.composer.update(cx, |s, cx| s.set_selected_range(at..at, cx));
-                        }
-                    });
-                })
-                .detach();
-            }),
+            "saisie-faute" => after(self, 500, window, cx, |this, window, cx| this.demo_typo(false, window, cx)),
+            "saisie-faute-multi" => after(self, 500, window, cx, |this, window, cx| this.demo_typo(true, window, cx)),
             "envoi-fichier" => after(self, 500, window, cx, |this, window, cx| {
                 this.server_config.insert("MaxPostSize".into(), "300".into());
                 this.next_local_id += 2;

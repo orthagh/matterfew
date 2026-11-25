@@ -101,6 +101,7 @@ team:
   created: "Created %{day}"
   edit_description: "Edit description"
 demo:
+  composer_typo_multi: "Hi everyone,\nthe new version is ready for acceptance testing.\nHere is the aproved mockup for the mobile version"
   composer_typo: "Here is the aproved mockup for the mobile version"
   composer_draft: "Here is the approved mockup, let me know if the mobile version works for you"
   rich_draft: "## Release 0.3\n\n**Done**: the _keyword_ highlights and the `settings` window.\n> Thanks @nathan.simon for the review!\n\n- [notes](https://example.org/notes)\n- ~~old export~~ removed"
