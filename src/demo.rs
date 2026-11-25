@@ -807,7 +807,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             }
         }
         Command::Send { channel_id, root_id, message, file_ids, pending_id } => {
-            send(Event::Sent { pending_id });
+            send(Event::Sent { pending_id: pending_id.clone(), post: None });
             let id = demo.new_id();
             let files = file_ids.iter().filter_map(|id| demo.uploads.remove(id)).collect();
             let post = Post {
@@ -818,6 +818,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
                 root_id: root_id.clone(),
                 message,
                 metadata: PostMetadata { files, ..Default::default() },
+                pending_post_id: pending_id,
                 ..Default::default()
             };
             if root_id.is_empty() {

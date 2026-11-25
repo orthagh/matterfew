@@ -380,13 +380,18 @@ fn e2e_envoi_echoue_puis_reessaye() {
             message: "Message parti sans réseau".into(),
             file_ids: Vec::new(),
             failed: Some("réseau indisponible".into()),
+            created_at: 1,
         });
-        cx.notify();
+        a.show_pending("p-1", cx);
     });
     w.1.draw();
     w.1.update(|a, _, cx| a.retry_send("p-1", cx));
     wait_for(&w, "renvoyé puis confirmé", |a| a.outgoing.is_empty());
     wait_for(&w, "message reçu", |a| a.posts.last().is_some_and(|v| v.post.message == "Message parti sans réseau"));
+    w.1.read(|a, _| {
+        let copies = a.posts.iter().filter(|v| v.post.message == "Message parti sans réseau").count();
+        assert_eq!(copies, 1, "le provisoire est remplacé, pas doublé");
+    });
 }
 
 #[test]
@@ -982,5 +987,53 @@ fn e2e_maj_et_alt_entree_vont_a_la_ligne() {
     w.1.simulate_keystroke("secondary-enter");
     wait_for(&w, "bloc de code fermé puis envoyé", |a| {
         a.posts.last().is_some_and(|v| v.post.message == "```\nlet x = 1;\n```")
+    });
+}
+
+#[test]
+fn e2e_envoi_optimiste() {
+    // Le message s'affiche dès l'envoi, puis le vrai le remplace sans doublon.
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        let channel = a.channel_id.clone().unwrap();
+        a.post_message(super::Pane::Channel, channel, String::new(), "Envoi optimiste".into(), Vec::new(), cx);
+        let last = &a.posts.last().unwrap().post;
+        assert_eq!(last.message, "Envoi optimiste");
+        assert!(a.outgoing.iter().any(|o| o.pending_id == last.id), "affiché en attente");
+        let _ = window;
+    });
+    wait_for(&w, "remplacé par le vrai message", |a| {
+        a.outgoing.is_empty() && a.posts.last().is_some_and(|v| v.post.message == "Envoi optimiste")
+    });
+    w.1.read(|a, _| {
+        let copies = a.posts.iter().filter(|v| v.post.message == "Envoi optimiste").count();
+        assert_eq!(copies, 1, "pas de doublon");
+        assert!(!a.posts.last().unwrap().post.id.contains(':'), "identifiant du serveur");
+    });
+}
+
+#[test]
+fn e2e_echec_d_envoi_sur_le_message() {
+    // Échec : le message reste dans la liste avec la raison ; « Abandonner » le retire.
+    let mut w = demo_app();
+    w.1.update(|a, _, cx| {
+        a.outgoing.push(super::view::messaging::OutgoingPost {
+            pending_id: "moi:1".into(),
+            pane: super::Pane::Channel,
+            channel_id: a.channel_id.clone().unwrap(),
+            root_id: String::new(),
+            message: "Pas parti".into(),
+            file_ids: Vec::new(),
+            failed: Some("réseau".into()),
+            created_at: 1,
+        });
+        a.show_pending("moi:1", cx);
+    });
+    w.1.draw();
+    w.1.read(|a, _| assert_eq!(a.posts.last().unwrap().post.id, "moi:1"));
+    w.1.update(|a, _, cx| a.discard_failed("moi:1", cx));
+    w.1.read(|a, _| {
+        assert!(a.outgoing.is_empty());
+        assert!(!a.posts.iter().any(|v| v.post.id == "moi:1"));
     });
 }

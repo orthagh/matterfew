@@ -1504,7 +1504,12 @@ impl ChatApp {
                 })
         });
 
-        let toolbar = (!post.is_system()).then(|| {
+        // Envoyé mais pas encore confirmé (estompé), ou en échec (raison et actions).
+        let outgoing = self.outgoing.iter().find(|o| o.pending_id == post.id);
+        let sending = outgoing.is_some_and(|o| o.failed.is_none());
+        let send_failure =
+            outgoing.and_then(|o| o.failed.clone()).map(|err| self.render_send_failure(entity, &post.id, err));
+        let toolbar = (!post.is_system() && outgoing.is_none()).then(|| {
             self.render_post_toolbar(entity, pane, post.id.clone(), mine, confirming, group.clone(), bot_block, cx)
         });
 
@@ -1579,6 +1584,7 @@ impl ChatApp {
             .when(highlighted && !inset, |el| el.bg(p.mention_highlight_bg.opacity(0.18)))
             .when(being_edited && !inset, |el| el.bg(p.away.opacity(0.12)))
             .when(!highlighted && !being_edited && !inset, |el| el.hover(|s| s.bg(p.hover())))
+            .when(sending, |el| el.opacity(0.55))
             .child(left)
             .child(
                 v_flex()
@@ -1588,6 +1594,7 @@ impl ChatApp {
                     .child({
                         let inner = v_flex()
                             .child(body)
+                            .children(send_failure)
                             .children(self.render_rich(entity, post, &key("rich"), &p))
                             .when(!post.metadata.files.is_empty(), |el| {
                                 el.child(self.render_files(entity, &post.metadata.files, &key("files"), &p))
@@ -3024,7 +3031,6 @@ impl ChatApp {
             .children(error_banner)
             .children(info_banner)
             .child(messages)
-            .children(self.render_failed_sends(Pane::Channel, cx))
             .children(self.render_dm_warning())
             .child(if self.channel_id.as_deref().is_some_and(|id| self.is_archived(id)) {
                 // Canal archivé : lecture seule.
@@ -3101,7 +3107,6 @@ impl ChatApp {
                         .with_row_style(StyleRefinement::default().pb(px(0.))),
                     ),
                 )
-                .children(self.render_failed_sends(Pane::Thread, cx))
                 .child(self.render_composer(Pane::Thread, cx))
                 .children(self.render_drop_zone(Pane::Thread))
         });

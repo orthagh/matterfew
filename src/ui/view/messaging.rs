@@ -6,8 +6,9 @@ use gpui_kit::component::input::InputState;
 
 use super::dialogs::Dialog;
 use super::*;
-use crate::api::Preference;
+use crate::api::{Post, Preference};
 use crate::backend::Command;
+use crate::ui::PostView;
 
 /// Au-delà de ce nombre de membres, @channel / @all / @here demandent confirmation
 /// (comme le client web).
@@ -25,6 +26,8 @@ pub(crate) struct OutgoingPost {
     pub message: String,
     pub file_ids: Vec<String>,
     pub failed: Option<String>,
+    /// Heure d'envoi (ms), pour l'afficher en attendant le vrai message.
+    pub created_at: i64,
 }
 
 /// « Transférer » : message choisi, destination, ligne choisie au clavier.
@@ -75,6 +78,7 @@ impl ChatApp {
         root_id: String,
         message: String,
         file_ids: Vec<String>,
+        cx: &mut Context<Self>,
     ) {
         let pending_id = format!("{}:{}", self.me_id(), chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default());
         self.outgoing.push(OutgoingPost {
@@ -85,8 +89,110 @@ impl ChatApp {
             message: message.clone(),
             file_ids: file_ids.clone(),
             failed: None,
+            created_at: chrono::Utc::now().timestamp_millis(),
         });
+        self.show_pending(&pending_id, cx);
         self.send(Command::Send { channel_id, root_id, message, file_ids, pending_id });
+    }
+
+    /// Message provisoire, tel qu'il s'affiche en attendant le vrai.
+    fn pending_post(&self, o: &OutgoingPost) -> Post {
+        Post {
+            id: o.pending_id.clone(),
+            pending_post_id: o.pending_id.clone(),
+            create_at: o.created_at,
+            user_id: self.me_id().to_string(),
+            channel_id: o.channel_id.clone(),
+            root_id: o.root_id.clone(),
+            message: o.message.clone(),
+            ..Default::default()
+        }
+    }
+
+    /// Messages en attente d'un canal (`root` : ou d'un fil), à remettre dans
+    /// la liste quand elle est rechargée.
+    pub(crate) fn pending_posts(&self, channel_id: &str, root: Option<&str>) -> Vec<Post> {
+        self.outgoing
+            .iter()
+            .filter(|o| match root {
+                Some(root) => o.root_id == root,
+                None => o.channel_id == channel_id && (o.root_id.is_empty() || !self.crt),
+            })
+            .map(|o| self.pending_post(o))
+            .collect()
+    }
+
+    /// Affiche tout de suite le message envoyé (canal et fil ouvert), en bas.
+    pub(crate) fn show_pending(&mut self, pending_id: &str, cx: &mut Context<Self>) {
+        let Some(o) = self.outgoing.iter().find(|o| o.pending_id == pending_id) else { return };
+        let post = self.pending_post(o);
+        let in_channel =
+            self.channel_id.as_deref() == Some(post.channel_id.as_str()) && (post.root_id.is_empty() || !self.crt);
+        if in_channel {
+            self.posts.push(PostView::new(post.clone()));
+            self.scroller.update(cx, |s, cx| {
+                s.append(1, cx);
+                s.scroll_to_end(cx);
+            });
+        }
+        if let Some(thread) = self.thread.as_mut().filter(|t| !post.root_id.is_empty() && t.root_id == post.root_id) {
+            thread.posts.push(PostView::new(post));
+            self.thread_scroller.update(cx, |s, cx| {
+                s.append(1, cx);
+                s.scroll_to_end(cx);
+            });
+        }
+        cx.notify();
+    }
+
+    /// Le vrai message arrive : il remplace le provisoire (ou le provisoire
+    /// disparaît si le vrai est déjà là). Faux s'il n'y avait rien à remplacer.
+    pub(crate) fn settle_pending(&mut self, post: &Post, cx: &mut Context<Self>) -> bool {
+        if post.pending_post_id.is_empty() {
+            return false;
+        }
+        let mut settled = false;
+        if let Some(ix) = self.posts.iter().position(|v| v.post.id == post.pending_post_id) {
+            settled = true;
+            if self.posts.iter().any(|v| v.post.id == post.id) {
+                self.posts.remove(ix);
+                self.scroller.update(cx, |s, cx| s.splice(ix..ix + 1, 0, cx));
+            } else {
+                self.posts[ix] = PostView::new(post.clone());
+                self.scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
+            }
+        }
+        if let Some(thread) = self.thread.as_mut()
+            && let Some(ix) = thread.posts.iter().position(|v| v.post.id == post.pending_post_id)
+        {
+            settled = true;
+            if thread.posts.iter().any(|v| v.post.id == post.id) {
+                thread.posts.remove(ix);
+                self.thread_scroller.update(cx, |s, cx| s.splice(ix..ix + 1, 0, cx));
+            } else {
+                thread.posts[ix] = PostView::new(post.clone());
+                self.thread_scroller.update(cx, |s, cx| s.remeasure_items(ix..ix + 1, cx));
+            }
+        }
+        if settled {
+            self.request_previews([post]);
+            cx.notify();
+        }
+        settled
+    }
+
+    /// Retire un message provisoire des listes (abandonné ou repris).
+    fn remove_pending_views(&mut self, pending_id: &str, cx: &mut Context<Self>) {
+        if let Some(ix) = self.posts.iter().position(|v| v.post.id == pending_id) {
+            self.posts.remove(ix);
+            self.scroller.update(cx, |s, cx| s.splice(ix..ix + 1, 0, cx));
+        }
+        if let Some(thread) = self.thread.as_mut()
+            && let Some(ix) = thread.posts.iter().position(|v| v.post.id == pending_id)
+        {
+            thread.posts.remove(ix);
+            self.thread_scroller.update(cx, |s, cx| s.splice(ix..ix + 1, 0, cx));
+        }
     }
 
     pub(crate) fn on_send_result(&mut self, pending_id: &str, error: Option<String>) {
@@ -118,6 +224,7 @@ impl ChatApp {
     fn edit_failed(&mut self, pending_id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some(i) = self.outgoing.iter().position(|o| o.pending_id == pending_id) else { return };
         let o = self.outgoing.remove(i);
+        self.remove_pending_views(pending_id, cx);
         self.composer_for(o.pane).update(cx, |s, cx| {
             s.set_value(o.message, window, cx);
             s.focus(window, cx);
@@ -125,85 +232,50 @@ impl ChatApp {
         cx.notify();
     }
 
-    fn discard_failed(&mut self, pending_id: &str, cx: &mut Context<Self>) {
+    pub(crate) fn discard_failed(&mut self, pending_id: &str, cx: &mut Context<Self>) {
         self.outgoing.retain(|o| o.pending_id != pending_id);
+        self.remove_pending_views(pending_id, cx);
         cx.notify();
     }
 
-    /// Messages non envoyés de ce canal (ou de ce fil), au-dessus de la saisie.
-    pub(crate) fn render_failed_sends(&self, pane: Pane, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// Sous un message non envoyé : la raison, et réessayer, modifier ou abandonner.
+    pub(crate) fn render_send_failure(&self, entity: &Entity<Self>, id: &str, error: String) -> AnyElement {
         let p = self.palette;
-        let channel = self.channel_id.as_deref()?;
-        let root = match pane {
-            Pane::Channel => "",
-            Pane::Thread => self.thread.as_ref().map(|t| t.root_id.as_str())?,
+        let button = |what: &str, icon: IconName, label: SharedString| {
+            Button::new(SharedString::from(format!("{what}-{id}"))).icon(Icon::new(icon)).label(label).xsmall().ghost()
         };
-        let failed: Vec<&OutgoingPost> = self
-            .outgoing
-            .iter()
-            .filter(|o| o.failed.is_some() && o.channel_id == channel && (pane == Pane::Channel || o.root_id == root))
-            .filter(|o| pane == Pane::Thread || o.pane == Pane::Channel)
-            .collect();
-        if failed.is_empty() {
-            return None;
-        }
-        Some(
-            v_flex()
-                .flex_none()
-                .mx_5()
-                .mb_2()
-                .gap_1p5()
-                .children(failed.into_iter().map(|o| {
-                    let id = o.pending_id.clone();
-                    let (retry, edit, drop) = (id.clone(), id.clone(), id.clone());
-                    let preview: String = markdown::plain_text(&o.message).chars().take(120).collect();
-                    h_flex()
-                        .id(SharedString::from(format!("failed-{id}")))
-                        .gap_2()
-                        .px_3()
-                        .py_2()
-                        .rounded(px(8.))
-                        .border_1()
-                        .border_color(p.error.opacity(0.4))
-                        .bg(p.error.opacity(0.07))
-                        .text_sm()
-                        .child(Icon::new(IconName::TriangleAlert).size(px(16.)).text_color(p.error))
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .child(div().font_semibold().text_color(p.error).child(t!("outgoing.failed")))
-                                .child(div().truncate().text_color(p.muted()).child(preview)),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("retry-{id}")))
-                                .icon(Icon::new(IconName::RotateCcw))
-                                .label(t!("outgoing.retry"))
-                                .small()
-                                .primary()
-                                .on_click(cx.listener(move |this, _, _, cx| this.retry_send(&retry, cx))),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("edit-failed-{id}")))
-                                .icon(Icon::new(IconName::Pencil))
-                                .small()
-                                .ghost()
-                                .accessibility_label(t!("outgoing.edit"))
-                                .tooltip(t!("outgoing.edit"))
-                                .on_click(cx.listener(move |this, _, window, cx| this.edit_failed(&edit, window, cx))),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("drop-failed-{id}")))
-                                .icon(Icon::new(IconName::Trash))
-                                .small()
-                                .ghost()
-                                .accessibility_label(t!("outgoing.discard"))
-                                .tooltip(t!("outgoing.discard"))
-                                .on_click(cx.listener(move |this, _, _, cx| this.discard_failed(&drop, cx))),
-                        )
-                }))
-                .into_any_element(),
-        )
+        let (retry, edit, drop) = (entity.clone(), entity.clone(), entity.clone());
+        let (id1, id2, id3) = (id.to_string(), id.to_string(), id.to_string());
+        h_flex()
+            .id(SharedString::from(format!("failed-{id}")))
+            .mt_1()
+            .gap_1()
+            .flex_wrap()
+            .text_sm()
+            .child(Icon::new(IconName::TriangleAlert).size(px(14.)).text_color(p.error))
+            .child(
+                div()
+                    .id(SharedString::from(format!("failed-why-{id}")))
+                    .font_semibold()
+                    .text_color(p.error)
+                    .child(t!("outgoing.failed"))
+                    .tooltip(move |window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(error.clone()).build(window, cx)
+                    }),
+            )
+            .child(
+                button("retry", IconName::RotateCcw, t!("outgoing.retry").into())
+                    .on_click(move |_, _, cx| retry.update(cx, |this, cx| this.retry_send(&id1, cx))),
+            )
+            .child(
+                button("edit-failed", IconName::Pencil, t!("outgoing.edit").into())
+                    .on_click(move |_, window, cx| edit.update(cx, |this, cx| this.edit_failed(&id2, window, cx))),
+            )
+            .child(
+                button("drop-failed", IconName::Trash, t!("outgoing.discard").into())
+                    .on_click(move |_, _, cx| drop.update(cx, |this, cx| this.discard_failed(&id3, cx))),
+            )
+            .into_any_element()
     }
 
     // ------------------------------------------------------------------
@@ -378,7 +450,7 @@ impl ChatApp {
         let message = if comment.is_empty() { link } else { format!("{comment}\n{link}") };
         let title = self.channels.get(&target).map(|c| self.channel_title(&c.channel)).unwrap_or_default();
         self.dialog = None;
-        self.post_message(Pane::Channel, target, String::new(), message, Vec::new());
+        self.post_message(Pane::Channel, target, String::new(), message, Vec::new(), cx);
         self.flash(t!("forward.done", channel = title).to_string(), cx);
         cx.notify();
     }

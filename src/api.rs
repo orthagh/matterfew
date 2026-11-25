@@ -526,6 +526,10 @@ pub struct Post {
     /// Propriétés libres (`from_webhook`, `attachments`…).
     #[serde(default)]
     pub props: serde_json::Value,
+    /// Identifiant provisoire donné à l'envoi, renvoyé par le serveur : relie
+    /// le message affiché tout de suite au vrai.
+    #[serde(default)]
+    pub pending_post_id: String,
 }
 
 impl Post {

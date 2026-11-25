@@ -452,6 +452,8 @@ pub enum Event {
     Threads(Vec<UserThread>),
     Sent {
         pending_id: String,
+        /// Message créé (le temps réel peut arriver après).
+        post: Option<Post>,
     },
     Bookmarks {
         channel_id: String,
@@ -919,7 +921,7 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
         Command::Send { channel_id, root_id, message, file_ids, pending_id } => {
             // Échec : l'interface propose de réessayer (pas d'erreur générale).
             match client.create_post(&channel_id, &root_id, &message, &file_ids, &pending_id).await {
-                Ok(_) => ctx.emit(Event::Sent { pending_id }).await,
+                Ok(post) => ctx.emit(Event::Sent { pending_id, post: Some(post) }).await,
                 Err(err) => ctx.emit(Event::SendFailed { pending_id, error: format!("{err:#}") }).await,
             }
         }

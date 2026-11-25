@@ -1466,7 +1466,7 @@ impl ChatApp {
             cx.notify();
             return;
         }
-        self.post_message(pane, channel_id, root_id, message, file_ids);
+        self.post_message(pane, channel_id, root_id, message, file_ids, cx);
         self.attachments.retain(|a| a.pane != pane);
         self.last_typing_sent = None;
         state.update(cx, |s, cx| s.set_value("", window, cx));
@@ -2531,7 +2531,12 @@ impl ChatApp {
             return;
         }
         let start = self.posts.len().saturating_sub(crate::cache::MAX_POSTS);
-        let posts: Vec<Post> = self.posts[start..].iter().map(|v| v.post.clone()).collect();
+        // Messages en attente : pas encore sur le serveur, pas dans le cache.
+        let posts: Vec<Post> = self.posts[start..]
+            .iter()
+            .filter(|v| !self.outgoing.iter().any(|o| o.pending_id == v.post.id))
+            .map(|v| v.post.clone())
+            .collect();
         let users: HashMap<String, User> =
             posts.iter().filter_map(|p| self.users.get(&p.user_id).map(|u| (u.id.clone(), u.clone()))).collect();
         std::thread::spawn(move || crate::cache::store(&dir, &channel_id, &posts, &users));
@@ -2688,8 +2693,9 @@ impl ChatApp {
                     message: "Je serai en retard de 10 minutes pour la démo client.".into(),
                     file_ids: Vec::new(),
                     failed: Some("réseau".into()),
+                    created_at: chrono::Utc::now().timestamp_millis(),
                 });
-                cx.notify();
+                this.show_pending("demo", cx);
             }),
             "confirmation" => after(self, 600, window, cx, |this, _, cx| {
                 this.dialog =
@@ -3650,7 +3656,12 @@ impl ChatApp {
                     self.ensure_bookmarks(&channel_id);
                 }
             }
-            Event::Sent { pending_id } => self.on_send_result(&pending_id, None),
+            Event::Sent { pending_id, post } => {
+                if let Some(post) = post {
+                    self.settle_pending(&post, cx);
+                }
+                self.on_send_result(&pending_id, None)
+            }
             Event::SendFailed { pending_id, error } => self.on_send_result(&pending_id, Some(error)),
             Event::ThreadUpdated { team_id, thread } => self.on_thread_updated(team_id, thread),
             Event::ThreadRead { thread_id, unread_replies, unread_mentions } => {
@@ -3904,6 +3915,12 @@ impl ChatApp {
                     self.has_more = posts.len() >= PAGE_SIZE;
                     self.request_previews(&posts);
                     self.posts = posts.into_iter().filter(|p| p.delete_at == 0).map(PostView::new).collect();
+                    // Messages encore en attente (ou en échec) : toujours visibles.
+                    for post in self.pending_posts(&channel_id, None) {
+                        if !self.posts.iter().any(|v| v.post.id == post.id) {
+                            self.posts.push(PostView::new(post));
+                        }
+                    }
                     self.loading_posts = false;
                     self.store_cache();
                     let n = self.posts.len();
@@ -3957,8 +3974,14 @@ impl ChatApp {
             }
             Event::Thread { root_id, posts } => {
                 self.request_previews(&posts);
+                let pending = self.pending_posts("", Some(&root_id));
                 if let Some(thread) = self.thread.as_mut().filter(|t| t.root_id == root_id) {
                     thread.posts = posts.into_iter().filter(|p| p.delete_at == 0).map(PostView::new).collect();
+                    for post in pending {
+                        if !thread.posts.iter().any(|v| v.post.id == post.id) {
+                            thread.posts.push(PostView::new(post));
+                        }
+                    }
                     let n = thread.posts.len();
                     self.thread_scroller.update(cx, |s, cx| s.reset(n, cx));
                 }
@@ -4061,6 +4084,11 @@ impl ChatApp {
         let from_me = post.user_id == me_id;
         let is_current = self.channel_id.as_deref() == Some(&post.channel_id);
         let active = window.is_window_active();
+        // Notre message, déjà affiché en attente : le vrai prend sa place.
+        if from_me && !post.pending_post_id.is_empty() {
+            self.settle_pending(&post, cx);
+            self.outgoing.retain(|o| o.pending_id != post.pending_post_id);
+        }
 
         // Un message envoyé efface son « en train d'écrire ».
         self.typing.retain(|t| !(t.user_id == post.user_id && t.channel_id == post.channel_id));

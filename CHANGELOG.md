@@ -18,6 +18,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Clicking the time of a message shows it in context, as in the web client:
   from a thread, in the channel; a reply in the channel opens its thread.
 - Right-clicking a link offers to copy or open it.
+- A sent message shows at once, faded until the server confirms it; if
+  sending fails, the reason and Retry / Edit / Discard appear under it.
 - Dragging files over the channel or a thread shows where to drop them.
 - MCP server (beta, read-only, off by default): an assistant such as Claude
   Code can search and read messages through Matterfew. Turn it on in
