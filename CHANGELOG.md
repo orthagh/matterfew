@@ -26,6 +26,9 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - Linux (Wayland): clicking a notification brings the window forward.
 - The profile beside a direct message lines up with the channel header.
 - A server error shown at startup now clears once the connection is back.
+- No more "server not responding" error for a quiet connection or after the
+  computer wakes up; a dropped connection only shows the offline banner
+  while it reconnects.
 - Scrolling down with the mouse wheel when already at the bottom of a long
   channel no longer shows the button to jump to new messages.
 

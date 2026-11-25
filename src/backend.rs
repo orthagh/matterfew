@@ -1387,11 +1387,16 @@ async fn websocket_loop(ctx: Ctx, mut outgoing: mpsc::UnboundedReceiver<Value>) 
         match websocket_session(&ctx, &mut outgoing, &mut state).await {
             Ok(()) => delay = Duration::from_secs(1),
             Err(err) => {
+                // Une coupure se signale par le bandeau « hors ligne » et se
+                // répare seule : pas de bandeau d'erreur, sauf session expirée.
                 let mut event = Event::error(&err);
-                if let Event::Error { message, .. } = &mut event {
+                if let Event::Error { message, expired } = &mut event {
                     *message = t!("errors.realtime", error = message).to_string();
+                    eprintln!("{message}");
+                    if *expired {
+                        ctx.emit(event).await;
+                    }
                 }
-                ctx.emit(event).await
             }
         }
         ctx.emit(Event::Connection(false)).await;
@@ -1415,7 +1420,8 @@ async fn websocket_session(
 ) -> Result<()> {
     let url = ctx.client.websocket_resume_url(&state.connection_id, state.next_seq);
     let (mut socket, _) = tokio_tungstenite::connect_async(url).await?;
-    let mut last_activity = std::time::Instant::now();
+    // Ping resté sans réponse (rien reçu depuis son envoi).
+    let mut unanswered: Option<std::time::Instant> = None;
 
     // Authentification par « challenge » : le jeton part dans le premier
     // message, jamais dans l'URL.
@@ -1433,9 +1439,16 @@ async fn websocket_session(
     loop {
         tokio::select! {
             _ = ping.tick() => {
-                // Plus rien reçu (même pas les réponses aux pings) : connexion morte.
-                if last_activity.elapsed() > Duration::from_secs(75) {
-                    anyhow::bail!("{}", t!("errors.server_silent"));
+                // Connexion morte : un ping envoyé il y a plus de 45 s n'a
+                // reçu aucune réponse. On ne juge pas sur le seul silence du
+                // serveur : après une mise en veille, il paraîtrait muet alors
+                // qu'il répond dès qu'on lui parle.
+                match unanswered {
+                    Some(sent) if sent.elapsed() > Duration::from_secs(45) => {
+                        anyhow::bail!("{}", t!("errors.server_silent"));
+                    }
+                    Some(_) => {}
+                    None => unanswered = Some(std::time::Instant::now()),
                 }
                 socket.send(Message::Ping(Vec::new().into())).await?;
             }
@@ -1446,7 +1459,7 @@ async fn websocket_session(
             }
             msg = socket.next() => {
                 let Some(msg) = msg else { return Ok(()) };
-                last_activity = std::time::Instant::now();
+                unanswered = None;
                 match msg? {
                     Message::Text(text) => {
                         let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
