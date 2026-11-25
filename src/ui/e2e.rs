@@ -1064,3 +1064,44 @@ fn e2e_coller_un_lien_sur_une_selection() {
     w.1.simulate_keystroke("secondary-v");
     w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value().as_ref(), "https://example.org/guide"));
 }
+
+#[test]
+fn e2e_pas_de_faute_apres_envoi() {
+    // Message envoyé avec une faute : la zone vidée n'en garde aucune trace.
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.composer.update(cx, |s, cx| {
+            s.set_value("Bonjuor tuot le monde", window, cx);
+            s.focus(window, cx);
+        });
+        a.check_spelling(super::Pane::Channel, cx);
+    });
+    w.1.simulate_keystroke("enter");
+    w.1.draw();
+    w.1.read(|a, cx| {
+        assert_eq!(a.composer.read(cx).value().as_ref(), "");
+        assert!(a.misspellings.get(&super::Pane::Channel).is_none_or(Vec::is_empty), "fautes périmées");
+    });
+}
+
+#[test]
+fn e2e_pas_de_faute_perimee_en_changeant_de_canal() {
+    // Le brouillon d'un autre canal remplace le texte sans frappe : les fautes
+    // de l'ancien texte ne doivent pas rester (ni revenir sur le suivant).
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.composer.update(cx, |s, cx| {
+            s.set_value("Bonjuor tuot le monde", window, cx);
+            s.focus(window, cx);
+        });
+        a.check_spelling(super::Pane::Channel, cx);
+    });
+    let other =
+        w.1.read(|a, _| a.channels.keys().find(|id| a.channel_id.as_deref() != Some(id.as_str())).cloned().unwrap());
+    w.1.update(|a, _, cx| a.select_channel(other, cx));
+    w.1.draw();
+    w.1.read(|a, cx| {
+        assert_eq!(a.composer.read(cx).value().as_ref(), "");
+        assert!(a.misspellings.get(&super::Pane::Channel).is_none_or(Vec::is_empty), "fautes périmées");
+    });
+}

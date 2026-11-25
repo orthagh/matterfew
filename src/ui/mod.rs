@@ -341,6 +341,8 @@ pub struct ChatApp {
     misspellings: HashMap<Pane, Vec<crate::spell::Misspelling>>,
     /// Frappes dans chaque zone de saisie : la correction attend une pause.
     spell_generation: HashMap<Pane, u64>,
+    /// Texte dont les fautes sont affichées, par zone de saisie.
+    spell_text: HashMap<Pane, String>,
     /// Règles Autolink du serveur (en plus de celles de ui.json).
     server_autolinks: Vec<crate::autolink::RuleDef>,
     /// Images sans aperçu possible (affichées en carte de fichier).
@@ -767,6 +769,7 @@ impl ChatApp {
             spell: crate::spell::Checker::new(),
             misspellings: HashMap::new(),
             spell_generation: HashMap::new(),
+            spell_text: HashMap::new(),
             server_autolinks: Vec::new(),
             failed_previews: HashSet::new(),
             channel_files: HashMap::new(),
@@ -3040,8 +3043,20 @@ impl ChatApp {
         self.show_spelling(pane, &text, found, cx);
     }
 
+    /// Texte remplacé sans frappe (envoi, brouillon, modification…) : la zone
+    /// de saisie ne le signale pas, les fautes affichées seraient périmées.
+    pub(crate) fn sync_spelling(&mut self, cx: &mut Context<Self>) {
+        for pane in [Pane::Channel, Pane::Thread] {
+            let text = self.composer_for(pane).read(cx).value().to_string();
+            if self.spell_text.get(&pane).is_none_or(|shown| *shown != text) {
+                self.schedule_spelling(pane, cx);
+            }
+        }
+    }
+
     /// Fautes soulignées (et mise en forme de l'éditeur riche).
     fn show_spelling(&mut self, pane: Pane, text: &str, found: Vec<crate::spell::Misspelling>, cx: &mut Context<Self>) {
+        self.spell_text.insert(pane, text.to_string());
         let state = self.composer_for(pane);
         let color = self.palette.error;
         let mut decorations: Vec<gpui_kit::component::input::TextDecoration> = found

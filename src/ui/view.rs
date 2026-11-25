@@ -6054,6 +6054,9 @@ impl ChatApp {
 impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_mcp_screen();
+        if self.screen == Screen::Chat {
+            self.sync_spelling(cx);
+        }
         // Glisser terminé ou sorti de la fenêtre : plus de zone de dépôt.
         if self.file_drag.is_some() && !cx.has_active_drag() {
             self.file_drag = None;
