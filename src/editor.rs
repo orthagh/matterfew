@@ -23,7 +23,7 @@ pub enum Format {
 impl Format {
     /// Nom affiché dans l'infobulle, avec le raccourci clavier.
     pub fn label(self) -> String {
-        match self {
+        let label = match self {
             Format::Bold => t!("editor.bold"),
             Format::Italic => t!("editor.italic"),
             Format::Strike => t!("editor.strike"),
@@ -35,7 +35,13 @@ impl Format {
             Format::Numbered => t!("editor.numbered"),
             Format::CodeBlock => t!("editor.code_block"),
         }
-        .to_string()
+        .to_string();
+        // Sur Mac, les raccourcis passent par ⌘ (et ⌥, ⇧).
+        if cfg!(target_os = "macos") {
+            label.replace("Ctrl+", "⌘").replace("Alt+", "⌥").replace("Maj+", "⇧").replace("Shift+", "⇧")
+        } else {
+            label
+        }
     }
 }
 

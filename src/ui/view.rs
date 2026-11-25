@@ -2248,7 +2248,7 @@ impl ChatApp {
             .capture_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
                 let m = &k.modifiers;
-                let format = match (m.control, m.shift, m.alt, k.key.as_str()) {
+                let format = match (m.secondary(cx), m.shift, m.alt, k.key.as_str()) {
                     (true, false, false, "b") => Some(Format::Bold),
                     (true, false, false, "i") => Some(Format::Italic),
                     (true, true, false, "x") => Some(Format::Strike),

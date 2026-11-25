@@ -49,6 +49,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
   no longer linger in the message box.
 - Windows spell checking no longer flags hyphenated words whose parts are
   correct ("dites-moi").
+- macOS: formatting shortcuts use Cmd (⌘B, ⌘I…) instead of Ctrl, and the
+  tooltips say so.
 - Spell checking waits for a pause in typing instead of underlining words
   still being typed; errors already marked stay in place meanwhile.
 - Shift+Enter inserted a line break and then sent the message; it now only
