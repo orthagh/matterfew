@@ -1498,7 +1498,7 @@ impl ChatApp {
         let Some(channel_id) = self.channel_id.clone() else { return };
         let max_size = self.max_file_size();
         // Un fichier déposé hors de portée (bac à sable flatpak : seul le
-        // dossier Téléchargements est visible) : le dire, plutôt que rien.
+        // dossier personnel est visible) : le dire, plutôt que rien.
         let (paths, missing): (Vec<PathBuf>, Vec<PathBuf>) =
             paths.into_iter().filter(|p| !p.is_dir()).partition(|p| p.is_file());
         if let Some(first) = missing.first() {

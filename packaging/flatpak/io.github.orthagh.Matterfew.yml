@@ -18,6 +18,9 @@ finish-args:
   - --talk-name=com.canonical.Unity
   # Attachment downloads.
   - --filesystem=xdg-download
+  # Files dragged from the file manager arrive as host paths: read-only access
+  # to the home folder lets them be attached (the paperclip uses the portal).
+  - --filesystem=home:ro
 modules:
   - name: matterfew
     buildsystem: simple

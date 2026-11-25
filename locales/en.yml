@@ -325,7 +325,7 @@ switcher:
 composer:
   too_many_files: "%{max} files at most per message."
   file_unreachable: "%{name} cannot be read."
-  file_unreachable_flatpak: "%{name} is out of reach of the flatpak app: attach it with the paperclip, or drag it from Downloads."
+  file_unreachable_flatpak: "%{name} is out of reach of the flatpak app: attach it with the paperclip, or drag it from your home folder."
   file_too_big: "%{name} is too large: %{max} at most."
   too_long: "Message too long: %{count} characters, %{max} at most."
   uploading_pct: "Uploading… %{pct} %"

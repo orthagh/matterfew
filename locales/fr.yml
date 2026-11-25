@@ -325,7 +325,7 @@ switcher:
 composer:
   too_many_files: "%{max} fichiers au plus par message."
   file_unreachable: "%{name} est inaccessible."
-  file_unreachable_flatpak: "%{name} est hors de portée de l’application flatpak : joignez-le avec le trombone, ou glissez-le depuis Téléchargements."
+  file_unreachable_flatpak: "%{name} est hors de portée de l’application flatpak : joignez-le avec le trombone, ou glissez-le depuis votre dossier personnel."
   file_too_big: "%{name} est trop gros : %{max} au plus."
   too_long: "Message trop long : %{count} caractères, %{max} au plus."
   uploading_pct: "Envoi… %{pct} %"

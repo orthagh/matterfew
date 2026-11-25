@@ -325,7 +325,7 @@ switcher:
 composer:
   too_many_files: "No máximo %{max} arquivos por mensagem."
   file_unreachable: "%{name} não pode ser lido."
-  file_unreachable_flatpak: "%{name} está fora do alcance do app flatpak: anexe-o com o clipe ou arraste-o de Downloads."
+  file_unreachable_flatpak: "%{name} está fora do alcance do app flatpak: anexe-o com o clipe ou arraste-o da sua pasta pessoal."
   file_too_big: "%{name} é grande demais: no máximo %{max}."
   too_long: "Mensagem longa demais: %{count} caracteres, no máximo %{max}."
   uploading_pct: "Enviando… %{pct} %"
