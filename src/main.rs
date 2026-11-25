@@ -17,6 +17,7 @@ mod desktop;
 mod editor;
 mod emoji;
 mod fuzzy;
+mod hunspell;
 mod icons;
 mod live_markdown;
 mod locale;

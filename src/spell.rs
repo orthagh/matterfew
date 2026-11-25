@@ -3,7 +3,7 @@
 //! à un service extérieur. Dictionnaire de la langue de l'interface, plus
 //! l'anglais : un mot n'est signalé que si aucun des deux ne le connaît.
 //!
-//! Hors Windows, aucun mot n'est signalé.
+//! Ailleurs (Linux, macOS) : dictionnaires Hunspell, voir [`crate::hunspell`].
 
 // Hors Windows, une partie de ce module ne sert pas (correcteur de Windows,
 // icônes de la barre des tâches).
@@ -211,16 +211,19 @@ mod imp {
 mod imp {
     use super::Misspelling;
 
-    pub struct Checker;
+    /// Dictionnaires Hunspell (système ou embarqués).
+    pub struct Checker(crate::hunspell::Hunspell);
 
     impl Checker {
         pub fn new() -> Option<Self> {
-            None
+            crate::hunspell::Hunspell::new(super::languages(&rust_i18n::locale())).map(Self)
         }
-        pub fn check(&self, _: &str, _: usize) -> Vec<Misspelling> {
-            Vec::new()
+        pub fn check(&self, text: &str, limit: usize) -> Vec<Misspelling> {
+            self.0.check(text, limit)
         }
-        pub fn add(&self, _: &str) {}
+        pub fn add(&self, word: &str) {
+            self.0.add(word)
+        }
     }
 }
 

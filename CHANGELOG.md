@@ -19,8 +19,10 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
   from a thread, in the channel; a reply in the channel opens its thread.
 - Right-clicking a link offers to copy or open it.
 - Pasting a web address over selected text turns it into a Markdown link.
-- Spell checking (Windows) accepts English words as well as the interface
-  language, and suggests corrections from both.
+- Spell checking accepts English words as well as the interface language,
+  and suggests corrections from both.
+- Spell checking on Linux and macOS, with the system Hunspell dictionaries
+  or the bundled French and English ones (LibreOffice, MPL 2.0 / SCOWL).
 - A sent message shows at once, faded until the server confirms it; if
   sending fails, the reason and Retry / Edit / Discard appear under it.
 - Dragging files over the channel or a thread shows where to drop them.

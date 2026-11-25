@@ -52,6 +52,8 @@ axum = { version = "0.8", default-features = false, features = ["tokio", "http1"
 tokio-util = "0.7"
 schemars = "1"
 uuid = { version = "1", features = ["v4"] }
+spellbook = "0.4"
+flate2 = "1"
 
 # Intégration Windows : notifications avec identité et clic, pastille de la
 # barre des tâches, icône de la zone de notification.

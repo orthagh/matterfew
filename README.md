@@ -84,4 +84,6 @@ Changes for each version are listed in the [CHANGELOG](CHANGELOG.md).
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The bundled spelling dictionaries keep their own licences
+(MPL 2.0 for French, SCOWL for English): see
+[assets/dictionaries](assets/dictionaries/README.md).
