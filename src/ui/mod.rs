@@ -1992,6 +1992,34 @@ impl ChatApp {
 
     /// Ctrl+V : une image ou des fichiers dans le presse-papiers deviennent des
     /// pièces jointes. Renvoie `false` pour laisser coller du texte.
+    /// Une adresse collée sur un texte sélectionné en fait un lien Markdown :
+    /// « [texte](adresse) », comme dans le client web.
+    fn paste_link_on_selection(&mut self, pane: Pane, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(clip) = cx.read_from_clipboard().and_then(|item| item.text()) else { return false };
+        let url = clip.trim();
+        let lower = url.to_ascii_lowercase();
+        let is_url = ["https://", "http://", "mailto:"].iter().any(|p| lower.starts_with(p))
+            && !url.chars().any(char::is_whitespace);
+        if !is_url {
+            return false;
+        }
+        let state = self.composer_for(pane);
+        let (range, value) = {
+            let s = state.read(cx);
+            (s.selected_range(), s.value().to_string())
+        };
+        let Some(selected) = value.get(range.clone()).filter(|t| !t.trim().is_empty() && !t.contains('\n')) else {
+            return false;
+        };
+        // Une adresse sélectionnée se remplace normalement.
+        if selected.contains("://") {
+            return false;
+        }
+        let link = crate::editor::markdown_link(selected, url);
+        state.update(cx, |s, cx| s.replace(link, window, cx));
+        true
+    }
+
     fn paste_attachments(&mut self, pane: Pane, cx: &mut Context<Self>) -> bool {
         let Some(item) = cx.read_from_clipboard() else { return false };
         let has_text =

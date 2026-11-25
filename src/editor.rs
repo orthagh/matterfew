@@ -147,6 +147,14 @@ fn prefix_lines(text: &str, sel: Range<usize>, prefix: impl Fn(usize) -> String)
     (out, start..start + new_block.len())
 }
 
+/// Lien Markdown `[texte](adresse)` : crochets du texte et parenthèses de
+/// l'adresse protégés pour que le lien reste entier.
+pub fn markdown_link(text: &str, url: &str) -> String {
+    let text = text.replace('[', r"\[").replace(']', r"\]");
+    let url = url.replace('(', "%28").replace(')', "%29");
+    format!("[{text}]({url})")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +206,12 @@ mod tests {
     fn handles_accents_and_out_of_range() {
         let (t, _) = apply("éte", 0..99, Format::Code);
         assert_eq!(t, "`éte`");
+    }
+
+    #[test]
+    fn lien_markdown() {
+        use super::markdown_link;
+        assert_eq!(markdown_link("la doc", "https://ex.org/a"), "[la doc](https://ex.org/a)");
+        assert_eq!(markdown_link("[v2]", "https://ex.org/a_(b)"), r"[\[v2\]](https://ex.org/a_%28b%29)");
     }
 }

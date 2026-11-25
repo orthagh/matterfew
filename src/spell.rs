@@ -1,6 +1,7 @@
 //! Correction orthographique de la saisie, par le correcteur intégré à
 //! Windows (le même que celui de Word et Edge) : local, sans envoi du texte
-//! à un service extérieur. Français si disponible, sinon anglais.
+//! à un service extérieur. Dictionnaire de la langue de l'interface, plus
+//! l'anglais : un mot n'est signalé que si aucun des deux ne le connaît.
 //!
 //! Hors Windows, aucun mot n'est signalé.
 
@@ -67,9 +68,12 @@ mod imp {
     };
     use windows::core::{HSTRING, PWSTR};
 
-    /// Correcteur de Windows (objet COM : à garder sur le fil de l'interface).
+    /// Correcteur de Windows (objets COM : à garder sur le fil de l'interface).
+    /// Le premier dictionnaire est le principal (propositions, ajouts) ; les
+    /// autres ne servent qu'à accepter un mot.
     pub struct Checker {
         inner: ISpellChecker,
+        others: Vec<ISpellChecker>,
     }
 
     impl Checker {
@@ -78,14 +82,23 @@ mod imp {
                 let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
                 let factory: ISpellCheckerFactory =
                     CoCreateInstance(&SpellCheckerFactory, None, CLSCTX_INPROC_SERVER).ok()?;
+                let mut found: Vec<(&str, ISpellChecker)> = Vec::new();
                 for language in super::languages(&rust_i18n::locale()) {
+                    // Une seule variante par langue (fr-FR ou fr, en-US ou en-GB).
+                    let base = language.split('-').next().unwrap_or(language);
+                    if found.iter().any(|(b, _)| *b == base) {
+                        continue;
+                    }
                     let tag = HSTRING::from(language);
-                    if factory.IsSupported(&tag).is_ok_and(|b| b.as_bool()) {
-                        let inner = factory.CreateSpellChecker(&tag).ok()?;
-                        return Some(Self { inner });
+                    if factory.IsSupported(&tag).is_ok_and(|b| b.as_bool())
+                        && let Ok(checker) = factory.CreateSpellChecker(&tag)
+                    {
+                        found.push((base, checker));
                     }
                 }
-                None
+                let mut checkers = found.into_iter().map(|(_, c)| c);
+                let inner = checkers.next()?;
+                Some(Self { inner, others: checkers.collect() })
             }
         }
 
@@ -119,6 +132,10 @@ mod imp {
                         continue;
                     }
                     let word = text[range.clone()].to_string();
+                    // Connu d'un autre dictionnaire (l'anglais) : pas une faute.
+                    if self.others.iter().any(|c| known(c, &word)) {
+                        continue;
+                    }
                     let suggestions = self.suggest(&word, 4);
                     out.push(Misspelling { range, word, suggestions });
                     if out.len() >= limit {
@@ -129,24 +146,18 @@ mod imp {
             out
         }
 
+        /// Propositions des dictionnaires, à tour de rôle (principal d'abord) :
+        /// une faute de frappe anglaise trouve aussi sa correction anglaise.
         fn suggest(&self, word: &str, limit: usize) -> Vec<String> {
-            let mut out = Vec::new();
-            unsafe {
-                let Ok(list) = self.inner.Suggest(&HSTRING::from(word)) else { return out };
-                loop {
-                    let mut item = [PWSTR::null()];
-                    let mut fetched = 0u32;
-                    if list.Next(&mut item, Some(&mut fetched)).is_err() || fetched == 0 {
-                        break;
-                    }
-                    if let Ok(s) = item[0].to_string()
-                        && s != word
-                    {
-                        out.push(s);
-                    }
-                    CoTaskMemFree(Some(item[0].0 as *const _));
-                    if out.len() >= limit {
-                        break;
+            let lists: Vec<Vec<String>> = std::iter::once(&self.inner)
+                .chain(&self.others)
+                .map(|checker| suggestions(checker, word, limit))
+                .collect();
+            let mut out: Vec<String> = Vec::new();
+            for rank in 0..limit {
+                for s in lists.iter().filter_map(|l| l.get(rank)) {
+                    if out.len() < limit && !out.contains(s) {
+                        out.push(s.clone());
                     }
                 }
             }
@@ -159,6 +170,40 @@ mod imp {
                 let _ = self.inner.Add(&HSTRING::from(word));
             }
         }
+    }
+
+    /// Le dictionnaire accepte-t-il ce mot ?
+    fn known(checker: &ISpellChecker, word: &str) -> bool {
+        unsafe {
+            let Ok(errors) = checker.Check(&HSTRING::from(word)) else { return false };
+            let mut error: Option<ISpellingError> = None;
+            errors.Next(&mut error).is_ok() && error.is_none()
+        }
+    }
+
+    /// Propositions d'un dictionnaire pour ce mot.
+    fn suggestions(checker: &ISpellChecker, word: &str, limit: usize) -> Vec<String> {
+        let mut out = Vec::new();
+        unsafe {
+            let Ok(list) = checker.Suggest(&HSTRING::from(word)) else { return out };
+            loop {
+                let mut item = [PWSTR::null()];
+                let mut fetched = 0u32;
+                if list.Next(&mut item, Some(&mut fetched)).is_err() || fetched == 0 {
+                    break;
+                }
+                if let Ok(s) = item[0].to_string()
+                    && s != word
+                {
+                    out.push(s);
+                }
+                CoTaskMemFree(Some(item[0].0 as *const _));
+                if out.len() >= limit {
+                    break;
+                }
+            }
+        }
+        out
     }
 }
 
@@ -191,7 +236,7 @@ fn languages(ui_locale: &str) -> Vec<&'static str> {
         _ => &[],
     };
     let mut out = first.to_vec();
-    for tag in ["en-US", "fr-FR", "fr"] {
+    for tag in ["en-US", "en-GB", "en", "fr-FR", "fr"] {
         if !out.contains(&tag) {
             out.push(tag);
         }
@@ -229,9 +274,16 @@ mod tests {
     #[test]
     #[ignore]
     fn correcteur_windows() {
+        rust_i18n::set_locale("fr");
         let c = super::Checker::new().expect("correcteur");
-        let found = c.check("Bonjour, je suis tres contant.", 5);
+        let found = c.check("Bonjour, je suis tres contant pour le meeting de tomorrow.", 8);
         assert!(found.iter().any(|m| m.word == "tres"), "{found:?}");
+        // Français + anglais : les mots anglais ne sont pas des fautes.
+        assert!(!found.iter().any(|m| m.word == "meeting" || m.word == "tomorrow"), "{found:?}");
+        let found = c.check("We will ship it tomorow.", 5);
+        assert!(found.iter().any(|m| m.word == "tomorow"), "{found:?}");
+        let tomorow = found.iter().find(|m| m.word == "tomorow").unwrap();
+        assert!(tomorow.suggestions.iter().any(|s| s == "tomorrow"), "{tomorow:?}");
     }
 
     #[test]

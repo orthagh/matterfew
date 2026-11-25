@@ -2211,8 +2211,8 @@ impl ChatApp {
             // Avant la zone de saisie (phase de capture) : quand des propositions
             // sont affichées, ↑ ↓ Entrée Tab Échap servent à les parcourir.
             .capture_action(cx.listener(move |this, _: &MoveUp, window, cx| this.ac_action(pane, "up", window, cx)))
-            .capture_action(cx.listener(move |this, _: &Paste, _, cx| {
-                if this.paste_attachments(pane, cx) {
+            .capture_action(cx.listener(move |this, _: &Paste, window, cx| {
+                if this.paste_link_on_selection(pane, window, cx) || this.paste_attachments(pane, cx) {
                     cx.stop_propagation();
                 }
             }))

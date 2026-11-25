@@ -1037,3 +1037,30 @@ fn e2e_echec_d_envoi_sur_le_message() {
         assert!(!a.posts.iter().any(|v| v.post.id == "moi:1"));
     });
 }
+
+#[test]
+fn e2e_coller_un_lien_sur_une_selection() {
+    // Adresse collée sur un texte sélectionné : lien Markdown.
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.composer.update(cx, |s, cx| {
+            s.set_value("voir la doc ici", window, cx);
+            s.focus(window, cx);
+            s.set_selected_range(8..11, cx);
+        });
+        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string("https://example.org/guide".into()));
+    });
+    w.1.simulate_keystroke("secondary-v");
+    w.1.read(|a, cx| {
+        assert_eq!(a.composer.read(cx).value().as_ref(), "voir la [doc](https://example.org/guide) ici");
+    });
+    // Sans sélection, l'adresse se colle telle quelle.
+    w.1.update(|a, window, cx| {
+        a.composer.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+    });
+    w.1.simulate_keystroke("secondary-v");
+    w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value().as_ref(), "https://example.org/guide"));
+}
