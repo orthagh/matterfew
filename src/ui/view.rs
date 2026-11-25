@@ -3002,9 +3002,13 @@ impl ChatApp {
             .h_full()
             .bg(p.center_bg)
             .text_color(p.center_color)
+            .relative()
             // Fichiers glissés depuis l'explorateur : joints au message.
-            .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(p.button_bg.opacity(0.06)))
+            .on_drag_move::<ExternalPaths>(cx.listener(|this, ev: &DragMoveEvent<ExternalPaths>, _, cx| {
+                this.on_file_drag(Pane::Channel, ev.bounds.contains(&ev.event.position), cx)
+            }))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                this.file_drag = None;
                 this.add_files(Pane::Channel, paths.paths().to_vec(), cx);
             }))
             .child(self.render_channel_header(cx))
@@ -3034,7 +3038,8 @@ impl ChatApp {
                     .into_any_element()
             } else {
                 self.render_composer(Pane::Channel, cx).into_any_element()
-            });
+            })
+            .children(self.render_drop_zone(Pane::Channel));
 
         let thread_panel = self.thread.is_some().then(|| {
             let entity = entity.clone();
@@ -3049,8 +3054,12 @@ impl ChatApp {
                 .w(px(self.right_panel_width()))
                 .h_full()
                 .flex_none()
-                .drag_over::<ExternalPaths>(move |style, _, _, _| style.bg(p.button_bg.opacity(0.06)))
+                .relative()
+                .on_drag_move::<ExternalPaths>(cx.listener(|this, ev: &DragMoveEvent<ExternalPaths>, _, cx| {
+                    this.on_file_drag(Pane::Thread, ev.bounds.contains(&ev.event.position), cx)
+                }))
                 .on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+                    this.file_drag = None;
                     this.add_files(Pane::Thread, paths.paths().to_vec(), cx);
                 }))
                 .bg(p.center_bg)
@@ -3088,6 +3097,7 @@ impl ChatApp {
                 )
                 .children(self.render_failed_sends(Pane::Thread, cx))
                 .child(self.render_composer(Pane::Thread, cx))
+                .children(self.render_drop_zone(Pane::Thread))
         });
 
         let side_panel = self.render_side_panel(cx);
@@ -3428,6 +3438,55 @@ impl ChatApp {
     }
 
     /// Mini-carte de profil : photo en médaillon, statut, adresse, heure locale.
+    /// Fichiers glissés : la zone de dépôt suit le panneau survolé.
+    fn on_file_drag(&mut self, pane: Pane, over: bool, cx: &mut Context<Self>) {
+        let next = match (over, self.file_drag) {
+            (true, _) => Some(pane),
+            (false, Some(current)) if current == pane => None,
+            (false, current) => current,
+        };
+        if next != self.file_drag {
+            self.file_drag = next;
+            cx.notify();
+        }
+    }
+
+    /// Zone de dépôt par-dessus un panneau pendant qu'on y glisse des fichiers.
+    fn render_drop_zone(&self, pane: Pane) -> Option<AnyElement> {
+        if self.file_drag != Some(pane) || self.channel_id.is_none() {
+            return None;
+        }
+        let p = self.palette;
+        Some(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .p_3()
+                .child(
+                    v_flex()
+                        .size_full()
+                        .items_center()
+                        .justify_center()
+                        .gap_2()
+                        .rounded(px(12.))
+                        .border_2()
+                        .border_dashed()
+                        .border_color(p.button_bg)
+                        .bg(p.center_bg.opacity(0.92))
+                        .child(Icon::new(IconName::Paperclip).size(px(28.)).text_color(p.button_bg))
+                        .child(div().text_size(px(16.)).font_semibold().child(t!("composer.drop_files")))
+                        .child(div().text_sm().text_color(p.muted()).child(t!(
+                            "composer.drop_files_hint",
+                            max = crate::api::human_size(self.max_file_size()),
+                            count = super::MAX_FILES
+                        ))),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// Menu d'un lien (clic droit) : copier ou ouvrir l'adresse.
     fn render_link_menu(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let (url, at) = self.link_menu.clone()?;
@@ -5984,6 +6043,10 @@ impl ChatApp {
 impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_mcp_screen();
+        // Glisser terminé ou sorti de la fenêtre : plus de zone de dépôt.
+        if self.file_drag.is_some() && !cx.has_active_drag() {
+            self.file_drag = None;
+        }
         self.scale = window.scale_factor();
         self.viewport_w = window.viewport_size().width / px(1.);
         self.viewport_h = window.viewport_size().height / px(1.);

@@ -360,6 +360,8 @@ pub struct ChatApp {
     revealed: Option<String>,
     /// Menu d'un lien (clic droit) : adresse et position.
     link_menu: Option<(String, Point<Pixels>)>,
+    /// Fichiers glissés au-dessus de ce panneau (zone de dépôt affichée).
+    file_drag: Option<Pane>,
     /// Fils suivis (panneau « Fils »), `None` pendant le chargement.
     threads: Option<Vec<UserThread>>,
     /// Panneau « Fils » : tous ceux de l'équipe (sinon ceux du canal affiché),
@@ -769,6 +771,7 @@ impl ChatApp {
             pending_reveal: None,
             revealed: None,
             link_menu: None,
+            file_drag: None,
             threads: None,
             primary_selection: String::new(),
             search_input,

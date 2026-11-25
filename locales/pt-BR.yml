@@ -338,6 +338,8 @@ composer:
   write_in: "Escreva em %{channel}"
   formatting: "Formatação"
   insert_emoji: "Inserir um emoji"
+  drop_files: "Solte os arquivos para anexá-los"
+  drop_files_hint: "Até %{max} por arquivo, %{count} arquivos por mensagem"
   attach_files: "Anexar arquivos (ou arraste-os para a janela)"
   back_to_writing: "Voltar à escrita"
   preview: "Pré-visualizar formatação"

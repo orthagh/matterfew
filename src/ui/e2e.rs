@@ -910,3 +910,37 @@ fn e2e_menu_d_un_lien() {
     let copied = w.0.update(|cx| cx.read_from_clipboard().and_then(|c| c.text()));
     assert_eq!(copied.as_deref(), Some("https://example.org/page"));
 }
+
+#[test]
+fn e2e_glisser_deposer_un_fichier() {
+    // Un fichier glissé au-dessus du canal affiche la zone de dépôt ; déposé,
+    // il est joint au message en cours.
+    use gpui_kit::{ExternalPaths, FileDropEvent};
+    let mut w = demo_app();
+    w.1.draw();
+    let file = std::env::temp_dir().join("matterfew-depot-e2e.txt");
+    std::fs::write(&file, "bonjour").unwrap();
+    let at = point(px(600.), px(300.));
+    w.1.simulate_event(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![file.clone()].into()) });
+    w.1.simulate_event(FileDropEvent::Pending { position: at });
+    w.1.draw();
+    w.1.read(|a, _| assert_eq!(a.file_drag, Some(super::Pane::Channel)));
+    w.1.simulate_event(FileDropEvent::Submit { position: at });
+    w.1.draw();
+    w.1.read(|a, _| {
+        assert_eq!(a.file_drag, None);
+        assert_eq!(a.attachments.len(), 1);
+        assert_eq!(a.attachments[0].name, "matterfew-depot-e2e.txt");
+    });
+    // Glissé puis ressorti de la fenêtre : la zone disparaît, rien n'est joint.
+    w.1.simulate_event(FileDropEvent::Entered { position: at, paths: ExternalPaths(vec![file.clone()].into()) });
+    w.1.simulate_event(FileDropEvent::Pending { position: at });
+    w.1.draw();
+    w.1.simulate_event(FileDropEvent::Exited);
+    w.1.draw();
+    w.1.read(|a, _| {
+        assert_eq!(a.file_drag, None);
+        assert_eq!(a.attachments.len(), 1);
+    });
+    let _ = std::fs::remove_file(file);
+}
