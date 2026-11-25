@@ -343,6 +343,10 @@ pub struct ChatApp {
     spell_generation: HashMap<Pane, u64>,
     /// Texte dont les fautes sont affichées, par zone de saisie.
     spell_text: HashMap<Pane, String>,
+    /// Zones de saisie où du texte est sélectionné (barre de mise en forme).
+    composer_selection: HashSet<Pane>,
+    /// Zone de saisie qui a le focus (contour accentué).
+    composer_focused: Option<Pane>,
     /// Règles Autolink du serveur (en plus de celles de ui.json).
     server_autolinks: Vec<crate::autolink::RuleDef>,
     /// Images sans aperçu possible (affichées en carte de fichier).
@@ -563,6 +567,21 @@ impl ChatApp {
         });
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
         let thread_scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
+        // Texte sélectionné : la barre de mise en forme apparaît au-dessus.
+        for (pane, state) in [(Pane::Channel, composer.clone()), (Pane::Thread, thread_composer.clone())] {
+            cx.observe(&state, move |this: &mut Self, state, cx| {
+                let selected = !state.read(cx).selected_range().is_empty();
+                if selected != this.composer_selection.contains(&pane) {
+                    if selected {
+                        this.composer_selection.insert(pane);
+                    } else {
+                        this.composer_selection.remove(&pane);
+                    }
+                    cx.notify();
+                }
+            })
+            .detach();
+        }
 
         let composer_events = |pane: Pane| {
             move |this: &mut Self,
@@ -770,6 +789,8 @@ impl ChatApp {
             misspellings: HashMap::new(),
             spell_generation: HashMap::new(),
             spell_text: HashMap::new(),
+            composer_selection: HashSet::new(),
+            composer_focused: None,
             server_autolinks: Vec::new(),
             failed_previews: HashSet::new(),
             channel_files: HashMap::new(),
@@ -1903,6 +1924,13 @@ impl ChatApp {
         }
     }
 
+    /// Zone de saisie qui a le focus, à chaque affichage (contour accentué).
+    pub(crate) fn sync_composers(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.composer_focused = [Pane::Channel, Pane::Thread]
+            .into_iter()
+            .find(|pane| self.composer_for(*pane).read(cx).focus_handle(cx).is_focused(window));
+    }
+
     pub(crate) fn copy(&mut self, text: String, what: &str, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         self.flash(t!("clipboard.copied", what = what).into(), cx);
@@ -2655,6 +2683,32 @@ impl ChatApp {
 
     /// Démo seulement : `MM_DEMO_SCENE` ouvre directement un écran à montrer
     /// (captures pour la documentation, sans piloter la souris).
+    /// Démo : un message en cours, avec une pièce jointe ou une sélection.
+    fn demo_composer(&mut self, select: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let text = t!("demo.composer_draft").to_string();
+        let end = text.len();
+        self.composer.update(cx, |s, cx| {
+            s.set_value(text, window, cx);
+            s.focus(window, cx);
+            if select {
+                s.set_selected_range(end.saturating_sub(18)..end, cx);
+            }
+        });
+        if !select {
+            self.next_local_id += 1;
+            self.attachments.push(Attachment {
+                local_id: self.next_local_id,
+                pane: Pane::Channel,
+                name: "maquette-v3.pdf".into(),
+                size: 2_200_000,
+                file_id: Some("demo".into()),
+                error: None,
+                sent: 2_200_000,
+            });
+        }
+        cx.notify();
+    }
+
     fn play_demo_scene(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let scene = std::env::var("MM_DEMO_SCENE").unwrap_or_default();
         let after = |this: &mut Self,
@@ -2825,6 +2879,8 @@ impl ChatApp {
                 }
             }),
             "aide-markdown" => after(self, 500, window, cx, |this, _, cx| this.open_markdown_help(cx)),
+            "saisie" => after(self, 500, window, cx, |this, window, cx| this.demo_composer(false, window, cx)),
+            "saisie-selection" => after(self, 500, window, cx, |this, window, cx| this.demo_composer(true, window, cx)),
             "envoi-fichier" => after(self, 500, window, cx, |this, window, cx| {
                 this.server_config.insert("MaxPostSize".into(), "300".into());
                 this.next_local_id += 2;

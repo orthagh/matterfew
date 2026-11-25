@@ -136,6 +136,13 @@ mod imp {
                     if self.others.iter().any(|c| known(c, &word)) {
                         continue;
                     }
+                    // Mot composé (« dites-moi ») : chaque partie connue suffit.
+                    let all = || std::iter::once(&self.inner).chain(&self.others);
+                    if word.contains('-')
+                        && word.split('-').all(|part| part.is_empty() || all().any(|c| known(c, part)))
+                    {
+                        continue;
+                    }
                     let suggestions = self.suggest(&word, 4);
                     out.push(Misspelling { range, word, suggestions });
                     if out.len() >= limit {
@@ -283,6 +290,8 @@ mod tests {
         assert!(found.iter().any(|m| m.word == "tres"), "{found:?}");
         // Français + anglais : les mots anglais ne sont pas des fautes.
         assert!(!found.iter().any(|m| m.word == "meeting" || m.word == "tomorrow"), "{found:?}");
+        let found = c.check("Dites-moi si la version mobile vous convient.", 5);
+        assert!(found.is_empty(), "{found:?}");
         let found = c.check("We will ship it tomorow.", 5);
         assert!(found.iter().any(|m| m.word == "tomorow"), "{found:?}");
         let tomorow = found.iter().find(|m| m.word == "tomorow").unwrap();

@@ -2101,63 +2101,120 @@ impl ChatApp {
                 .child(format_button(Format::Bullet, IconName::List, cx))
                 .child(format_button(Format::Numbered, IconName::ListOrdered, cx))
         });
-        let tool = |id: String, icon: IconName, tip: SharedString| {
-            Button::new(SharedString::from(id)).icon(Icon::new(icon)).ghost().small().tooltip(tip)
-        };
-        let toolbar = h_flex()
-            .px_2()
-            .pt_1()
-            .pb_2()
-            .gap_1()
-            .child(
-                tool(format!("fmt-toggle-{pane:?}"), IconName::Type, t!("composer.formatting").into())
-                    .toggled(show_formatting)
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_formatting(cx))),
-            )
-            .child(
-                tool(format!("emoji-{pane:?}"), IconName::FaceSlightlySmiling, t!("composer.insert_emoji").into())
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_emoji_picker(PickerTarget::Composer(pane), window, cx)
-                    })),
-            )
-            .child(
-                tool(format!("attach-{pane:?}"), IconName::Paperclip, t!("composer.attach_files").into())
-                    .on_click(cx.listener(move |this, _, window, cx| this.pick_files(pane, window, cx))),
-            )
-            .child(
-                tool(
-                    format!("preview-{pane:?}"),
-                    if previewing { IconName::EyeOff } else { IconName::Eye },
-                    if previewing { t!("composer.back_to_writing") } else { t!("composer.preview") }.into(),
-                )
-                .toggled(previewing)
-                .on_click(cx.listener(move |this, _, window, cx| this.toggle_preview(pane, window, cx))),
-            )
-            .child(
-                tool(format!("md-help-{pane:?}"), IconName::CircleQuestionMark, t!("markdown_help.tooltip").into())
-                    .on_click(cx.listener(|this, _, _, cx| this.open_markdown_help(cx))),
-            )
-            .child(div().flex_1())
-            .children({
-                let (count, max) = (text.chars().count(), self.max_post_size());
-                (count * 10 > max * 9).then(|| {
-                    div()
-                        .px_1()
-                        .text_xs()
-                        .when(count > max, |el| el.text_color(p.error).font_semibold())
-                        .when(count <= max, |el| el.text_color(p.muted()))
-                        .child(t!("composer.char_count", count = count, max = max))
-                })
+        let entity = cx.entity();
+        let has_content = !text.trim().is_empty() || self.attachments.iter().any(|a| a.pane == pane);
+        // « + » : ce qui sert moins souvent, rangé dans un menu.
+        let plus = Button::new(SharedString::from(format!("plus-{pane:?}")))
+            .icon(Icon::new(IconName::Plus))
+            .ghost()
+            .small()
+            .accessibility_label(t!("composer.more"))
+            .tooltip(t!("composer.more"))
+            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
+                let action =
+                    |label: SharedString,
+                     icon: IconName,
+                     f: fn(&mut ChatApp, Pane, &mut Window, &mut Context<ChatApp>)| {
+                        let entity = entity.clone();
+                        PopupMenuItem::new(label)
+                            .icon(Icon::new(icon))
+                            .on_click(move |_, window, cx| entity.update(cx, |this, cx| f(this, pane, window, cx)))
+                    };
+                menu.min_w(px(240.))
+                    .item(action(t!("composer.attach_menu").into(), IconName::Paperclip, |this, pane, window, cx| {
+                        this.pick_files(pane, window, cx)
+                    }))
+                    .item(action(t!("composer.mention").into(), IconName::AtSign, |this, pane, window, cx| {
+                        this.composer_for(pane).update(cx, |s, cx| {
+                            s.focus(window, cx);
+                            s.insert("@", window, cx);
+                        });
+                    }))
+                    .separator()
+                    .item(
+                        action(t!("composer.formatting_bar").into(), IconName::Type, |this, _, _, cx| {
+                            this.toggle_formatting(cx)
+                        })
+                        .checked(show_formatting),
+                    )
+                    .item(
+                        action(t!("composer.preview").into(), IconName::Eye, |this, pane, window, cx| {
+                            this.toggle_preview(pane, window, cx)
+                        })
+                        .checked(previewing),
+                    )
+                    .item(action(t!("markdown_help.tooltip").into(), IconName::CircleQuestionMark, |this, _, _, cx| {
+                        this.open_markdown_help(cx)
+                    }))
+            });
+        let emoji_button =
+            Button::new(SharedString::from(format!("emoji-{pane:?}")))
+                .icon(Icon::new(IconName::FaceSlightlySmiling))
+                .ghost()
+                .small()
+                .accessibility_label(t!("composer.insert_emoji"))
+                .tooltip(t!("composer.insert_emoji"))
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_emoji_picker(PickerTarget::Composer(pane), window, cx)
+                }));
+        let char_count = {
+            let (count, max) = (text.chars().count(), self.max_post_size());
+            (count * 10 > max * 9).then(|| {
+                div()
+                    .px_1()
+                    .pb_1p5()
+                    .text_xs()
+                    .when(count > max, |el| el.text_color(p.error).font_semibold())
+                    .when(count <= max, |el| el.text_color(p.muted()))
+                    .child(t!("composer.char_count", count = count, max = max))
             })
-            .child(
-                Button::new(SharedString::from(format!("send-{pane:?}")))
-                    .icon(Icon::new(IconName::SendHorizontal))
-                    .when(editing, |b| b.label(t!("common.save")))
-                    .primary()
-                    .disabled(text.trim().is_empty() && !self.attachments.iter().any(|a| a.pane == pane))
-                    .tooltip(if editing { t!("composer.save_tooltip") } else { t!("composer.send_tooltip") })
-                    .on_click(cx.listener(move |this, _, window, cx| this.send_from(pane, window, cx))),
-            );
+        };
+        // Envoyer : rond, discret tant qu'il n'y a rien, coloré ensuite.
+        let send_tip: SharedString =
+            if editing { t!("composer.save_tooltip") } else { t!("composer.send_tooltip") }.into();
+        let send = div()
+            .id(SharedString::from(format!("send-{pane:?}")))
+            .role(Role::Button)
+            .aria_label(send_tip.clone())
+            .flex_none()
+            .size(px(30.))
+            .rounded_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .map(|el| {
+                if has_content {
+                    el.bg(p.button_bg).text_color(p.button_color).cursor_pointer().hover(|s| s.opacity(0.88))
+                } else {
+                    el.bg(p.center_color.opacity(0.07)).text_color(p.muted())
+                }
+            })
+            .child(Icon::new(if editing { IconName::Check } else { IconName::ArrowUp }).size(px(16.)))
+            .tooltip(move |window, cx| gpui_kit::component::tooltip::Tooltip::new(send_tip.clone()).build(window, cx))
+            .on_click(cx.listener(move |this, _, window, cx| this.send_from(pane, window, cx)));
+        // Texte sélectionné : la mise en forme au-dessus de la zone.
+        let selection_bar = (self.composer_selection.contains(&pane) && !show_formatting && !previewing).then(|| {
+            h_flex()
+                .id(SharedString::from(format!("selection-bar-{pane:?}")))
+                .occlude()
+                .absolute()
+                .bottom_full()
+                .left(px(56.))
+                .mb_0p5()
+                .p_0p5()
+                .gap_0p5()
+                .rounded(px(8.))
+                .border_1()
+                .border_color(p.border())
+                .bg(p.center_bg)
+                .shadow_md()
+                .child(format_button(Format::Bold, IconName::Bold, cx))
+                .child(format_button(Format::Italic, IconName::Italic, cx))
+                .child(format_button(Format::Strike, IconName::Strikethrough, cx))
+                .child(format_button(Format::Link, IconName::Link, cx))
+                .child(format_button(Format::Code, IconName::Code, cx))
+                .child(format_button(Format::Quote, IconName::TextQuote, cx))
+        });
         let input: AnyElement = if previewing {
             let prepared = markdown::prepare(&text);
             div()
@@ -2175,7 +2232,7 @@ impl ChatApp {
                 })
                 .into_any_element()
         } else {
-            div().px_2().pt_1p5().child(Textarea::new(&state).appearance(false)).into_any_element()
+            div().pt(px(11.)).pb(px(1.)).child(Textarea::new(&state).appearance(false)).into_any_element()
         };
 
         v_flex()
@@ -2236,11 +2293,18 @@ impl ChatApp {
             )
             .capture_action(cx.listener(move |this, _: &Escape, window, cx| this.ac_action(pane, "escape", window, cx)))
             .children(popup)
+            .children(selection_bar)
             .child(
                 v_flex()
-                    .rounded(px(10.))
+                    .rounded(px(16.))
                     .border_1()
-                    .border_color(p.center_color.opacity(0.16))
+                    .map(|el| {
+                        if self.composer_focused == Some(pane) {
+                            el.border_color(p.button_bg.opacity(0.75))
+                        } else {
+                            el.border_color(p.center_color.opacity(0.16))
+                        }
+                    })
                     .bg(p.center_bg)
                     .shadow_sm()
                     .when(editing, |el| {
@@ -2249,7 +2313,7 @@ impl ChatApp {
                                 .gap_2()
                                 .px_3()
                                 .py_1p5()
-                                .rounded_t(px(8.))
+                                .rounded_t(px(15.))
                                 .bg(p.away.opacity(0.16))
                                 .text_xs()
                                 .child(div().flex_1().font_semibold().child(t!("composer.editing_message")))
@@ -2267,8 +2331,18 @@ impl ChatApp {
                     .children(self.render_attachments(pane, cx))
                     .children(self.render_spelling(pane, cx))
                     .children(format_bar)
-                    .child(input)
-                    .child(toolbar),
+                    .child(
+                        h_flex()
+                            .items_end()
+                            .gap_1()
+                            .px_1p5()
+                            .py_1p5()
+                            .child(plus)
+                            .child(div().flex_1().min_w_0().child(input))
+                            .children(char_count)
+                            .child(emoji_button)
+                            .child(send),
+                    ),
             )
             .child(div().h(px(18.)).px_1().pt_0p5().text_size(px(11.)).italic().text_color(p.muted()).children(typing))
     }
@@ -6056,6 +6130,7 @@ impl Render for ChatApp {
         self.sync_mcp_screen();
         if self.screen == Screen::Chat {
             self.sync_spelling(cx);
+            self.sync_composers(window, cx);
         }
         // Glisser terminé ou sorti de la fenêtre : plus de zone de dépôt.
         if self.file_drag.is_some() && !cx.has_active_drag() {

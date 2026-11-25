@@ -12,6 +12,10 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ### Added
 
+- Redesigned message box: a rounded card with only "+" (attach, mention,
+  formatting bar, preview, Markdown help), emoji and a round send button
+  that lights up when there is something to send; formatting appears above
+  selected text.
 - The Unreads section of the sidebar can be collapsed, like a category.
 - Linux: text selected with the mouse is pasted by a middle click, in the
   message box and the search field too.
@@ -41,6 +45,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - A right click on a link no longer opens it.
 - Spelling marks from a previous text (sent message, other channel's draft)
   no longer linger in the message box.
+- Windows spell checking no longer flags hyphenated words whose parts are
+  correct ("dites-moi").
 - Spell checking waits for a pause in typing instead of underlining words
   still being typed; errors already marked stay in place meanwhile.
 - Shift+Enter inserted a line break and then sent the message; it now only

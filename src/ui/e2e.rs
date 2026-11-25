@@ -1105,3 +1105,26 @@ fn e2e_pas_de_faute_perimee_en_changeant_de_canal() {
         assert!(a.misspellings.get(&super::Pane::Channel).is_none_or(Vec::is_empty), "fautes périmées");
     });
 }
+
+#[test]
+fn e2e_zone_de_saisie_epuree() {
+    // Focus : contour accentué ; texte sélectionné : barre de mise en forme.
+    let mut w = demo_app();
+    w.1.update(|a, window, cx| {
+        a.composer.update(cx, |s, cx| {
+            s.set_value("une phrase à mettre en gras", window, cx);
+            s.focus(window, cx);
+        });
+    });
+    w.1.draw();
+    w.1.read(|a, _| {
+        assert_eq!(a.composer_focused, Some(super::Pane::Channel));
+        assert!(a.composer_selection.is_empty());
+    });
+    let start = "une phrase à mettre en gras".find("gras").unwrap();
+    w.1.update(|a, _, cx| a.composer.update(cx, |s, cx| s.set_selected_range(start..start + 4, cx)));
+    w.1.draw();
+    w.1.read(|a, _| assert!(a.composer_selection.contains(&super::Pane::Channel)));
+    w.1.simulate_keystroke("secondary-b");
+    w.1.read(|a, cx| assert_eq!(a.composer.read(cx).value().as_ref(), "une phrase à mettre en **gras**"));
+}
