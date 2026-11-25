@@ -29,6 +29,11 @@ pub struct UiSettings {
     pub check_updates: bool,
     /// The Unreads section of the sidebar is collapsed.
     pub unreads_collapsed: bool,
+    /// Serveur MCP local (lecture seule) pour les assistants.
+    pub mcp_enabled: bool,
+    pub mcp_port: u16,
+    /// Jeton exigé par le serveur MCP (créé à la première activation).
+    pub mcp_token: String,
 }
 
 impl Default for UiSettings {
@@ -43,6 +48,9 @@ impl Default for UiSettings {
             rich_editor: false,
             check_updates: true,
             unreads_collapsed: false,
+            mcp_enabled: false,
+            mcp_port: 41814,
+            mcp_token: String::new(),
         }
     }
 }

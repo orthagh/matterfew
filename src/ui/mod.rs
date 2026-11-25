@@ -432,6 +432,8 @@ pub struct ChatApp {
     update: Option<view::update::UpdateState>,
     /// Version écartée par « Plus tard » (jusqu'au prochain lancement).
     update_dismissed: Option<String>,
+    /// Serveur MCP : port d'écoute, arrêté (`None`), ou erreur.
+    mcp_status: Option<Result<Option<u16>, String>>,
     /// Type d'installation (installateur, AppImage, flatpak…).
     install_kind: crate::updater::Install,
     /// Mots-clés qui valent une mention (en minuscules).
@@ -792,6 +794,7 @@ impl ChatApp {
             panel_expanded: false,
             update: None,
             update_dismissed: None,
+            mcp_status: None,
             install_kind: crate::updater::detect(),
             mention_keywords: Vec::new(),
             drawer: None,
@@ -1849,7 +1852,31 @@ impl ChatApp {
         cx.notify();
     }
 
-    fn copy(&mut self, text: String, what: &str, cx: &mut Context<Self>) {
+    /// Démarre ou arrête le serveur MCP selon les réglages (jamais en démo).
+    pub(crate) fn apply_mcp(&mut self) {
+        if self.demo {
+            return;
+        }
+        if self.settings.mcp_enabled && self.settings.mcp_token.is_empty() {
+            self.settings.mcp_token = crate::mcp::new_token();
+            self.settings.save();
+        }
+        let wanted = self.settings.mcp_enabled.then(|| (self.settings.mcp_port, self.settings.mcp_token.clone()));
+        self.send(Command::Mcp(wanted));
+    }
+
+    /// Ce qu'affiche l'écran, pour les outils MCP (« ce canal », « ce fil »).
+    pub(crate) fn sync_mcp_screen(&self) {
+        if self.settings.mcp_enabled {
+            crate::mcp::set_screen(crate::mcp::Screen {
+                team_id: self.team_id.clone().unwrap_or_default(),
+                channel_id: self.channel_id.clone().unwrap_or_default(),
+                thread_root: self.thread.as_ref().map(|t| t.root_id.clone()).unwrap_or_default(),
+            });
+        }
+    }
+
+    pub(crate) fn copy(&mut self, text: String, what: &str, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         self.flash(t!("clipboard.copied", what = what).into(), cx);
     }
@@ -3415,6 +3442,7 @@ impl ChatApp {
                 }
                 self.users.insert(me.id.clone(), me.clone());
                 self.me = Some(me);
+                self.apply_mcp();
                 self.apply_display_preferences();
                 self.refresh_keywords(cx);
                 self.teams = teams;
@@ -3716,6 +3744,7 @@ impl ChatApp {
                 self.statuses.extend(list);
             }
             Event::DndEnd(end) => self.dnd_end = end,
+            Event::McpStatus(status) => self.mcp_status = Some(status),
             Event::JoinableTeams(teams) => self.on_joinable_teams(teams),
             Event::TeamJoined(team) => self.on_team_joined(team, cx),
             Event::Channels { team_id, channels, members } => {

@@ -49,6 +49,21 @@ flatpak install --from https://orthagh.github.io/matterfew/io.github.orthagh.Mat
 
 Snap and `.deb` users get a notice in the app with a link to the new release.
 
+## MCP server (beta)
+
+Matterfew can let an assistant such as Claude Code search and read your
+messages through its own session: turn on **Settings > Advanced > MCP
+server**, then paste the command it copies, for example:
+
+```bash
+claude mcp add --transport http matterfew http://127.0.0.1:41814/mcp --header "Authorization: Bearer <token>"
+```
+
+The server only listens on this computer and requires that token. It is
+read-only: search, threads, channel history, channel list, user profiles,
+and what is open in Matterfew. It cannot post, react or mark anything as
+read.
+
 ## Try it without a server
 
 ```bash

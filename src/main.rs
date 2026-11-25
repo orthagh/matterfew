@@ -21,6 +21,7 @@ mod icons;
 mod live_markdown;
 mod locale;
 mod markdown;
+mod mcp;
 mod migrate;
 mod notify;
 mod notify_rules;

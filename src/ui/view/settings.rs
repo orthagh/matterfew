@@ -50,6 +50,7 @@ pub(crate) struct SettingsDraft {
     pub show_formatting: bool,
     pub rich_editor: bool,
     pub check_updates: bool,
+    pub mcp_enabled: bool,
 }
 
 /// Nombres de messages directs proposés (10000 = tous), comme le client web.
@@ -167,6 +168,7 @@ impl ChatApp {
             show_formatting: self.settings.show_formatting,
             rich_editor: self.settings.rich_editor,
             check_updates: self.settings.check_updates,
+            mcp_enabled: self.settings.mcp_enabled,
         })));
         cx.notify();
     }
@@ -277,6 +279,11 @@ impl ChatApp {
         if self.settings.check_updates != d.check_updates {
             self.settings.check_updates = d.check_updates;
             self.settings.save();
+        }
+        if self.settings.mcp_enabled != d.mcp_enabled {
+            self.settings.mcp_enabled = d.mcp_enabled;
+            self.settings.save();
+            self.apply_mcp();
         }
         if self.settings.show_formatting != d.show_formatting || self.settings.rich_editor != d.rich_editor {
             let rich_changed = self.settings.rich_editor != d.rich_editor;
@@ -433,6 +440,57 @@ impl ChatApp {
     }
 
     /// Interrupteur avec son explication.
+    /// Serveur MCP actif : adresse, état, commande à copier, nouveau jeton.
+    fn render_mcp_details(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if !self.settings.mcp_enabled || self.demo {
+            return None;
+        }
+        let p = self.palette;
+        let port = self.settings.mcp_port;
+        let (status, color): (SharedString, Hsla) = match &self.mcp_status {
+            Some(Ok(Some(port))) => (t!("mcp.listening", url = crate::mcp::url(*port)).into(), p.muted()),
+            Some(Err(err)) => (t!("mcp.failed", error = err).into(), p.error),
+            _ => (t!("mcp.starting").into(), p.muted()),
+        };
+        Some(
+            v_flex()
+                .px_5()
+                .pt_1()
+                .gap_2()
+                .child(div().text_xs().text_color(color).child(status))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            Button::new("settings-mcp-copy")
+                                .label(t!("mcp.copy_command"))
+                                .icon(Icon::new(IconName::Copy))
+                                .small()
+                                .outline()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let command = crate::mcp::claude_command(port, &this.settings.mcp_token);
+                                    this.copy(command, &t!("mcp.command"), cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("settings-mcp-token")
+                                .label(t!("mcp.new_token"))
+                                .icon(Icon::new(IconName::RotateCcw))
+                                .small()
+                                .ghost()
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.settings.mcp_token = crate::mcp::new_token();
+                                    this.settings.save();
+                                    this.apply_mcp();
+                                    this.flash(t!("mcp.token_renewed").into(), cx);
+                                })),
+                        ),
+                )
+                .child(div().text_xs().text_color(p.muted()).child(t!("mcp.token_hint")))
+                .into_any_element(),
+        )
+    }
+
     fn settings_toggle(
         &self,
         id: &'static str,
@@ -755,6 +813,16 @@ impl ChatApp {
                         .on_click(cx.listener(|this, _, _, cx| this.check_for_update(true, cx))),
                 ),
             )
+            .child(self.settings_section(t!("mcp.section").into(), Some(t!("mcp.section_hint").into())))
+            .child(self.settings_toggle(
+                "settings-mcp",
+                t!("mcp.enable").into(),
+                Some(t!("mcp.enable_hint").into()),
+                d.mcp_enabled,
+                |d, v| d.mcp_enabled = v,
+                cx,
+            ))
+            .children(self.render_mcp_details(cx))
             .into_any_element()
     }
 }

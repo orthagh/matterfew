@@ -267,6 +267,7 @@ mod tests {
     fn channel(id: &str, kind: &str, name: &str, recency: i64) -> Channel {
         Channel {
             id: id.into(),
+            team_id: String::new(),
             kind: kind.into(),
             name: name.into(),
             display_name: name.into(),

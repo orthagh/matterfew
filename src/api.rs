@@ -258,6 +258,9 @@ pub fn human_size(bytes: i64) -> String {
 #[derive(Debug, Clone, Deserialize)]
 pub struct Channel {
     pub id: String,
+    /// Équipe du canal (vide pour un message direct ou de groupe).
+    #[serde(default)]
+    pub team_id: String,
     /// "O" public, "P" privé, "D" message direct, "G" groupe.
     #[serde(rename = "type")]
     pub kind: String,
@@ -735,6 +738,15 @@ impl Client {
     pub async fn channel_posts(&self, channel_id: &str, per_page: u32, crt: bool) -> Result<Vec<Post>> {
         let list: PostList = self
             .get(&format!("/channels/{channel_id}/posts?page=0&per_page={per_page}&collapsedThreads={crt}"))
+            .await?;
+        Ok(list.into_chronological())
+    }
+
+    /// Une page de l'historique d'un canal, réponses comprises (page 0 : les
+    /// plus récents), dans l'ordre chronologique.
+    pub async fn channel_posts_page(&self, channel_id: &str, page: u32, per_page: u32) -> Result<Vec<Post>> {
+        let list: PostList = self
+            .get(&format!("/channels/{channel_id}/posts?page={page}&per_page={per_page}&collapsedThreads=false"))
             .await?;
         Ok(list.into_chronological())
     }

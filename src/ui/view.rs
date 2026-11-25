@@ -5983,6 +5983,7 @@ impl ChatApp {
 
 impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_mcp_screen();
         self.scale = window.scale_factor();
         self.viewport_w = window.viewport_size().width / px(1.);
         self.viewport_h = window.viewport_size().height / px(1.);

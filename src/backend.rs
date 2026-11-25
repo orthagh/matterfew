@@ -98,6 +98,8 @@ pub enum Command {
     /// Fils réduits actifs ou non (décidé par l'interface d'après la
     /// configuration du serveur et les préférences).
     SetCollapsedThreads(bool),
+    /// Serveur MCP local : démarré (port, jeton) ou arrêté (`None`).
+    Mcp(Option<(u16, String)>),
     LoadThread {
         root_id: String,
     },
@@ -573,6 +575,8 @@ pub enum Event {
     Statuses(Vec<(String, String)>),
     /// Fin de son propre « Ne pas déranger » (secondes Unix), 0 sans échéance.
     DndEnd(i64),
+    /// Serveur MCP : à l'écoute sur ce port, arrêté (`None`), ou erreur.
+    McpStatus(Result<Option<u16>, String>),
     /// Équipes visibles (ouvertes), pour « Rejoindre une autre équipe ».
     JoinableTeams(Vec<Team>),
     /// Équipe rejointe.
@@ -792,6 +796,7 @@ async fn run(
         });
     }
     let my_id = me.id.clone();
+    let mcp_teams = teams.clone();
     ctx.emit(Event::Ready { me, teams, config, prefs }).await;
     // Échéance de « Ne pas déranger » (absente des événements de statut).
     {
@@ -819,10 +824,35 @@ async fn run(
     // Présence : rafraîchie chaque minute pour les utilisateurs connus.
     tokio::spawn(status_polling(ctx.clone()));
 
+    // Serveur MCP en cours (arrêté en annulant ce jeton).
+    let mut mcp: Option<tokio_util::sync::CancellationToken> = None;
     while let Ok(cmd) = commands.recv().await {
         // Réglage immédiat, avant les commandes qui en dépendent.
         if let Command::SetCollapsedThreads(on) = cmd {
             ctx.crt.store(on, Ordering::Relaxed);
+            continue;
+        }
+        if let Command::Mcp(wanted) = cmd {
+            if let Some(stop) = mcp.take() {
+                stop.cancel();
+            }
+            let Some((port, token)) = wanted else {
+                ctx.emit(Event::McpStatus(Ok(None))).await;
+                continue;
+            };
+            let stop = tokio_util::sync::CancellationToken::new();
+            mcp = Some(stop.clone());
+            let (ctx, teams, url) = (ctx.clone(), mcp_teams.clone(), server_url.clone());
+            tokio::spawn(async move {
+                // Laisse l'ancien serveur libérer le port.
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                ctx.emit(Event::McpStatus(Ok(Some(port)))).await;
+                let served =
+                    crate::mcp::serve(ctx.client.clone(), url, ctx.me_id.clone(), teams, port, token, stop).await;
+                if let Err(err) = served {
+                    ctx.emit(Event::McpStatus(Err(format!("{err:#}")))).await;
+                }
+            });
             continue;
         }
         let ctx = ctx.clone();
@@ -877,7 +907,7 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             ctx.ensure_users(posts.iter().map(|p| p.user_id.clone())).await;
             ctx.emit(Event::ChannelSince { channel_id, posts }).await;
         }
-        Command::SetCollapsedThreads(_) => {}
+        Command::SetCollapsedThreads(_) | Command::Mcp(_) => {}
         Command::LoadThread { root_id } => {
             let posts = client.thread(&root_id).await?;
             ctx.ensure_users(posts.iter().map(|p| p.user_id.clone())).await;

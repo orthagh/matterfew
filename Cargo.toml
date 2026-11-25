@@ -47,6 +47,11 @@ twemoji-assets = "1.5"
 regex = "1"
 rust-i18n = "4"
 sys-locale = "0.3"
+rmcp = { version = "3.11", features = ["server", "macros", "transport-streamable-http-server"] }
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "json"] }
+tokio-util = "0.7"
+schemars = "1"
+uuid = { version = "1", features = ["v4"] }
 
 # Intégration Windows : notifications avec identité et clic, pastille de la
 # barre des tâches, icône de la zone de notification.

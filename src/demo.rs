@@ -50,6 +50,7 @@ fn user(id: &str, first: &str, last: &str) -> User {
 fn channel(id: &str, kind: &str, name: &str, display: &str, purpose: &str, recency: i64) -> Channel {
     Channel {
         id: id.into(),
+        team_id: String::new(),
         kind: kind.into(),
         name: name.into(),
         display_name: display.into(),
@@ -1295,6 +1296,7 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
         }
         Command::LoadPreferences
         | Command::SetCollapsedThreads(_)
+        | Command::Mcp(_)
         | Command::SetCategoryCollapsed { .. }
         | Command::Typing { .. }
         | Command::MarkRead { .. }
