@@ -265,8 +265,8 @@ mod tests {
 
     #[test]
     fn langue_du_dictionnaire() {
-        assert_eq!(super::languages("en"), ["en-US", "fr-FR", "fr"]);
-        assert_eq!(super::languages("fr"), ["fr-FR", "fr", "en-US"]);
+        assert_eq!(super::languages("en"), ["en-US", "en-GB", "en", "fr-FR", "fr"]);
+        assert_eq!(super::languages("fr"), ["fr-FR", "fr", "en-US", "en-GB", "en"]);
         assert_eq!(super::languages("pt-BR")[0], "pt-BR");
     }
 
