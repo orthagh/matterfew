@@ -12,7 +12,7 @@ use anyhow::Result;
 use chrono::{Local, NaiveDate, TimeZone as _};
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{ServerCapabilities, ServerConfig};
+use rmcp::model::{Implementation, ServerCapabilities, ServerConfig};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use rmcp::{ServerHandler, tool, tool_handler, tool_router};
@@ -155,6 +155,14 @@ pub struct ListArgs {
     /// Only channels with unread messages.
     #[serde(default)]
     pub unread_only: bool,
+    /// Only channels whose name contains this text: part of a channel name,
+    /// or of a username for a direct message.
+    #[serde(default)]
+    pub query: Option<String>,
+    /// Maximum number of channels per team, the most recently active kept
+    /// (default 50, at most 500).
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -179,9 +187,12 @@ impl Matterfew {
         }
     }
 
-    #[tool(description = "Search messages with Mattermost search. Words must all match (no fuzzy \
+    #[tool(
+        annotations(read_only_hint = true),
+        description = "Search messages with Mattermost search. Words must all match (no fuzzy \
         matching): try synonyms, prefixes (deploy*) and filters (from:, in:, after:, before:) \
-        across several searches, then read the threads found with get_thread. Newest first.")]
+        across several searches, then read the threads found with get_thread. Newest first."
+    )]
     async fn search_messages(&self, Parameters(args): Parameters<SearchArgs>) -> Result<String, String> {
         let teams = self.teams_for(args.team.as_deref())?;
         let mut posts: Vec<Post> = Vec::new();
@@ -200,7 +211,10 @@ impl Matterfew {
         Ok(out)
     }
 
-    #[tool(description = "Read a whole thread (root message and all replies) from the id of any of its messages.")]
+    #[tool(
+        annotations(read_only_hint = true),
+        description = "Read a whole thread (root message and all replies) from the id of any of its messages."
+    )]
     async fn get_thread(&self, Parameters(args): Parameters<ThreadArgs>) -> Result<String, String> {
         let posts = self.client.thread(&args.post_id).await.map_err(|e| format!("{e:#}"))?;
         if posts.is_empty() {
@@ -209,8 +223,11 @@ impl Matterfew {
         Ok(self.format_posts(&posts, false).await)
     }
 
-    #[tool(description = "Read the messages of a channel, oldest first, optionally between two days. \
-        Replies are included.")]
+    #[tool(
+        annotations(read_only_hint = true),
+        description = "Read the messages of a channel, oldest first, optionally between two days. \
+        Replies are included."
+    )]
     async fn get_channel_messages(&self, Parameters(args): Parameters<ChannelArgs>) -> Result<String, String> {
         let channel = self.find_channel(&args.channel).await?;
         let after = args.after.as_deref().map(day_start).transpose()?;
@@ -244,9 +261,16 @@ impl Matterfew {
         Ok(format!("{} message(s) in {name}:\n\n{}", kept.len(), self.format_posts(kept, false).await))
     }
 
-    #[tool(description = "List the channels, direct and group messages the user belongs to, with unread counts.")]
+    #[tool(
+        annotations(read_only_hint = true),
+        description = "List the channels, direct and group messages the user belongs to, most recently \
+        active first, with unread counts. 50 per team unless `limit` says otherwise: narrow the list with \
+        `query` or `unread_only` rather than reading it whole."
+    )]
     async fn list_channels(&self, Parameters(args): Parameters<ListArgs>) -> Result<String, String> {
         let teams = self.teams_for(args.team.as_deref())?;
+        let wanted = args.query.as_deref().map(str::trim).filter(|q| !q.is_empty()).map(str::to_lowercase);
+        let limit = args.limit.unwrap_or(50).clamp(1, 500);
         let mut out = String::new();
         for team in &teams {
             let (channels, members) =
@@ -254,6 +278,9 @@ impl Matterfew {
                     .map_err(|e| format!("{e:#}"))?;
             let read: HashMap<&str, i64> = members.iter().map(|m| (m.channel_id.as_str(), m.msg_count)).collect();
             let mut rows: Vec<(i64, String)> = Vec::new();
+            // The partners of all direct messages in one go, not one request each.
+            let partners = channels.iter().filter(|c| c.kind == "D").flat_map(|c| c.name.split("__"));
+            self.users(partners.map(str::to_string)).await;
             for c in channels.iter().filter(|c| c.delete_at == 0) {
                 let unread = (c.total_msg_count - read.get(c.id.as_str()).copied().unwrap_or(c.total_msg_count)).max(0);
                 if args.unread_only && unread == 0 {
@@ -267,21 +294,31 @@ impl Matterfew {
                     _ => "group",
                 };
                 let label = self.channel_label(c).await;
+                if wanted.as_ref().is_some_and(|w| !label.to_lowercase().contains(w)) {
+                    continue;
+                }
                 let unread = if unread > 0 { format!(", {unread} unread") } else { String::new() };
                 rows.push((c.last_post_at, format!("- {label} ({kind}{unread}) id: {}", c.id)));
             }
             rows.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
+            let hidden = rows.len().saturating_sub(limit);
             out.push_str(&format!("Team {} ({}):\n", team.display_name, team.name));
-            for (_, row) in rows {
+            for (_, row) in rows.into_iter().take(limit) {
                 out.push_str(&row);
                 out.push('\n');
+            }
+            if hidden > 0 {
+                out.push_str(&format!("… and {hidden} less recently active: narrow with `query`, or raise `limit`.\n"));
             }
             out.push('\n');
         }
         Ok(out)
     }
 
-    #[tool(description = "Profile of a user: name, username, position, email when visible.")]
+    #[tool(
+        annotations(read_only_hint = true),
+        description = "Profile of a user: name, username, position, email when visible."
+    )]
     async fn get_user(&self, Parameters(args): Parameters<UserArgs>) -> Result<String, String> {
         let name = args.user.trim().trim_start_matches('@');
         let user = match self.client.user_by_username(name).await {
@@ -304,8 +341,11 @@ impl Matterfew {
         Ok(out)
     }
 
-    #[tool(description = "What is open in Matterfew right now: team, channel and thread, with their ids. \
-        Use it for requests about \"this channel\" or \"this thread\".")]
+    #[tool(
+        annotations(read_only_hint = true),
+        description = "What is open in Matterfew right now: team, channel and thread, with their ids. \
+        Use it for requests about \"this channel\" or \"this thread\"."
+    )]
     async fn get_current_context(&self) -> Result<String, String> {
         let screen = screen();
         if screen.channel_id.is_empty() {
@@ -327,12 +367,14 @@ impl Matterfew {
 #[tool_handler]
 impl ServerHandler for Matterfew {
     fn get_info(&self) -> ServerConfig {
-        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            "Read-only access to the user's Mattermost through the Matterfew desktop client: search \
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("matterfew", env!("CARGO_PKG_VERSION")).with_title("Matterfew"))
+            .with_instructions(
+                "Read-only access to the user's Mattermost through the Matterfew desktop client: search \
              messages, read threads and channels, look up users. Mattermost search matches whole \
              words, so run several searches with variants, then read the threads found. Quote \
              messages with their link.",
-        )
+            )
     }
 }
 
@@ -516,6 +558,23 @@ mod tests {
                     post(|| async { axum::Json(serde_json::json!([{"id": "u1", "username": "alice"}])) }),
                 )
                 .route(
+                    "/api/v4/users/me/teams/t1/channels",
+                    get(|| async {
+                        axum::Json(serde_json::json!([
+                            {"id": "c1", "type": "O", "name": "dev", "display_name": "Dev", "team_id": "t1",
+                             "last_post_at": 30, "total_msg_count": 5},
+                            {"id": "c2", "type": "P", "name": "ops", "display_name": "Ops", "team_id": "t1",
+                             "last_post_at": 20, "total_msg_count": 0},
+                            {"id": "c3", "type": "D", "name": "moi__u1", "team_id": "",
+                             "last_post_at": 10, "total_msg_count": 0}
+                        ]))
+                    }),
+                )
+                .route(
+                    "/api/v4/users/me/teams/t1/channels/members",
+                    get(|| async { axum::Json(serde_json::json!([{"channel_id": "c1", "msg_count": 3}])) }),
+                )
+                .route(
                     "/api/v4/channels/c1",
                     get(|| async {
                         axum::Json(serde_json::json!({"id": "c1", "type": "O", "name": "dev",
@@ -557,26 +616,48 @@ mod tests {
             let resp = rpc(init, "secret", None).await.unwrap();
             assert!(resp.status().is_success(), "{}", resp.status());
             let session = resp.headers().get("mcp-session-id").map(|v| v.to_str().unwrap().to_string());
-            let _ = body_json(resp).await;
+            let hello = body_json(resp).await;
+            assert_eq!(hello["result"]["serverInfo"]["name"], "matterfew", "{hello}");
             let note = serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
             rpc(note, "secret", session.clone()).await.unwrap();
 
             let list = serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"});
             let tools = body_json(rpc(list, "secret", session.clone()).await.unwrap()).await;
-            let names: Vec<&str> =
-                tools["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+            let tools = tools["result"]["tools"].as_array().unwrap();
+            let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+            // Nothing writes, and every tool says so.
+            for tool in tools {
+                assert_eq!(tool["annotations"]["readOnlyHint"], true, "{tool}");
+            }
             for n in ["search_messages", "get_thread", "get_channel_messages", "list_channels", "get_user"] {
                 assert!(names.contains(&n), "{n} absent de {names:?}");
             }
 
             let call = serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                 "params": {"name": "search_messages", "arguments": {"query": "déploiement"}}});
-            let found = body_json(rpc(call, "secret", session).await.unwrap()).await;
+            let found = body_json(rpc(call, "secret", session.clone()).await.unwrap()).await;
             let text = found["result"]["content"][0]["text"].as_str().unwrap_or_default().to_string();
             assert!(text.contains("@alice"), "{found}");
             assert!(text.contains("~dev"), "{text}");
             assert!(text.contains("Déploiement de la 2.4"), "{text}");
             assert!(text.contains(&format!("{mm_url}/equipe/pl/p1")), "{text}");
+
+            // The channel list is cut to the most recently active, and says what it left out.
+            let channels = |arguments: serde_json::Value, id: u32| {
+                let call = serde_json::json!({"jsonrpc": "2.0", "id": id, "method": "tools/call",
+                    "params": {"name": "list_channels", "arguments": arguments}});
+                let sent = rpc(call, "secret", session.clone());
+                async move {
+                    let reply = body_json(sent.await.unwrap()).await;
+                    reply["result"]["content"][0]["text"].as_str().unwrap_or_default().to_string()
+                }
+            };
+            let cut = channels(serde_json::json!({"limit": 2}), 4).await;
+            assert!(cut.contains("~dev (Dev) (public, 2 unread) id: c1"), "{cut}");
+            assert!(cut.contains("~ops") && !cut.contains("@alice"), "{cut}");
+            assert!(cut.contains("and 1 less recently active"), "{cut}");
+            let named = channels(serde_json::json!({"query": "ALI"}), 5).await;
+            assert!(named.contains("direct message with @alice") && !named.contains("~dev"), "{named}");
             stop.cancel();
         });
     }
