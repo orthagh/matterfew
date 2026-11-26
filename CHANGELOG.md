@@ -14,6 +14,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 - New typography, the same on every desktop: Nunito Sans for text and
   Bricolage Grotesque for titles, both embedded.
+- Channel icons are a symbol (public, private, group) on a light tint of the
+  channel's colour, instead of initials on a saturated gradient.
 
 ### Fixed
 

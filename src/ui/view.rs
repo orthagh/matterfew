@@ -4996,54 +4996,25 @@ impl ChatApp {
         v_flex().flex_1().min_h_0().child(tabs).child(search).child(body).into_any_element()
     }
 
-    /// Pastille colorée d'un canal (lettres de son nom), cadenas si privé.
-    fn channel_badge(&self, channel: &Channel, size: f32, ring: Hsla) -> AnyElement {
-        let name = self.channel_title(channel);
-        let color = badge_color(&channel.name);
-        let radius = px((size * 0.28).round());
-        let face = div()
+    /// A channel's badge: its kind as a symbol (public, private, group) on a
+    /// light tint of the channel's own colour. `surface` is the colour behind
+    /// the badge, which decides how the symbol is inked.
+    fn channel_badge(&self, channel: &Channel, size: f32, surface: Hsla) -> AnyElement {
+        let (tint, ink) = badge_colors(&channel.name, surface);
+        let symbol = match channel.kind.as_str() {
+            "P" => IconName::Lock,
+            "G" => IconName::Users,
+            _ => IconName::Hash,
+        };
+        div()
             .size(px(size))
             .flex_none()
-            .rounded(radius)
+            .rounded(px((size * 0.28).round()))
             .flex()
             .items_center()
             .justify_center()
-            .bg(linear_gradient(
-                160.,
-                linear_color_stop(shade(color, 0.0, 0.06), 0.),
-                linear_color_stop(shade(color, 0.03, -0.06), 1.),
-            ))
-            .text_color(white())
-            .text_size(px((size * 0.5).round()))
-            .font_bold();
-        let face = if channel.kind == "G" {
-            face.child(Icon::new(IconName::Users).size(px(size * 0.6)))
-        } else {
-            face.child(abbreviation(&name))
-        };
-        let lock_size = (size * 0.5).max(10.);
-        div()
-            .relative()
-            .flex_none()
-            .size(px(size))
-            .child(face)
-            .when(channel.kind == "P", |el| {
-                el.child(
-                    div()
-                        .absolute()
-                        .right(-px(3.))
-                        .bottom(-px(3.))
-                        .size(px(lock_size))
-                        .rounded_full()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .border_1()
-                        .border_color(ring)
-                        .bg(ring)
-                        .child(Icon::new(IconName::Lock).size(px(lock_size - 4.)).text_color(color)),
-                )
-            })
+            .bg(tint)
+            .child(Icon::new(symbol).size(px((size * 0.62).round().max(10.))).text_color(ink))
             .into_any_element()
     }
 
@@ -6825,29 +6796,32 @@ fn badge_color(name: &str) -> Hsla {
     hsla(hue, 0.58, l, 1.)
 }
 
-/// Deux lettres pour un nom de canal : initiales de deux mots, sinon les
-/// deux premières lettres (« Dev backend » → « DB », « général » → « GÉ »).
-fn abbreviation(name: &str) -> String {
-    let words: Vec<&str> = name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
-    let letters: String = match words.as_slice() {
-        [] => "#".into(),
-        [one] => one.chars().take(2).collect(),
-        [a, b, ..] => a.chars().take(1).chain(b.chars().take(1)).collect(),
-    };
-    letters.to_uppercase()
+/// The colours of a channel's badge on a surface: a light tint of the channel's
+/// hue, and the ink of the symbol drawn on it, light on a dark surface and
+/// dark on a light one.
+fn badge_colors(name: &str, surface: Hsla) -> (Hsla, Hsla) {
+    let hue = badge_color(name).h;
+    if surface.l < 0.5 {
+        (hsla(hue, 0.60, 0.62, 0.22), hsla(hue, 0.72, 0.80, 1.))
+    } else {
+        (hsla(hue, 0.60, 0.48, 0.15), hsla(hue, 0.65, 0.34, 1.))
+    }
 }
 
 #[cfg(test)]
 mod badge_tests {
-    use super::{FileInfo, abbreviation, badge_color, justify_rows};
+    use super::{FileInfo, badge_color, badge_colors, justify_rows};
+    use gpui_kit::hsla;
 
     #[test]
-    fn abreviations() {
-        assert_eq!(abbreviation("Dev backend"), "DB");
-        assert_eq!(abbreviation("général"), "GÉ");
-        assert_eq!(abbreviation("support-n2"), "SN");
-        assert_eq!(abbreviation("🚀 lancement"), "LA");
-        assert_eq!(abbreviation("—"), "#");
+    fn badge_symbol_stands_out_on_dark_and_light_surfaces() {
+        let (dark, light) = (hsla(0.6, 0.5, 0.2, 1.), hsla(0., 0., 1., 1.));
+        let ((tint_d, ink_d), (tint_l, ink_l)) =
+            (badge_colors("town-square", dark), badge_colors("town-square", light));
+        assert!(ink_d.l > 0.7 && ink_l.l < 0.4);
+        // A tint, not a fill: the surface shows through.
+        assert!(tint_d.a < 0.3 && tint_l.a < 0.3);
+        assert_eq!(ink_d.h, badge_color("town-square").h);
     }
 
     #[test]
