@@ -55,10 +55,7 @@ const THREAD_WIDTH: f32 = 440.;
 const AVATAR: f32 = 36.;
 /// Height of the channel header, bottom border included. The banner of the
 /// profile shown beside a direct message ends on the same line.
-const HEADER_HEIGHT: f32 = 62.;
-/// Left edge of the line that ties an inline thread together: under the
-/// middle of the avatar of its first message (rows have 20 px of padding).
-const THREAD_LINE: f32 = 20. + AVATAR / 2. - 1.;
+const HEADER_HEIGHT: f32 = 104.;
 /// Space left above and below a run of inline replies, outside its panel.
 const THREAD_GAP: f32 = 10.;
 
@@ -189,11 +186,11 @@ impl ChatApp {
             .size_full()
             .items_center()
             .justify_center()
-            .bg(p.sidebar_bg)
+            .bg(p.brand)
             // Grand dégradé façon « hero », des couleurs du thème.
             .bg(linear_gradient(
                 135.,
-                linear_color_stop(shade(p.sidebar_bg, -0.04, -0.06), 0.),
+                linear_color_stop(shade(p.brand, -0.04, -0.06), 0.),
                 linear_color_stop(p.button_bg, 1.),
             ))
             .child(
@@ -257,8 +254,7 @@ impl ChatApp {
         }
         let p = self.palette;
         let current = self.team_id.clone();
-        // Teinte de la barre latérale, plus profonde : les deux barres se répondent.
-        let tb = shade(p.sidebar_bg, 0.0, depth(&p, 0.03));
+        let tb = p.sidebar_bg;
         Some(
             v_flex()
                 .w(px(TEAM_BAR_WIDTH))
@@ -267,13 +263,9 @@ impl ChatApp {
                 .items_center()
                 .gap_3()
                 .pt_4()
-                .bg(linear_gradient(
-                    180.,
-                    linear_color_stop(tb, 0.),
-                    linear_color_stop(shade(tb, 0.06, depth(&p, 0.05)), 1.),
-                ))
+                .bg(tb)
                 .border_r_1()
-                .border_color(p.sidebar_text.opacity(0.08))
+                .border_color(p.border())
                 .children(self.teams.iter().map(|team| {
                     let active = current.as_deref() == Some(&team.id);
                     let id = team.id.clone();
@@ -424,7 +416,7 @@ impl ChatApp {
             p.sidebar_text.opacity(if state.muted { 0.4 } else { 0.64 })
         };
 
-        let ring = if selected { p.sidebar_hover } else { p.sidebar_bg };
+        let ring = if selected { p.sidebar_bg.blend(sidebar_selected(&p)) } else { p.sidebar_bg };
         let icon: AnyElement = match channel.direct_partner(self.me_id()) {
             Some(partner) => self.avatar(&partner, 22., ring).into_any_element(),
             None => div()
@@ -451,16 +443,15 @@ impl ChatApp {
                 .aria_selected(selected)
                 // Ne jamais rétrécir : avec beaucoup de canaux, la liste défile.
                 .flex_none()
-                .h(px(33.))
+                .h(px(34.))
+                .mx(px(10.))
+                .px_2()
                 .gap(px(10.))
-                .pl(px(18.))
-                .pr_3()
+                .rounded(px(9.))
                 .cursor_pointer()
                 .body_size()
                 .text_color(text_color)
-                .border_l_4()
-                .border_color(if selected { p.sidebar_active_border } else { transparent_black() })
-                .when(selected, |el| el.bg(p.sidebar_text.opacity(0.16)))
+                .when(selected, |el| el.bg(sidebar_selected(&p)).font_semibold())
                 .when(!selected, |el| el.hover(|s| s.bg(p.sidebar_hover)))
                 .child(icon)
                 .child(
@@ -770,22 +761,16 @@ impl ChatApp {
             .h_full()
             .flex_none()
             .bg(p.sidebar_bg)
-            .bg(linear_gradient(
-                180.,
-                linear_color_stop(shade(p.sidebar_bg, -0.02, depth(&p, -0.03)), 0.),
-                linear_color_stop(shade(p.sidebar_bg, 0.06, depth(&p, 0.07)), 1.),
-            ))
+            .border_r_1()
+            .border_color(p.border())
             .text_color(p.sidebar_text)
             .child(
                 h_flex()
                     .h(px(62.))
-                    .border_b_1()
-                    .border_color(p.sidebar_text.opacity(0.08))
                     .flex_none()
                     .pl_2()
                     .pr_3()
                     .gap_2()
-                    .bg(p.sidebar_header_bg)
                     .text_color(p.sidebar_header_text)
                     .child(
                         h_flex()
@@ -896,11 +881,12 @@ impl ChatApp {
                 h_flex()
                     .flex_none()
                     .gap_2()
-                    .px_3()
-                    .py_2()
-                    .border_t_1()
-                    .border_color(p.sidebar_text.opacity(0.12))
-                    .child(self.avatar(&me_id, 32., p.sidebar_bg))
+                    .mx(px(10.))
+                    .mb(px(10.))
+                    .p_2()
+                    .rounded(px(12.))
+                    .bg(p.sidebar_text.opacity(0.06))
+                    .child(self.avatar(&me_id, 32., p.sidebar_bg.blend(p.sidebar_text.opacity(0.06))))
                     .child(
                         // Un clic : définir son statut personnalisé.
                         v_flex()
@@ -1134,7 +1120,33 @@ impl ChatApp {
         })
     }
 
+    /// Margin on each side of a conversation: wide in the channel, where the
+    /// text needs air, narrow in the side panel and in a narrow window.
+    fn gutter(&self, pane: Pane) -> f32 {
+        if pane == Pane::Channel && self.viewport_w >= super::NARROW_PANELS { 44. } else { 20. }
+    }
+
+    /// The channel's own colour, taken from its name like its badge.
+    fn channel_hue(&self) -> Option<f32> {
+        let state = self.channels.get(self.channel_id.as_ref()?)?;
+        Some(badge_color(&state.channel.name).h)
+    }
+
+    /// That colour as a light at the top of the conversation: the one
+    /// gradient of the screen.
+    fn channel_tint(&self) -> Option<Div> {
+        let tint = hsla(self.channel_hue()?, 0.75, 0.55, 0.16);
+        Some(div().absolute().top_0().left_0().right_0().h(px(170.)).bg(linear_gradient(
+            180.,
+            linear_color_stop(tint, 0.),
+            linear_color_stop(tint.opacity(0.), 1.),
+        )))
+    }
+
     fn render_post(&self, entity: &Entity<Self>, pane: Pane, ix: usize, cx: &App) -> AnyElement {
+        let gutter = self.gutter(pane);
+        // Where the rail of a thread runs: under the middle of the avatars.
+        let thread_line = gutter + AVATAR / 2. - 1.;
         let list = match pane {
             Pane::Channel => &self.posts,
             Pane::Thread => match &self.thread {
@@ -1360,7 +1372,7 @@ impl ChatApp {
             div()
                 .id(key("reply-to"))
                 .absolute()
-                .left(px(THREAD_LINE + 14.))
+                .left(px(thread_line + 14.))
                 .top(px(if lone_reply { THREAD_GAP } else { 0. } + 2.))
                 .max_w(px(460.))
                 .truncate()
@@ -1401,7 +1413,7 @@ impl ChatApp {
         let (gap_top, gap_bottom) = (if lone_reply { THREAD_GAP } else { 0. }, if run_end { THREAD_GAP } else { 0. });
         let line_color = p.link.opacity(0.85);
         let line = |top: f32, bottom: f32| {
-            div().absolute().left(px(THREAD_LINE)).top(px(top)).bottom(px(bottom)).w(px(2.)).bg(line_color)
+            div().absolute().left(px(thread_line)).top(px(top)).bottom(px(bottom)).w(px(2.)).bg(line_color)
         };
         let next_in_thread = list.get(ix + 1).is_some_and(|v| v.post.root_id == post.id);
         let rail = if !in_thread {
@@ -1409,14 +1421,14 @@ impl ChatApp {
         } else if post.is_reply() {
             Some(line(if follows_thread { 0. } else { gap_top + 22. }, gap_bottom))
         } else if next_in_thread && !compact {
-            Some(line(AVATAR + 20., 0.))
+            Some(line(AVATAR + gutter, 0.))
         } else {
             None
         };
         let elbow = lone_reply.then(|| {
             div()
                 .absolute()
-                .left(px(THREAD_LINE))
+                .left(px(thread_line))
                 .top(px(gap_top + 11.))
                 .w(px(12.))
                 .h(px(11.))
@@ -1439,7 +1451,7 @@ impl ChatApp {
         let backdrop = inset.then(|| {
             div()
                 .absolute()
-                .left(px(THREAD_LINE + 2.))
+                .left(px(thread_line + 2.))
                 .right_0()
                 // Under the chip, which stays outside the panel.
                 .top(px(if lone_reply { gap_top + 26. } else { 0. }))
@@ -1601,8 +1613,8 @@ impl ChatApp {
             .items_start()
             .gap_3()
             .w_full()
-            .px_5()
-            .when(inset, |el| el.pl(px(THREAD_LINE + 14.)))
+            .px(px(gutter))
+            .when(inset, |el| el.pl(px(thread_line + 14.)))
             .children(backdrop)
             .children(rail)
             .children(elbow)
@@ -1855,8 +1867,8 @@ impl ChatApp {
         if new_day || first_new {
             v_flex()
                 .w_full()
-                .when(new_day, |el| el.child(date_separator(post.create_at, &p)))
-                .when(first_new, |el| el.child(new_messages_separator(&p)))
+                .when(new_day, |el| el.child(date_separator(post.create_at, gutter, &p)))
+                .when(first_new, |el| el.child(new_messages_separator(gutter, &p)))
                 .child(row)
                 .into_any_element()
         } else {
@@ -2204,6 +2216,8 @@ impl ChatApp {
         // Envoyer : rond, discret tant qu'il n'y a rien, coloré ensuite.
         let send_tip: SharedString =
             if editing { t!("composer.save_tooltip") } else { t!("composer.send_tooltip") }.into();
+        // What acts in a conversation wears the channel's colour.
+        let accent = self.channel_hue().map(|hue| hsla(hue, 0.62, 0.46, 1.)).unwrap_or(p.button_bg);
         let send = div()
             .id(SharedString::from(format!("send-{pane:?}")))
             .role(Role::Button)
@@ -2216,7 +2230,7 @@ impl ChatApp {
             .justify_center()
             .map(|el| {
                 if has_content {
-                    el.bg(p.button_bg).text_color(p.button_color).cursor_pointer().hover(|s| s.opacity(0.88))
+                    el.bg(accent).text_color(white()).cursor_pointer().hover(|s| s.opacity(0.88))
                 } else {
                     el.bg(p.center_color.opacity(0.07)).text_color(p.muted())
                 }
@@ -2274,9 +2288,7 @@ impl ChatApp {
             .id(SharedString::from(format!("composer-{pane:?}")))
             .relative()
             .flex_none()
-            .px_5()
             .pb_1()
-            .pt_1()
             // Raccourcis de mise en forme (non utilisés par la zone de saisie).
             .capture_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
                 let k = &ev.keystroke;
@@ -2332,24 +2344,17 @@ impl ChatApp {
             .children(self.render_spelling(pane, cx))
             .child(
                 v_flex()
-                    .rounded(px(16.))
-                    .border_1()
-                    .map(|el| {
-                        if self.composer_focused == Some(pane) {
-                            el.border_color(p.button_bg.opacity(0.75))
-                        } else {
-                            el.border_color(p.center_color.opacity(0.16))
-                        }
-                    })
-                    .bg(p.center_bg)
-                    .shadow_sm()
+                    .border_t_1()
+                    .border_color(if self.composer_focused == Some(pane) { accent.opacity(0.8) } else { p.border() })
+                    .px(px(self.gutter(pane) - 8.))
+                    .pt_2()
                     .when(editing, |el| {
                         el.child(
                             h_flex()
                                 .gap_2()
                                 .px_3()
                                 .py_1p5()
-                                .rounded_t(px(15.))
+                                .rounded(px(8.))
                                 .bg(p.away.opacity(0.16))
                                 .caption_size()
                                 .child(div().flex_1().font_semibold().child(t!("composer.editing_message")))
@@ -2382,7 +2387,7 @@ impl ChatApp {
             .child(
                 div()
                     .h(px(18.))
-                    .px_1()
+                    .px(px(self.gutter(pane)))
                     .pt_0p5()
                     .caption_size()
                     .line_height(px(16.))
@@ -2893,9 +2898,6 @@ impl ChatApp {
             }
             _ => None,
         };
-        let badge = state
-            .filter(|c| matches!(c.channel.kind.as_str(), "O" | "P"))
-            .map(|c| self.channel_badge(&c.channel, 32., p.center_bg));
         let actions = self.channel_id.clone().zip(state).map(|(channel_id, state)| {
             let side = self.side.as_ref().map(|s| s.kind.clone());
             let icon_button = |id: &'static str, icon: IconName, on: bool, tip: SharedString| {
@@ -2985,15 +2987,10 @@ impl ChatApp {
         h_flex()
             .h(px(HEADER_HEIGHT))
             .flex_none()
-            .px_5()
+            .items_end()
+            .px(px(self.gutter(Pane::Channel)))
+            .pb_4()
             .gap_3()
-            .border_b_1()
-            .border_color(p.border())
-            .bg(linear_gradient(
-                90.,
-                linear_color_stop(p.sidebar_bg.opacity(0.24), 0.),
-                linear_color_stop(p.button_bg.opacity(0.07), 1.),
-            ))
             .when(self.viewport_w < super::NARROW_SIDEBAR, |el| {
                 el.child(
                     Button::new("hdr-channels")
@@ -3005,8 +3002,9 @@ impl ChatApp {
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_drawer(super::Drawer::Channels, cx))),
                 )
             })
-            .when_some(partner.clone(), |el, partner| el.child(self.avatar(&partner, 32., p.center_bg)))
-            .children(badge)
+            .when_some(partner.clone(), |el, partner| {
+                el.child(div().pb_1().child(self.avatar(&partner, 36., p.center_bg)))
+            })
             .child(
                 v_flex()
                     .id("channel-title")
@@ -3021,22 +3019,23 @@ impl ChatApp {
                     })
                     .child(
                         h_flex()
-                            .gap_1()
+                            .gap_1p5()
                             .min_w_0()
-                            .title_size()
+                            .display_size()
                             .font_bold()
                             .title_font()
                             .child(div().min_w_0().truncate().hover(|s| s.underline()).child(title))
-                            .child(Icon::new(IconName::ChevronDown).size(px(14.)).text_color(p.muted()).flex_none())
+                            .child(Icon::new(IconName::ChevronDown).size(px(18.)).text_color(p.muted()).flex_none())
                             .children(flags),
                     )
                     .when_some(subtitle, |el, sub| {
                         el.child(
                             div()
+                                .mt_1()
                                 .truncate()
-                                .max_h(px(18.))
+                                .max_h(px(20.))
                                 .overflow_hidden()
-                                .caption_size()
+                                .secondary_size()
                                 .text_color(p.muted())
                                 .child(sub),
                         )
@@ -3058,7 +3057,7 @@ impl ChatApp {
 
         let error_banner = self.error.clone().map(|err| {
             h_flex()
-                .px_5()
+                .px(px(self.gutter(Pane::Channel)))
                 .py_2()
                 .gap_2()
                 .bg(p.error.opacity(0.12))
@@ -3125,7 +3124,7 @@ impl ChatApp {
 
         let info_banner = self.info.clone().map(|info| {
             h_flex()
-                .px_5()
+                .px(px(self.gutter(Pane::Channel)))
                 .py_2()
                 .gap_2()
                 .bg(p.button_bg.opacity(0.08))
@@ -3155,6 +3154,7 @@ impl ChatApp {
                 this.file_drag = None;
                 this.add_files(Pane::Channel, paths.paths().to_vec(), cx);
             }))
+            .children(self.channel_tint())
             .child(self.render_channel_header(cx))
             .children(self.render_bookmarks_bar(cx))
             .children(self.render_offline_banner())
@@ -3167,7 +3167,7 @@ impl ChatApp {
                 // Canal archivé : lecture seule.
                 h_flex()
                     .flex_none()
-                    .mx_5()
+                    .mx(px(self.gutter(Pane::Channel)))
                     .mb_4()
                     .px_4()
                     .py_3()
@@ -3212,12 +3212,9 @@ impl ChatApp {
                 .child(
                     h_flex()
                         .h(px(62.))
-                        .bg(right_header_bg(&p))
                         .flex_none()
                         .px_5()
                         .gap_2()
-                        .border_b_1()
-                        .border_color(p.border())
                         .child(div().title_size().font_bold().title_font().child(t!("threads.thread")))
                         .child(div().flex_1().truncate().caption_size().text_color(p.muted()).child(channel))
                         .child(self.expand_button("expand-thread", cx))
@@ -3503,7 +3500,7 @@ impl ChatApp {
         v_flex()
             .child(div().h(px(HEADER_HEIGHT)).bg(linear_gradient(
                 120.,
-                linear_color_stop(p.sidebar_bg, 0.),
+                linear_color_stop(p.brand, 0.),
                 linear_color_stop(p.button_bg, 1.),
             )))
             .child(
@@ -3872,12 +3869,9 @@ impl ChatApp {
                 .child(
                     h_flex()
                         .h(px(62.))
-                        .bg(right_header_bg(&p))
                         .flex_none()
                         .px_5()
                         .gap_2()
-                        .border_b_1()
-                        .border_color(p.border())
                         .child(div().title_size().font_bold().title_font().child(title))
                         .child(div().flex_1().truncate().caption_size().text_color(p.muted()).child(subtitle))
                         .child(self.expand_button("expand-side", cx))
@@ -4228,12 +4222,9 @@ impl ChatApp {
                 .child(
                     h_flex()
                         .h(px(62.))
-                        .bg(right_header_bg(&p))
                         .flex_none()
                         .px_4()
                         .gap_2()
-                        .border_b_1()
-                        .border_color(p.border())
                         .child(div().title_size().font_bold().title_font().child(t!("members.title")))
                         .when(total > 0, |el| {
                             el.child(div().secondary_size().text_color(p.muted()).child(total.to_string()))
@@ -5167,7 +5158,7 @@ impl ChatApp {
                 .flex()
                 .items_center()
                 .justify_center()
-                .bg(linear_gradient(135., linear_color_stop(p.button_bg, 0.), linear_color_stop(p.sidebar_bg, 1.)))
+                .bg(linear_gradient(135., linear_color_stop(p.button_bg, 0.), linear_color_stop(p.brand, 1.)))
                 .text_color(white())
                 .text_size(px(24.))
                 .font_bold()
@@ -5262,7 +5253,7 @@ impl ChatApp {
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(div().h(px(64.)).bg(linear_gradient(
                             120.,
-                            linear_color_stop(p.sidebar_bg, 0.),
+                            linear_color_stop(p.brand, 0.),
                             linear_color_stop(p.button_bg, 1.),
                         )))
                         .child(
@@ -5442,7 +5433,7 @@ impl ChatApp {
                 .child(div().h(px(56.)).bg(linear_gradient(
                     120.,
                     linear_color_stop(badge_color(&channel.name), 0.),
-                    linear_color_stop(p.sidebar_bg, 1.),
+                    linear_color_stop(p.brand, 1.),
                 )))
                 .child(
                     v_flex()
@@ -6373,16 +6364,18 @@ const MONTHS: [&str; 12] = [
     "dates.months.december",
 ];
 
-fn date_separator(ms: i64, p: &Palette) -> impl IntoElement {
-    h_flex()
+/// The day, as a heading above its messages.
+fn date_separator(ms: i64, gutter: f32, p: &Palette) -> impl IntoElement {
+    div()
         .w_full()
-        .px_5()
-        .pt_4()
-        .pb_1()
-        .gap_3()
-        .child(div().flex_1().h(px(1.)).bg(p.border()))
-        .child(div().caption_size().font_semibold().title_font().text_color(p.center_color).child(day_label(ms)))
-        .child(div().flex_1().h(px(1.)).bg(p.border()))
+        .px(px(gutter))
+        .pt(px(18.))
+        .pb(px(4.))
+        .title_size()
+        .font_bold()
+        .title_font()
+        .text_color(p.center_color)
+        .child(day_label(ms))
 }
 
 /// Taille d'affichage d'une image jointe : au plus 420 × 300, proportions gardées.
@@ -6414,10 +6407,10 @@ fn file_icon(extension: &str) -> &'static str {
 }
 
 /// Ligne « Nouveaux messages », dans la couleur prévue par le thème.
-fn new_messages_separator(p: &Palette) -> impl IntoElement {
+fn new_messages_separator(gutter: f32, p: &Palette) -> impl IntoElement {
     h_flex()
         .w_full()
-        .px_5()
+        .px(px(gutter))
         .pt_3()
         .gap_3()
         .child(div().flex_1().h(px(1.)).bg(p.new_separator))
@@ -7045,13 +7038,9 @@ mod bot_tests {
     }
 }
 
-/// Fond des en-têtes de droite : prolonge le dégradé de l'en-tête du canal.
-fn right_header_bg(p: &Palette) -> Background {
-    linear_gradient(
-        90.,
-        linear_color_stop(p.button_bg.opacity(0.07), 0.),
-        linear_color_stop(p.button_bg.opacity(0.03), 1.),
-    )
+/// Background of the selected row of the sidebar.
+fn sidebar_selected(p: &Palette) -> Hsla {
+    p.sidebar_text.opacity(0.13)
 }
 
 /// Couleur d'une notification de bot sans pièce jointe (plugin GitHub),
@@ -7170,11 +7159,6 @@ mod expand_tests {
         let titre = Post { message: "#### Titre".into(), ..Default::default() };
         assert_eq!(bot_summary(&titre).0, "Titre");
     }
-}
-
-/// Sens des dégradés : vers le clair en thème sombre, vers le foncé sinon.
-fn depth(p: &Palette, amount: f32) -> f32 {
-    if p.center_bg.l < 0.5 { amount } else { -amount }
 }
 
 /// Width of a line of interface text at `size`, as the text system shapes it.

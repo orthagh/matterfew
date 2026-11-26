@@ -90,13 +90,15 @@ impl MattermostTheme {
 /// Palette prête à l'emploi pour le rendu.
 #[derive(Debug, Clone, Copy)]
 pub struct Palette {
+    /// The sidebar colour of the theme. The panels on the left are not drawn
+    /// with it (see `from_theme`): it is the colour of banners.
+    pub brand: Hsla,
     pub sidebar_bg: Hsla,
     pub sidebar_text: Hsla,
     pub sidebar_unread: Hsla,
     pub sidebar_hover: Hsla,
     pub sidebar_active_border: Hsla,
     pub sidebar_active_text: Hsla,
-    pub sidebar_header_bg: Hsla,
     pub sidebar_header_text: Hsla,
     /// Fond de la barre des équipes du thème (la barre est dérivée de la barre latérale).
     #[allow(dead_code)]
@@ -121,27 +123,34 @@ impl Palette {
         let d = MattermostTheme::default();
         // Une couleur illisible dans le thème : on garde celle de Denim.
         let c = |v: &str, fallback: &str| parse_color(v).or_else(|| parse_color(fallback)).unwrap_or(black());
+        // One surface: the team bar and the sidebar are drawn like the centre,
+        // with hairlines between the panels. The theme's own sidebar colours
+        // are set aside, and a mention counter takes the colour of buttons, the
+        // one that stands out on that surface in every theme.
+        let (bg, fg) =
+            (c(&t.center_channel_bg, &d.center_channel_bg), c(&t.center_channel_color, &d.center_channel_color));
+        let (button_bg, button_color) = (c(&t.button_bg, &d.button_bg), c(&t.button_color, &d.button_color));
         Self {
-            sidebar_bg: c(&t.sidebar_bg, &d.sidebar_bg),
-            sidebar_text: c(&t.sidebar_text, &d.sidebar_text),
-            sidebar_unread: c(&t.sidebar_unread_text, &d.sidebar_unread_text),
-            sidebar_hover: c(&t.sidebar_text_hover_bg, &d.sidebar_text_hover_bg),
-            sidebar_active_border: c(&t.sidebar_text_active_border, &d.sidebar_text_active_border),
-            sidebar_active_text: c(&t.sidebar_text_active_color, &d.sidebar_text_active_color),
-            sidebar_header_bg: c(&t.sidebar_header_bg, &d.sidebar_header_bg),
-            sidebar_header_text: c(&t.sidebar_header_text_color, &d.sidebar_header_text_color),
-            team_bar_bg: c(&t.sidebar_team_bar_bg, &d.sidebar_team_bar_bg),
+            brand: c(&t.sidebar_bg, &d.sidebar_bg),
+            sidebar_bg: bg,
+            sidebar_text: fg,
+            sidebar_unread: fg,
+            sidebar_hover: bg.blend(fg.opacity(0.07)),
+            sidebar_active_border: button_bg,
+            sidebar_active_text: fg,
+            sidebar_header_text: fg,
+            team_bar_bg: bg,
             online: c(&t.online_indicator, &d.online_indicator),
             away: c(&t.away_indicator, &d.away_indicator),
             dnd: c(&t.dnd_indicator, &d.dnd_indicator),
-            mention_bg: c(&t.mention_bg, &d.mention_bg),
-            mention_color: c(&t.mention_color, &d.mention_color),
-            center_bg: c(&t.center_channel_bg, &d.center_channel_bg),
-            center_color: c(&t.center_channel_color, &d.center_channel_color),
+            mention_bg: button_bg,
+            mention_color: button_color,
+            center_bg: bg,
+            center_color: fg,
             new_separator: c(&t.new_message_separator, &d.new_message_separator),
             link: c(&t.link_color, &d.link_color),
-            button_bg: c(&t.button_bg, &d.button_bg),
-            button_color: c(&t.button_color, &d.button_color),
+            button_bg,
+            button_color,
             error: c(&t.error_text_color, &d.error_text_color),
             mention_highlight_bg: c(&t.mention_highlight_bg, &d.mention_highlight_bg),
         }

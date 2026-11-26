@@ -69,6 +69,8 @@ pub const BODY: f32 = 15.;
 pub const BODY_LINE: f32 = 22.;
 /// Titles.
 pub const TITLE: f32 = 18.;
+/// Above the scale: the name of the channel being read, once on the screen.
+pub const DISPLAY: f32 = 34.;
 
 pub trait TypeScale: Styled + Sized {
     fn caption_size(self) -> Self {
@@ -87,6 +89,10 @@ pub trait TypeScale: Styled + Sized {
 
     fn title_size(self) -> Self {
         self.text_size(px(TITLE))
+    }
+
+    fn display_size(self) -> Self {
+        self.text_size(px(DISPLAY)).line_height(px(38.))
     }
 }
 

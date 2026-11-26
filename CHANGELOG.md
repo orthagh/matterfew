@@ -16,6 +16,10 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
   Bricolage Grotesque for titles, both embedded.
 - Four text sizes instead of fifteen (12, 13, 15 and 18), with messages set
   at 15 on a 22 line.
+- A flatter, more typographic look: every panel shares one surface, the
+  channel's name is set large, days are headings, the composer has no box.
+  The sidebar colours of the Mattermost theme are no longer used.
+- Each channel lights the top of its conversation with its own colour.
 - Channel icons are a symbol (public, private, group) on a light tint of the
   channel's colour, instead of initials on a saturated gradient.
 - MCP server: it gives its own name, marks its tools read-only, and lists
