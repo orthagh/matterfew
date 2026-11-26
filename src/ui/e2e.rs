@@ -1158,3 +1158,90 @@ fn e2e_bulle_d_orthographe() {
         assert_eq!(a.composer.read(cx).value().as_ref(), "Voici la maquette validée");
     });
 }
+
+// ----------------------------------------------------------------------
+// Channels that come and go while the app runs
+// ----------------------------------------------------------------------
+
+/// The channel on screen, and another of the list.
+fn shown_and_other(w: &(TestApp, TestAppWindow<ChatApp>)) -> (String, String) {
+    w.1.read(|a, _| {
+        let shown = a.channel_id.clone().expect("a channel on screen");
+        let other = a.channels.keys().find(|id| **id != shown).cloned().expect("another channel");
+        (shown, other)
+    })
+}
+
+fn conversation(id: &str) -> crate::api::Channel {
+    serde_json::from_value(serde_json::json!({"id": id, "type": "D", "name": format!("me__{id}")})).unwrap()
+}
+
+#[test]
+fn a_channel_taken_away_leaves_the_list() {
+    let mut w = demo_app();
+    let (shown, other) = shown_and_other(&w);
+    // Elsewhere in the list: it goes, the screen does not move.
+    w.1.update(|a, window, cx| {
+        a.on_event(crate::backend::Event::ChannelGone { channel_id: other.clone() }, window, cx)
+    });
+    w.1.read(|a, _| {
+        assert!(!a.channels.contains_key(&other));
+        assert!(a.categories.iter().all(|c| !c.channel_ids.contains(&other)));
+        assert_eq!(a.channel_id.as_deref(), Some(shown.as_str()));
+    });
+    // On screen: another channel takes its place.
+    w.1.update(|a, window, cx| {
+        a.on_event(crate::backend::Event::ChannelGone { channel_id: shown.clone() }, window, cx)
+    });
+    w.1.read(|a, _| {
+        assert!(!a.channels.contains_key(&shown));
+        assert!(a.channel_id.as_ref().is_some_and(|id| *id != shown && a.channels.contains_key(id)));
+    });
+}
+
+#[test]
+fn an_archived_channel_goes_unless_it_is_on_screen() {
+    let mut w = demo_app();
+    let (shown, other) = shown_and_other(&w);
+    w.1.update(|a, window, cx| {
+        a.on_event(crate::backend::Event::ChannelArchived { channel_id: other.clone(), delete_at: 5 }, window, cx);
+        a.on_event(crate::backend::Event::ChannelArchived { channel_id: shown.clone(), delete_at: 5 }, window, cx);
+    });
+    w.1.read(|a, _| {
+        assert!(!a.channels.contains_key(&other));
+        assert_eq!(a.channel_id.as_deref(), Some(shown.as_str()));
+        assert_eq!(a.channels[&shown].channel.delete_at, 5);
+    });
+    // Restored, and made private meanwhile.
+    w.1.update(|a, window, cx| {
+        a.on_event(
+            crate::backend::Event::ChannelRestored { channel_id: shown.clone(), team_id: String::new() },
+            window,
+            cx,
+        );
+        a.on_event(crate::backend::Event::ChannelConverted { channel_id: shown.clone(), kind: "P".into() }, window, cx);
+    });
+    w.1.read(|a, _| {
+        assert_eq!(a.channels[&shown].channel.delete_at, 0);
+        assert_eq!(a.channels[&shown].channel.kind, "P");
+    });
+}
+
+#[test]
+fn a_created_conversation_is_not_unread_until_a_message_arrives() {
+    let mut w = demo_app();
+    // In one go: the demo answers the reload of the categories that follows
+    // with its own list of channels, which knows none of these.
+    w.1.update(|a, window, cx| {
+        a.on_event(crate::backend::Event::ChannelAdded { channel: conversation("new"), unread: false }, window, cx);
+        assert!(!a.channels["new"].unread_messages);
+        assert_eq!(a.channels["new"].mentions, 0);
+        // Its first message was fetched while the conversation was not known yet.
+        a.on_event(crate::backend::Event::ChannelAdded { channel: conversation("new"), unread: true }, window, cx);
+        a.on_event(crate::backend::Event::ChannelAdded { channel: conversation("other"), unread: true }, window, cx);
+        for id in ["new", "other"] {
+            assert!(a.channels[id].unread_messages, "{id}");
+            assert_eq!(a.channels[id].mentions, 1, "{id}");
+        }
+    });
+}

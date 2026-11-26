@@ -390,9 +390,11 @@ pub enum Command {
     MarkRead {
         channel_id: String,
     },
-    /// Charge un canal inconnu (ex. nouveau message direct reçu en temps réel).
+    /// Loads a conversation that is not in the list yet. `unread`: it is
+    /// fetched because a message arrived in it, not because it was created.
     FetchChannel {
         channel_id: String,
+        unread: bool,
     },
     Notify {
         title: String,
@@ -548,10 +550,34 @@ pub enum Event {
     MembersChanged {
         channel_id: String,
     },
-    /// The user has just been added to a channel, which is not in their list yet.
+    /// A channel that may not be in the user's list yet: they were added to
+    /// it, or created it from another client. `team_id` is empty when the
+    /// server does not name the team.
     AddedToChannel {
         channel_id: String,
         team_id: String,
+    },
+    /// The user was removed from a channel.
+    ChannelGone {
+        channel_id: String,
+    },
+    ChannelArchived {
+        channel_id: String,
+        delete_at: i64,
+    },
+    /// `team_id` is empty for a private channel: the server does not name it.
+    ChannelRestored {
+        channel_id: String,
+        team_id: String,
+    },
+    /// A channel went from public to private.
+    ChannelConverted {
+        channel_id: String,
+        kind: String,
+    },
+    /// A direct or group conversation was created with the user.
+    ConversationCreated {
+        channel_id: String,
     },
     CustomEmoji {
         name: String,
@@ -599,7 +625,11 @@ pub enum Event {
     },
     /// Préférences brutes : barre latérale, thème…
     Prefs(Vec<Preference>),
-    ChannelAdded(Channel),
+    /// `unread`: see [`Command::FetchChannel`].
+    ChannelAdded {
+        channel: Channel,
+        unread: bool,
+    },
     ChannelPosts {
         channel_id: String,
         posts: Vec<Post>,
@@ -1392,12 +1422,12 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
             }));
         }
         Command::MarkRead { channel_id } => client.view_channel(&channel_id).await?,
-        Command::FetchChannel { channel_id } => {
+        Command::FetchChannel { channel_id, unread } => {
             let channel = client.channel(&channel_id).await?;
             if let Some(partner) = channel.direct_partner(&ctx.me_id) {
                 ctx.ensure_users([partner]).await;
             }
-            ctx.emit(Event::ChannelAdded(channel)).await;
+            ctx.emit(Event::ChannelAdded { channel, unread }).await;
         }
         Command::Notify { title, body, target } => {
             tokio::task::spawn_blocking(move || crate::notify::show(&title, &body, target)).await?;
@@ -1610,14 +1640,46 @@ fn ws_event(value: &Value, me_id: &str) -> Option<Event> {
                 c if c.is_empty() => str_field(&data, "/channel_id"),
                 c => c,
             };
-            let me_added = kind == "user_added" && str_field(&data, "/user_id") == me_id;
-            (!channel_id.is_empty()).then(|| {
-                if me_added {
-                    Event::AddedToChannel { channel_id, team_id: str_field(&data, "/team_id") }
-                } else {
-                    Event::MembersChanged { channel_id }
-                }
+            // The server names the user in the data. A removed user no longer
+            // belongs to the channel, so they get an event of their own, which
+            // names them in the broadcast only.
+            let about_me = !me_id.is_empty()
+                && (str_field(&data, "/user_id") == me_id
+                    || (kind == "user_removed" && str_field(value, "/broadcast/user_id") == me_id));
+            (!channel_id.is_empty()).then(|| match (kind, about_me) {
+                ("user_added", true) => Event::AddedToChannel { channel_id, team_id: str_field(&data, "/team_id") },
+                (_, true) => Event::ChannelGone { channel_id },
+                _ => Event::MembersChanged { channel_id },
             })
+        }
+        // Sent to the creator only: a channel created from another client.
+        "channel_created" => {
+            let channel_id = str_field(&data, "/channel_id");
+            (!channel_id.is_empty())
+                .then(|| Event::AddedToChannel { channel_id, team_id: str_field(&data, "/team_id") })
+        }
+        // A public channel is announced to its whole team, members or not;
+        // any other, to its members only.
+        "channel_deleted" => {
+            let channel_id = str_field(&data, "/channel_id");
+            let delete_at = data.get("delete_at").and_then(Value::as_i64).filter(|at| *at > 0);
+            (!channel_id.is_empty()).then(|| Event::ChannelArchived {
+                channel_id,
+                delete_at: delete_at.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
+            })
+        }
+        "channel_restored" => {
+            let channel_id = str_field(&data, "/channel_id");
+            (!channel_id.is_empty())
+                .then(|| Event::ChannelRestored { channel_id, team_id: str_field(value, "/broadcast/team_id") })
+        }
+        "channel_converted" => {
+            let (channel_id, kind) = (str_field(&data, "/channel_id"), str_field(&data, "/channel_type"));
+            (!channel_id.is_empty() && !kind.is_empty()).then_some(Event::ChannelConverted { channel_id, kind })
+        }
+        "group_added" | "direct_added" => {
+            let channel_id = str_field(value, "/broadcast/channel_id");
+            (!channel_id.is_empty()).then_some(Event::ConversationCreated { channel_id })
         }
         "status_change" => {
             let (user_id, status) = (str_field(&data, "/user_id"), str_field(&data, "/status"));
@@ -1797,7 +1859,56 @@ mod tests {
         let other = ev(r#"{"event":"user_added","broadcast":{"channel_id":"c1"},
             "data":{"user_id":"someone","team_id":"t1"}}"#);
         assert!(matches!(other, Some(Event::MembersChanged { channel_id }) if channel_id == "c1"));
-        let removed = ev(r#"{"event":"user_removed","broadcast":{"channel_id":"c1"},"data":{"user_id":"me"}}"#);
-        assert!(matches!(removed, Some(Event::MembersChanged { channel_id }) if channel_id == "c1"));
+    }
+
+    #[test]
+    fn being_removed_from_a_channel_is_told_apart_from_someone_else_leaving() {
+        let ev = |json: &str| ws_event(&serde_json::from_str(json).unwrap(), "me");
+        // To the removed user: named in the broadcast, the channel in the data.
+        let mine = ev(r#"{"event":"user_removed","broadcast":{"user_id":"me","channel_id":""},
+            "data":{"channel_id":"c1","remover_id":"boss"}}"#);
+        assert!(matches!(mine, Some(Event::ChannelGone { channel_id }) if channel_id == "c1"));
+        // To the channel: the removed user is in the data.
+        let seen = ev(r#"{"event":"user_removed","broadcast":{"channel_id":"c1"},
+            "data":{"user_id":"me","remover_id":"boss"}}"#);
+        assert!(matches!(seen, Some(Event::ChannelGone { channel_id }) if channel_id == "c1"));
+        let other = ev(r#"{"event":"user_removed","broadcast":{"channel_id":"c1"},
+            "data":{"user_id":"someone","remover_id":"boss"}}"#);
+        assert!(matches!(other, Some(Event::MembersChanged { channel_id }) if channel_id == "c1"));
+    }
+
+    #[test]
+    fn channels_that_come_and_go() {
+        let ev = |json: &str| ws_event(&serde_json::from_str(json).unwrap(), "me");
+        let created = ev(r#"{"event":"channel_created","broadcast":{"user_id":"me"},
+            "data":{"channel_id":"c1","team_id":"t1"}}"#);
+        assert!(matches!(created, Some(Event::AddedToChannel { channel_id, team_id })
+            if channel_id == "c1" && team_id == "t1"));
+        let archived = ev(r#"{"event":"channel_deleted","broadcast":{"team_id":"t1"},
+            "data":{"channel_id":"c1","delete_at":1700}}"#);
+        assert!(matches!(archived, Some(Event::ChannelArchived { channel_id, delete_at: 1700 }) if channel_id == "c1"));
+        // A public channel names its team, a private one does not.
+        let public = ev(r#"{"event":"channel_restored","broadcast":{"team_id":"t1"},"data":{"channel_id":"c1"}}"#);
+        assert!(matches!(public, Some(Event::ChannelRestored { channel_id, team_id })
+            if channel_id == "c1" && team_id == "t1"));
+        let private = ev(r#"{"event":"channel_restored","broadcast":{"channel_id":"c2","team_id":""},
+            "data":{"channel_id":"c2"}}"#);
+        assert!(matches!(private, Some(Event::ChannelRestored { channel_id, team_id })
+            if channel_id == "c2" && team_id.is_empty()));
+        let converted = ev(r#"{"event":"channel_converted","broadcast":{"team_id":"t1"},
+            "data":{"channel_id":"c1","channel_type":"P"}}"#);
+        assert!(matches!(converted, Some(Event::ChannelConverted { channel_id, kind })
+            if channel_id == "c1" && kind == "P"));
+    }
+
+    #[test]
+    fn a_conversation_is_known_from_its_creation() {
+        let ev = |json: &str| ws_event(&serde_json::from_str(json).unwrap(), "me");
+        let group = ev(r#"{"event":"group_added","broadcast":{"channel_id":"g1","user_id":"me"},
+            "data":{"teammate_ids":"[\"me\",\"u1\",\"u2\"]"}}"#);
+        assert!(matches!(group, Some(Event::ConversationCreated { channel_id }) if channel_id == "g1"));
+        let direct = ev(r#"{"event":"direct_added","broadcast":{"channel_id":"d1"},
+            "data":{"creator_id":"u1","teammate_id":"me"}}"#);
+        assert!(matches!(direct, Some(Event::ConversationCreated { channel_id }) if channel_id == "d1"));
     }
 }

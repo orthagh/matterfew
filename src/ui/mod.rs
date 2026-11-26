@@ -2318,17 +2318,30 @@ impl ChatApp {
 
     fn leave_channel(&mut self, channel_id: String, cx: &mut Context<Self>) {
         self.send(Command::LeaveChannel { channel_id: channel_id.clone() });
-        self.channels.remove(&channel_id);
+        self.drop_channel(&channel_id, cx);
+    }
+
+    /// Takes a channel out of the list. If it was on screen, another takes
+    /// its place: the last one opened in the team, else "Town Square".
+    fn drop_channel(&mut self, channel_id: &str, cx: &mut Context<Self>) {
+        self.channels.remove(channel_id);
         for category in self.categories.iter_mut() {
-            category.channel_ids.retain(|id| *id != channel_id);
+            category.channel_ids.retain(|id| id != channel_id);
         }
-        if self.channel_id.as_deref() == Some(channel_id.as_str()) {
-            let next = self
-                .channels
-                .values()
-                .find(|c| c.channel.name == "town-square")
-                .or_else(|| self.channels.values().next())
-                .map(|c| c.channel.id.clone());
+        if self.channel_id.as_deref() == Some(channel_id) {
+            let remembered = self
+                .team_id
+                .as_ref()
+                .and_then(|team| self.settings.last_channels.get(team))
+                .filter(|id| self.channels.contains_key(*id))
+                .cloned();
+            let next = remembered.or_else(|| {
+                self.channels
+                    .values()
+                    .find(|c| c.channel.name == "town-square")
+                    .or_else(|| self.channels.values().next())
+                    .map(|c| c.channel.id.clone())
+            });
             self.channel_id = None;
             if let Some(next) = next {
                 self.select_channel(next, cx);
@@ -3820,6 +3833,40 @@ impl ChatApp {
                     self.load_new_channel(&team_id);
                 }
             }
+            Event::ChannelGone { channel_id } => {
+                if self.channels.contains_key(&channel_id) || self.channel_id.as_deref() == Some(channel_id.as_str()) {
+                    self.drop_channel(&channel_id, cx);
+                } else {
+                    // A channel of another team: its badge may change.
+                    self.send(Command::LoadTeamUnreads);
+                }
+            }
+            Event::ChannelArchived { channel_id, delete_at } => {
+                // On screen, it stays, shown as archived: the reader is not
+                // thrown out of what they are reading.
+                if self.channel_id.as_deref() == Some(channel_id.as_str()) {
+                    if let Some(state) = self.channels.get_mut(&channel_id) {
+                        state.channel.delete_at = delete_at;
+                    }
+                } else if self.channels.contains_key(&channel_id) {
+                    self.drop_channel(&channel_id, cx);
+                }
+            }
+            Event::ChannelRestored { channel_id, team_id } => match self.channels.get_mut(&channel_id) {
+                Some(state) => state.channel.delete_at = 0,
+                // The team's list tells whether the user belongs to it.
+                None => self.load_new_channel(&team_id),
+            },
+            Event::ChannelConverted { channel_id, kind } => {
+                if let Some(state) = self.channels.get_mut(&channel_id) {
+                    state.channel.kind = kind;
+                }
+            }
+            Event::ConversationCreated { channel_id } => {
+                if !self.channels.contains_key(&channel_id) {
+                    self.send(Command::FetchChannel { channel_id, unread: false });
+                }
+            }
             Event::MembersChanged { channel_id } => {
                 if self.members.remove(&channel_id).is_some() && self.channel_id.as_deref() == Some(channel_id.as_str())
                 {
@@ -4073,14 +4120,22 @@ impl ChatApp {
                 self.refresh_preferences(cx);
             }
             Event::PrefsChanged => self.send(Command::LoadPreferences),
-            Event::ChannelAdded(channel) => {
-                self.channels.entry(channel.id.clone()).or_insert(ChannelState {
+            Event::ChannelAdded { channel, unread } => {
+                let on_screen = self.channel_id.as_deref() == Some(channel.id.as_str());
+                let state = self.channels.entry(channel.id.clone()).or_insert(ChannelState {
                     channel,
-                    unread_messages: true,
-                    mentions: 1,
+                    unread_messages: false,
+                    mentions: 0,
                     muted: false,
                     notify: Default::default(),
                 });
+                // Fetched for a message that arrived before the conversation was
+                // known: that message is unread, and in a conversation it counts
+                // as a mention.
+                if unread && !on_screen && !state.unread_messages {
+                    state.unread_messages = true;
+                    state.mentions = state.mentions.max(1);
+                }
                 // La catégorie « Messages directs » côté serveur l'inclut désormais.
                 if let Some(team_id) = self.team_id.clone() {
                     self.send(Command::LoadCategories { team_id });
@@ -4245,13 +4300,16 @@ impl ChatApp {
         cx.notify();
     }
 
-    /// A channel the user has just been added to. In the team on screen, its
-    /// list is read again, with the unread counts the server holds; in another
-    /// team, only the badges of the teams change.
+    /// A channel that may have joined the user's list. In the team on screen,
+    /// the list is read again, with the unread counts the server holds; in
+    /// another team, only the badges of the teams change. An empty `team_id`
+    /// is a team the server did not name: it may be either.
     fn load_new_channel(&self, team_id: &str) {
-        if self.team_id.as_deref() == Some(team_id) {
-            self.send(Command::LoadTeam { team_id: team_id.to_string() });
-        } else {
+        let current = self.team_id.as_deref();
+        if let Some(current) = current.filter(|current| team_id.is_empty() || *current == team_id) {
+            self.send(Command::LoadTeam { team_id: current.to_string() });
+        }
+        if current != Some(team_id) {
             self.send(Command::LoadTeamUnreads);
         }
     }
@@ -4282,13 +4340,13 @@ impl ChatApp {
 
         self.request_previews([&post]);
 
-        // Nouveau message direct ou de groupe : le canal apparaît dans la liste.
-        // Message dans un canal d'une autre équipe : pastilles des équipes à jour.
-        // Message in a channel of this team that is not in the list: the user
-        // has just been added to it.
+        // A message in a channel that is not in the list. A conversation joins
+        // it, unread unless the message is the user's own. A channel of this
+        // team is one the user has just been added to. Elsewhere, only the
+        // badges of the teams change.
         if !self.channels.contains_key(&post.channel_id) {
             if channel_type == "D" || channel_type == "G" {
-                self.send(Command::FetchChannel { channel_id: post.channel_id.clone() });
+                self.send(Command::FetchChannel { channel_id: post.channel_id.clone(), unread: !from_me });
             } else if !self.channels.is_empty() && self.team_id.as_deref() == Some(team_id) {
                 self.load_new_channel(team_id);
             } else if !from_me {
