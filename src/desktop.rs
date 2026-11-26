@@ -49,6 +49,13 @@ pub fn tray_actions() -> async_channel::Receiver<TrayAction> {
     tray_pipe().1.clone()
 }
 
+/// Title of the main window. A development build says so, to be told apart
+/// from an installed release running next to it.
+fn main_window_title() -> String {
+    let title = t!("app.window_title");
+    if cfg!(debug_assertions) { format!("{title} (dev)") } else { title.to_string() }
+}
+
 #[cfg(windows)]
 pub use windows_impl::*;
 
@@ -203,7 +210,7 @@ mod windows_impl {
 
     /// Titre de la fenêtre principale (sert à retrouver l'instance déjà lancée).
     pub fn window_title() -> String {
-        t!("app.window_title").to_string()
+        super::main_window_title()
     }
 
     /// Une seule instance : si l'application tourne déjà (éventuellement
@@ -427,7 +434,7 @@ mod unix_impl {
     pub const CLOSE_TO_TRAY: bool = false;
 
     pub fn window_title() -> String {
-        t!("app.window_title").to_string()
+        super::main_window_title()
     }
 
     /// Identifiant de l'application (bundle macOS, nom D-Bus, Flatpak).
