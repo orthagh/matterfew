@@ -3815,6 +3815,11 @@ impl ChatApp {
             Event::ChannelTeams(list) => {
                 self.channel_teams.extend(list);
             }
+            Event::AddedToChannel { channel_id, team_id } => {
+                if !self.channels.contains_key(&channel_id) {
+                    self.load_new_channel(&team_id);
+                }
+            }
             Event::MembersChanged { channel_id } => {
                 if self.members.remove(&channel_id).is_some() && self.channel_id.as_deref() == Some(channel_id.as_str())
                 {
@@ -4240,6 +4245,17 @@ impl ChatApp {
         cx.notify();
     }
 
+    /// A channel the user has just been added to. In the team on screen, its
+    /// list is read again, with the unread counts the server holds; in another
+    /// team, only the badges of the teams change.
+    fn load_new_channel(&self, team_id: &str) {
+        if self.team_id.as_deref() == Some(team_id) {
+            self.send(Command::LoadTeam { team_id: team_id.to_string() });
+        } else {
+            self.send(Command::LoadTeamUnreads);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn on_posted(
         &mut self,
@@ -4268,9 +4284,13 @@ impl ChatApp {
 
         // Nouveau message direct ou de groupe : le canal apparaît dans la liste.
         // Message dans un canal d'une autre équipe : pastilles des équipes à jour.
+        // Message in a channel of this team that is not in the list: the user
+        // has just been added to it.
         if !self.channels.contains_key(&post.channel_id) {
             if channel_type == "D" || channel_type == "G" {
                 self.send(Command::FetchChannel { channel_id: post.channel_id.clone() });
+            } else if !self.channels.is_empty() && self.team_id.as_deref() == Some(team_id) {
+                self.load_new_channel(team_id);
             } else if !from_me {
                 self.send(Command::LoadTeamUnreads);
             }

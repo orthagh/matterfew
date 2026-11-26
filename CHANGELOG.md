@@ -29,6 +29,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
   next than the others do.
 - Titles of issue and pull request notifications line up, whatever the label
   before them.
+- A channel you have just been added to appears at once, with its name,
+  instead of after a restart.
 
 ## [0.4.0] - 2026-11-25
 

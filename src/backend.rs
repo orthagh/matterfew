@@ -548,6 +548,11 @@ pub enum Event {
     MembersChanged {
         channel_id: String,
     },
+    /// The user has just been added to a channel, which is not in their list yet.
+    AddedToChannel {
+        channel_id: String,
+        team_id: String,
+    },
     CustomEmoji {
         name: String,
         bytes: Arc<Vec<u8>>,
@@ -1605,7 +1610,14 @@ fn ws_event(value: &Value, me_id: &str) -> Option<Event> {
                 c if c.is_empty() => str_field(&data, "/channel_id"),
                 c => c,
             };
-            (!channel_id.is_empty()).then_some(Event::MembersChanged { channel_id })
+            let me_added = kind == "user_added" && str_field(&data, "/user_id") == me_id;
+            (!channel_id.is_empty()).then(|| {
+                if me_added {
+                    Event::AddedToChannel { channel_id, team_id: str_field(&data, "/team_id") }
+                } else {
+                    Event::MembersChanged { channel_id }
+                }
+            })
         }
         "status_change" => {
             let (user_id, status) = (str_field(&data, "/user_id"), str_field(&data, "/status"));
@@ -1773,5 +1785,19 @@ mod tests {
             "data":{"last_viewed_at":1500,"mention_count":2,"mention_count_root":1,"msg_count":3}}"#);
         assert!(matches!(unread, Some(Event::ChannelUnread { channel_id, last_viewed_at: 1500,
             mention_count: 2, mention_count_root: 1 }) if channel_id == "c4"));
+    }
+
+    #[test]
+    fn being_added_to_a_channel_is_told_apart_from_someone_else_joining() {
+        let ev = |json: &str| ws_event(&serde_json::from_str(json).unwrap(), "me");
+        let mine = ev(r#"{"event":"user_added","broadcast":{"channel_id":"c1"},
+            "data":{"user_id":"me","team_id":"t1"}}"#);
+        assert!(matches!(mine, Some(Event::AddedToChannel { channel_id, team_id })
+            if channel_id == "c1" && team_id == "t1"));
+        let other = ev(r#"{"event":"user_added","broadcast":{"channel_id":"c1"},
+            "data":{"user_id":"someone","team_id":"t1"}}"#);
+        assert!(matches!(other, Some(Event::MembersChanged { channel_id }) if channel_id == "c1"));
+        let removed = ev(r#"{"event":"user_removed","broadcast":{"channel_id":"c1"},"data":{"user_id":"me"}}"#);
+        assert!(matches!(removed, Some(Event::MembersChanged { channel_id }) if channel_id == "c1"));
     }
 }
