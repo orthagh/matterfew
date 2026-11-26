@@ -10,6 +10,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-26
+
 ### Changed
 
 - New typography, the same on every desktop: Nunito Sans for text and
