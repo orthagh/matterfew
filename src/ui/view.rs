@@ -1879,8 +1879,16 @@ impl ChatApp {
     /// Characters of a notification line that fit in the actual width of the
     /// message column.
     fn line_chars(&self, pane: Pane) -> usize {
+        let column = self.column_width(pane);
+        // Margins, avatar, colour bar, time and chevron; then the mean width of
+        // a character at the size of the line.
+        ((column - 160.).max(100.) / (fonts::SECONDARY * 0.52)) as usize
+    }
+
+    /// Actual width of the message column of a pane.
+    fn column_width(&self, pane: Pane) -> f32 {
         let w = self.viewport_w;
-        let column = match pane {
+        match pane {
             Pane::Thread => self.right_panel_width(),
             Pane::Channel => {
                 let sidebar = if w < super::NARROW_SIDEBAR {
@@ -1899,10 +1907,7 @@ impl ChatApp {
                 };
                 w - sidebar - right
             }
-        };
-        // Margins, avatar, colour bar, time and chevron; then the mean width of
-        // a character at the size of the line.
-        ((column - 160.).max(100.) / (fonts::SECONDARY * 0.52)) as usize
+        }
     }
 
     /// Barre d'actions affichée au survol d'un message.
@@ -3008,7 +3013,10 @@ impl ChatApp {
             .child(
                 v_flex()
                     .id("channel-title")
-                    .flex_1()
+                    // Le nom garde sa largeur naturelle (au plus 60 % de l'en-tête,
+                    // tronqué au-delà) ; la recherche rétrécit pour lui laisser la place.
+                    .flex_none()
+                    .max_w(relative(0.6))
                     .min_w(px(170.))
                     .cursor_pointer()
                     .on_click(cx.listener(|this, ev: &ClickEvent, window, cx| {
@@ -3031,6 +3039,10 @@ impl ChatApp {
                     .when_some(subtitle, |el, sub| {
                         el.child(
                             div()
+                                // Largeur nulle mais étirée : une longue description ne
+                                // réclame pas de place, elle se tronque à celle du nom.
+                                .w_0()
+                                .min_w_full()
                                 .mt_1()
                                 .truncate()
                                 .max_h(px(20.))
@@ -3044,7 +3056,7 @@ impl ChatApp {
             .when(self.loading_older, |el| {
                 el.child(div().caption_size().text_color(p.muted()).child(t!("messages.loading_history")))
             })
-            .children(actions.map(|a| a.flex_shrink(1.).min_w_0().overflow_hidden().justify_end()))
+            .children(actions.map(|a| a.flex_grow(1.).flex_shrink(1.).min_w_0().overflow_hidden().justify_end()))
     }
 
     fn render_chat(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -4327,8 +4339,9 @@ impl ChatApp {
     /// Champ de recherche permanent de l'en-tête, avec ses propositions.
     fn render_search_box(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = self.palette;
-        // Panneau ou fil ouvert : une loupe ; le champ apparaît dans les propositions.
-        let compact = self.side.is_some() || self.thread.is_some();
+        // Panneau ou fil ouvert, ou colonne trop étroite pour un champ lisible
+        // à côté du nom du canal : une loupe ; le champ apparaît dans les propositions.
+        let compact = self.side.is_some() || self.thread.is_some() || self.column_width(Pane::Channel) < 680.;
         if compact {
             return div()
                 .id("search-box")
