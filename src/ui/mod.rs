@@ -1708,10 +1708,26 @@ impl ChatApp {
         }
     }
 
+    /// The icon a webhook message asks for, when the server lets integrations
+    /// choose one (`EnablePostIconOverride`).
+    fn webhook_icon_url(&self, post: &Post) -> Option<String> {
+        match crate::rich::webhook_icon(post)? {
+            crate::rich::WebhookIcon::Url(url)
+                if self.server_config.get("EnablePostIconOverride").map(String::as_str) == Some("true") =>
+            {
+                Some(url)
+            }
+            _ => None,
+        }
+    }
+
     /// Demande les images externes (aperçus de liens, intégrations) des messages.
     fn request_external_images<'a>(&mut self, posts: impl IntoIterator<Item = &'a Post>) {
         let mut urls = Vec::new();
         for post in posts {
+            if let Some(url) = self.webhook_icon_url(post) {
+                urls.push(url);
+            }
             for a in crate::rich::attachments(post) {
                 urls.extend([a.image_url, a.thumb_url].into_iter().filter(|u| !u.is_empty()));
             }

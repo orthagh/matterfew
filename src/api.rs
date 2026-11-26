@@ -549,7 +549,7 @@ impl Post {
     }
 
     /// Propriété vraie, écrite "true" ou true selon qui a créé le message.
-    fn prop_flag(&self, key: &str) -> bool {
+    pub(crate) fn prop_flag(&self, key: &str) -> bool {
         match self.props.get(key) {
             Some(serde_json::Value::Bool(b)) => *b,
             Some(serde_json::Value::String(s)) => s.eq_ignore_ascii_case("true"),

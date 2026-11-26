@@ -56,6 +56,7 @@ gpui_kit::assets::icon_assets!(
         ListOrdered,
         SquareCode,
         Paperclip,
+        Webhook,
         SendHorizontal,
         Eye,
         EyeOff,

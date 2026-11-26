@@ -154,6 +154,26 @@ pub fn override_username(post: &Post) -> Option<String> {
     post.props.get("override_username").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
+/// What stands for the author of a message posted through an incoming webhook.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebhookIcon {
+    /// The icon the integration asked for (`override_icon_url`).
+    Url(String),
+    /// The generic webhook icon.
+    Generic,
+}
+
+/// The icon of a webhook message, or `None` for a message that keeps its
+/// author's picture. A webhook posts as whoever created it, so that picture
+/// would put the same face on everything the integration says.
+pub fn webhook_icon(post: &Post) -> Option<WebhookIcon> {
+    if !post.is_webhook_post() || post.prop_flag("use_user_icon") {
+        return None;
+    }
+    let url = post.props.get("override_icon_url").and_then(Value::as_str).filter(|url| !url.is_empty());
+    Some(url.map_or(WebhookIcon::Generic, |url| WebhookIcon::Url(url.to_string())))
+}
+
 /// Couleur de la barre latérale d'une pièce jointe.
 pub fn attachment_color(color: &str) -> Option<&str> {
     match color {
@@ -298,6 +318,19 @@ mod tests {
         // Other shapes keep their plain rendering.
         assert_eq!(code_event("Updated plugins\nSecureScan 2.0.0"), None);
         assert_eq!(code_event("[\\[o/r\\]](https://x) New comment by [u](https://x/u) on [#1 T](https://x/1):"), None);
+    }
+
+    #[test]
+    fn webhook_messages_do_not_wear_their_creator_s_picture() {
+        let icon = |props: Value| webhook_icon(&post_with(props, json!({})));
+        assert_eq!(icon(json!({"from_webhook": "true"})), Some(WebhookIcon::Generic));
+        assert_eq!(
+            icon(json!({"from_webhook": "true", "override_icon_url": "https://x/i.png"})),
+            Some(WebhookIcon::Url("https://x/i.png".into()))
+        );
+        // The integration asked for the user's own picture, or it is no webhook.
+        assert_eq!(icon(json!({"from_webhook": "true", "use_user_icon": "true"})), None);
+        assert_eq!(icon(json!({"from_bot": "true"})), None);
     }
 
     #[test]

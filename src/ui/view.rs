@@ -113,6 +113,33 @@ impl ChatApp {
         )
     }
 
+    /// The picture beside a message: its author's, or for a webhook message
+    /// the integration's icon, as in the web client.
+    fn post_avatar(&self, post: &Post, size: f32, ring: Hsla) -> AnyElement {
+        if rich::webhook_icon(post).is_none() {
+            return self.avatar(&post.user_id, size, ring).into_any_element();
+        }
+        let p = self.palette;
+        let size = px(size);
+        let icon = self.webhook_icon_url(post).and_then(|url| self.external_images.get(&url).cloned());
+        div()
+            .flex_none()
+            .size(size)
+            .rounded_full()
+            .overflow_hidden()
+            .map(|el| match icon {
+                Some(image) => el.child(img(image).size_full().object_fit(ObjectFit::Cover)),
+                None => el
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(p.center_color.opacity(0.08))
+                    .text_color(p.muted())
+                    .child(Icon::new(IconName::Webhook).size(size * 0.55)),
+            })
+            .into_any_element()
+    }
+
     // ------------------------------------------------------------------
     // Connexion
     // ------------------------------------------------------------------
@@ -1531,17 +1558,17 @@ impl ChatApp {
                     .child(self.time_link(entity, pane, post, key("htime"), format_hour(post.create_at)))
             } else {
                 let (entity, uid) = (entity.clone(), post.user_id.clone());
-                el.pt(px(2.)).child(
-                    div()
-                        .id(key("av"))
-                        .cursor_pointer()
-                        // Bloc de bot : petit avatar, aligné sur la première ligne.
-                        .child(self.avatar(&post.user_id, AVATAR, p.center_bg))
-                        .on_click(move |ev, window, cx| {
+                // A webhook's icon is not a person: there is no profile behind it.
+                let person = rich::webhook_icon(post).is_none();
+                el.pt(px(2.)).child(div().id(key("av")).child(self.post_avatar(post, AVATAR, p.center_bg)).when(
+                    person,
+                    |el| {
+                        el.cursor_pointer().on_click(move |ev, window, cx| {
                             let (uid, at) = (uid.clone(), ev.position());
                             entity.update(cx, |this, cx| this.open_profile(uid, at, window, cx));
-                        }),
-                )
+                        })
+                    },
+                ))
             }
         });
 
@@ -3772,7 +3799,7 @@ impl ChatApp {
                                 h_flex()
                                     .gap_2()
                                     .items_center()
-                                    .child(self.avatar(&post.user_id, 24., p.center_bg))
+                                    .child(self.post_avatar(post, 24., p.center_bg))
                                     .child(div().font_semibold().child(self.user_name(&post.user_id)))
                                     .child(div().text_xs().text_color(p.muted()).child(format!(
                                         "{}, {}",
@@ -3938,7 +3965,7 @@ impl ChatApp {
                             }),
                     )
                     .child(
-                        h_flex().gap_2().child(self.avatar(&t.post.user_id, 22., p.center_bg)).child(
+                        h_flex().gap_2().child(self.post_avatar(&t.post, 22., p.center_bg)).child(
                             div()
                                 .when(unread, |el| el.font_bold())
                                 .when(!unread, |el| el.font_semibold())

@@ -10,6 +10,11 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+### Fixed
+
+- Webhook messages (GitLab…) show the integration's icon instead of the
+  picture of whoever created the webhook.
+
 ## [0.4.0] - 2026-11-25
 
 ### Added
