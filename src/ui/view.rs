@@ -27,6 +27,7 @@ use super::{ChatApp, FilesTab, Pane, PanelKind, PickerTarget, Screen, SidebarRes
 use crate::api::{Channel, FileInfo, Post, User, human_size};
 use crate::backend::group_reactions;
 use crate::editor::Format;
+use crate::fonts::TitleFont as _;
 use crate::rich::{self, CodeEventKind, Embed};
 use crate::sidebar::{self, Section};
 use crate::theme::Palette;
@@ -208,7 +209,7 @@ impl ChatApp {
                     .bg(p.center_bg)
                     .text_color(p.center_color)
                     .shadow_lg()
-                    .child(div().text_2xl().font_bold().child(t!("sso.window_title")))
+                    .child(div().text_2xl().font_bold().title_font().child(t!("sso.window_title")))
                     .child(label(t!("login.server").into()))
                     .child(Input::new(&self.url_input))
                     .child(
@@ -663,6 +664,7 @@ impl ChatApp {
                 .rounded(px(6.))
                 .text_size(px(13.5))
                 .font_bold()
+                .title_font()
                 .text_color(p.sidebar_text.opacity(0.88))
                 .child(div().flex_none().w(px(14.)).text_color(p.sidebar_text.opacity(0.5)).when(
                     section.collapsible,
@@ -795,6 +797,7 @@ impl ChatApp {
                             .rounded(px(8.))
                             .text_size(px(18.))
                             .font_bold()
+                            .title_font()
                             .cursor_pointer()
                             .hover(|s| s.bg(p.sidebar_header_text.opacity(0.06)))
                             .child(div().truncate().child(team_name))
@@ -2998,6 +3001,7 @@ impl ChatApp {
                             .min_w_0()
                             .text_size(px(16.))
                             .font_bold()
+                            .title_font()
                             .child(div().min_w_0().truncate().hover(|s| s.underline()).child(title))
                             .child(Icon::new(IconName::ChevronDown).size(px(14.)).text_color(p.muted()).flex_none())
                             .children(flags),
@@ -3051,7 +3055,7 @@ impl ChatApp {
                 .items_center()
                 .justify_center()
                 .gap_1()
-                .child(div().text_size(px(16.)).font_semibold().child(t!("messages.empty_title")))
+                .child(div().text_size(px(16.)).font_semibold().title_font().child(t!("messages.empty_title")))
                 .child(div().text_color(p.muted()).child(t!("messages.empty_hint")))
                 .into_any_element()
         } else if self.loading_posts && self.posts.is_empty() {
@@ -3190,7 +3194,7 @@ impl ChatApp {
                         .gap_2()
                         .border_b_1()
                         .border_color(p.border())
-                        .child(div().text_size(px(16.)).font_bold().child(t!("threads.thread")))
+                        .child(div().text_size(px(16.)).font_bold().title_font().child(t!("threads.thread")))
                         .child(div().flex_1().truncate().text_size(px(12.)).text_color(p.muted()).child(channel))
                         .child(self.expand_button("expand-thread", cx))
                         .child(
@@ -3487,7 +3491,7 @@ impl ChatApp {
                     .child(
                         v_flex()
                             .gap_0p5()
-                            .child(div().text_size(px(18.)).font_bold().child(name))
+                            .child(div().text_size(px(18.)).font_bold().title_font().child(name))
                             .child(div().text_sm().text_color(p.muted()).child(format!("@{}", u.username)))
                             .when(!u.position.is_empty(), |el| el.child(div().text_sm().child(u.position.clone()))),
                     )
@@ -3842,7 +3846,7 @@ impl ChatApp {
                         .gap_2()
                         .border_b_1()
                         .border_color(p.border())
-                        .child(div().text_size(px(16.)).font_bold().child(title))
+                        .child(div().text_size(px(16.)).font_bold().title_font().child(title))
                         .child(div().flex_1().truncate().text_size(px(12.)).text_color(p.muted()).child(subtitle))
                         .child(self.expand_button("expand-side", cx))
                         .child(
@@ -4079,6 +4083,7 @@ impl ChatApp {
                     .rounded(px(6.))
                     .text_size(px(13.))
                     .font_bold()
+                    .title_font()
                     .text_color(p.center_color.opacity(0.85))
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover()))
@@ -4190,7 +4195,7 @@ impl ChatApp {
                         .gap_2()
                         .border_b_1()
                         .border_color(p.border())
-                        .child(div().text_size(px(15.)).font_bold().child(t!("members.title")))
+                        .child(div().text_size(px(15.)).font_bold().title_font().child(t!("members.title")))
                         .when(total > 0, |el| el.child(div().text_sm().text_color(p.muted()).child(total.to_string()))),
                 )
                 .when(ids.is_empty(), |el| el.child(div().p_4().text_color(p.muted()).child(t!("common.loading"))))
@@ -5252,7 +5257,13 @@ impl ChatApp {
                                 .child(
                                     v_flex()
                                         .gap_0p5()
-                                        .child(div().text_size(px(19.)).font_bold().child(team.display_name.clone()))
+                                        .child(
+                                            div()
+                                                .text_size(px(19.))
+                                                .font_bold()
+                                                .title_font()
+                                                .child(team.display_name.clone()),
+                                        )
                                         .child(div().text_sm().text_color(p.muted()).child(kind)),
                                 )
                                 .child(
@@ -5425,7 +5436,13 @@ impl ChatApp {
                         .child(
                             v_flex()
                                 .gap_0p5()
-                                .child(div().text_size(px(19.)).font_bold().child(self.channel_title(channel)))
+                                .child(
+                                    div()
+                                        .text_size(px(19.))
+                                        .font_bold()
+                                        .title_font()
+                                        .child(self.channel_title(channel)),
+                                )
                                 .child(
                                     div().text_sm().text_color(p.muted()).child(format!("{kind} · ~{}", channel.name)),
                                 ),
@@ -5561,7 +5578,7 @@ impl ChatApp {
                             h_flex()
                                 .gap_2()
                                 .child(Icon::new(icon).size(px(18.)).text_color(p.button_bg))
-                                .child(div().flex_1().text_size(px(16.)).font_bold().child(title))
+                                .child(div().flex_1().text_size(px(16.)).font_bold().title_font().child(title))
                                 .child(
                                     Button::new("create-close")
                                         .icon(Icon::new(IconName::X))
@@ -5753,6 +5770,7 @@ impl ChatApp {
                                         .flex_1()
                                         .text_size(px(16.))
                                         .font_bold()
+                                        .title_font()
                                         .child(t!("members.add_to", channel = title)),
                                 )
                                 .child(
@@ -6327,7 +6345,7 @@ fn date_separator(ms: i64, p: &Palette) -> impl IntoElement {
         .pb_1()
         .gap_3()
         .child(div().flex_1().h(px(1.)).bg(p.border()))
-        .child(div().text_size(px(12.)).font_semibold().text_color(p.center_color).child(day_label(ms)))
+        .child(div().text_size(px(12.)).font_semibold().title_font().text_color(p.center_color).child(day_label(ms)))
         .child(div().flex_1().h(px(1.)).bg(p.border()))
 }
 

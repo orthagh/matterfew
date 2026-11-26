@@ -10,6 +10,11 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+### Changed
+
+- New typography, the same on every desktop: Nunito Sans for text and
+  Bricolage Grotesque for titles, both embedded.
+
 ### Fixed
 
 - Webhook messages (GitLab…) show the integration's icon instead of the

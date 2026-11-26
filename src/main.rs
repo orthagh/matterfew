@@ -16,6 +16,7 @@ mod demo;
 mod desktop;
 mod editor;
 mod emoji;
+mod fonts;
 mod fuzzy;
 mod hunspell;
 mod icons;
@@ -181,6 +182,7 @@ fn main() {
 
     gpui_kit::application().with_assets(AppAssets).run(move |cx| {
         gpui_kit::init(cx);
+        fonts::install(cx);
         // Identité de l'application pour Windows (notifications, barre des tâches).
         desktop::init();
         // Thème clair ou sombre selon le réglage du système.

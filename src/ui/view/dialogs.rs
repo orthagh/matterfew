@@ -256,7 +256,16 @@ impl ChatApp {
                             .pb_3()
                             .gap_2()
                             .child(Icon::new(icon).size(px(18.)).text_color(p.button_bg))
-                            .child(div().flex_1().min_w_0().truncate().text_size(px(16.)).font_bold().child(title))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(16.))
+                                    .font_bold()
+                                    .title_font()
+                                    .child(title),
+                            )
                             .child(
                                 Button::new("dialog-close")
                                     .icon(Icon::new(IconName::X))

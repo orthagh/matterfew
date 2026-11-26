@@ -87,33 +87,6 @@ impl MattermostTheme {
     }
 }
 
-/// Police d'interface de Windows 11 : un client natif adopte la police du
-/// système plutôt que d'imiter celle du client web.
-const NATIVE_FONT: &str = "Segoe UI Variable Text";
-
-/// Linux: GPUI draws a variable font at its regular weight only, and the
-/// system font often is one (Ubuntu Sans, Cantarell). When the interface font
-/// has no separate bold face, returns an installed family that has one, so
-/// that unread channels and bold text stand out.
-#[cfg(target_os = "linux")]
-fn bold_capable_family(cx: &App) -> Option<SharedString> {
-    let text_system = cx.text_system();
-    let has_bold = |family: &SharedString| {
-        let regular = font(family.clone());
-        let bold = Font { weight: FontWeight::BOLD, ..regular.clone() };
-        text_system.resolve_font(&regular) != text_system.resolve_font(&bold)
-    };
-    if has_bold(&Theme::global(cx).font_family) {
-        return None;
-    }
-    let installed = text_system.all_font_names();
-    ["Noto Sans", "Liberation Sans", "DejaVu Sans"]
-        .into_iter()
-        .filter(|name| installed.iter().any(|n| n == name))
-        .map(SharedString::from)
-        .find(has_bold)
-}
-
 /// Palette prête à l'emploi pour le rendu.
 #[derive(Debug, Clone, Copy)]
 pub struct Palette {
@@ -199,19 +172,13 @@ impl Palette {
         // `Theme::update` resynchronise les jetons de style dérivés des
         // couleurs (sinon les boutons garderaient leur couleur d'origine).
         let p = *self;
-        // Police native de Windows 11 si elle est installée (sinon, celle du système).
-        let native = cx.text_system().all_font_names().iter().any(|n| n == NATIVE_FONT);
-        #[cfg(target_os = "linux")]
-        let with_bold = bold_capable_family(cx);
+        // The embedded text font, the same on every desktop.
+        let text_font = crate::fonts::text();
         Theme::update(cx, move |theme| {
             p.write_colors(theme);
             // Barres de défilement invisibles hors défilement.
             theme.scrollbar_mode = ScrollbarMode::Scrolling;
-            if native {
-                theme.font_family = NATIVE_FONT.into();
-            }
-            #[cfg(target_os = "linux")]
-            if let Some(family) = &with_bold {
+            if let Some(family) = &text_font {
                 theme.font_family = family.clone();
             }
         });
