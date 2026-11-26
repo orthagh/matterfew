@@ -80,6 +80,19 @@ pub enum CodeEventKind {
     PrReopened,
 }
 
+impl CodeEventKind {
+    pub const ALL: [Self; 8] = [
+        Self::IssueOpened,
+        Self::IssueClosed,
+        Self::IssueReopened,
+        Self::PrOpened,
+        Self::PrDraft,
+        Self::PrMerged,
+        Self::PrClosed,
+        Self::PrReopened,
+    ];
+}
+
 /// A GitHub plugin notification about an issue or a pull request, taken apart
 /// so that the interface can show its title alone and the rest as metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]

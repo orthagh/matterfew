@@ -1568,15 +1568,17 @@ impl ChatApp {
                 let (entity, uid) = (entity.clone(), post.user_id.clone());
                 // A webhook's icon is not a person: there is no profile behind it.
                 let person = rich::webhook_icon(post).is_none();
-                el.pt(px(2.)).child(div().id(key("av")).child(self.post_avatar(post, AVATAR, p.center_bg)).when(
-                    person,
-                    |el| {
+                // A notification is one line high and its icon no taller: otherwise the
+                // first of a run stands further from the next than the others do.
+                let size = if bot_block { BOT_LINE + 2. } else { AVATAR };
+                el.map(|el| if bot_block { el.flex().justify_center() } else { el.pt(px(2.)) }).child(
+                    div().id(key("av")).child(self.post_avatar(post, size, p.center_bg)).when(person, |el| {
                         el.cursor_pointer().on_click(move |ev, window, cx| {
                             let (uid, at) = (uid.clone(), ev.position());
                             entity.update(cx, |this, cx| this.open_profile(uid, at, window, cx));
                         })
-                    },
-                ))
+                    }),
+                )
             }
         });
 
@@ -1756,24 +1758,17 @@ impl ChatApp {
                                             .text_color(p.muted())
                                             .child(text)
                                     };
-                                    let label = match event.kind {
-                                        CodeEventKind::IssueOpened => t!("code_event.issue_opened"),
-                                        CodeEventKind::IssueClosed => t!("code_event.issue_closed"),
-                                        CodeEventKind::IssueReopened => t!("code_event.issue_reopened"),
-                                        CodeEventKind::PrOpened => t!("code_event.pr_opened"),
-                                        CodeEventKind::PrDraft => t!("code_event.pr_draft"),
-                                        CodeEventKind::PrMerged => t!("code_event.pr_merged"),
-                                        CodeEventKind::PrClosed => t!("code_event.pr_closed"),
-                                        CodeEventKind::PrReopened => t!("code_event.pr_reopened"),
-                                    };
+                                    // The labels share a column as wide as the widest of them:
+                                    // the titles line up from one notification to the next.
+                                    let label = small(code_event_label(event.kind)).w(px(code_event_label_width(cx)));
                                     let meta =
                                         format!("{} · {} · {}", event.repo, event.author, format_hour(post.create_at));
                                     let url = event.url;
                                     h_flex()
                                         .gap_2()
-                                        .h(px(30.))
+                                        .h(px(BOT_LINE))
                                         .child(bar)
-                                        .child(small(label.to_string()))
+                                        .child(label)
                                         .child(
                                             div()
                                                 .id(key("bot-title"))
@@ -1795,7 +1790,7 @@ impl ChatApp {
                                 // Dépliée : le résumé laisse la place au contenu (sinon il se répète).
                                 None => h_flex()
                                     .gap_2()
-                                    .h(px(30.))
+                                    .h(px(BOT_LINE))
                                     .child(bar)
                                     .child(
                                         div()
@@ -1869,8 +1864,8 @@ impl ChatApp {
         }
     }
 
-    /// Caractères (texte de 14 px) qui tiennent sur une ligne de notification,
-    /// d'après la largeur réelle de la colonne des messages.
+    /// Characters of a notification line that fit in the actual width of the
+    /// message column.
     fn line_chars(&self, pane: Pane) -> usize {
         let w = self.viewport_w;
         let column = match pane {
@@ -1893,8 +1888,9 @@ impl ChatApp {
                 w - sidebar - right
             }
         };
-        // Marges, avatar, barre de couleur, heure et chevron.
-        ((column - 160.).max(100.) / 7.2) as usize
+        // Margins, avatar, colour bar, time and chevron; then the mean width of
+        // a character at the size of the line.
+        ((column - 160.).max(100.) / (fonts::SECONDARY * 0.52)) as usize
     }
 
     /// Barre d'actions affichée au survol d'un message.
@@ -6915,6 +6911,8 @@ mod badge_tests {
 
 /// Hauteur d'un message de bot réduit.
 const BOT_MAX_HEIGHT: f32 = 92.;
+/// Height of a notification line, inside its one-pixel border.
+const BOT_LINE: f32 = 30.;
 
 /// Estimation du nombre de lignes d'un message (texte et pièces jointes des
 /// intégrations), pour savoir s'il vaut la peine de le réduire.
@@ -7180,6 +7178,41 @@ fn depth(p: &Palette, amount: f32) -> f32 {
 }
 
 /// Width of a line of interface text at `size`, as the text system shapes it.
+/// What happened to an issue or a pull request, in a couple of words.
+fn code_event_label(kind: CodeEventKind) -> String {
+    match kind {
+        CodeEventKind::IssueOpened => t!("code_event.issue_opened"),
+        CodeEventKind::IssueClosed => t!("code_event.issue_closed"),
+        CodeEventKind::IssueReopened => t!("code_event.issue_reopened"),
+        CodeEventKind::PrOpened => t!("code_event.pr_opened"),
+        CodeEventKind::PrDraft => t!("code_event.pr_draft"),
+        CodeEventKind::PrMerged => t!("code_event.pr_merged"),
+        CodeEventKind::PrClosed => t!("code_event.pr_closed"),
+        CodeEventKind::PrReopened => t!("code_event.pr_reopened"),
+    }
+    .to_string()
+}
+
+/// Width of the widest of these labels, measured once per language and font.
+fn code_event_label_width(cx: &App) -> f32 {
+    thread_local! {
+        static WIDTH: std::cell::RefCell<Option<(String, SharedString, f32)>> = const { std::cell::RefCell::new(None) };
+    }
+    let (locale, family) = (rust_i18n::locale().to_string(), cx.theme().font_family.clone());
+    WIDTH.with_borrow_mut(|cached| match cached {
+        Some((l, f, width)) if *l == locale && *f == family => *width,
+        _ => {
+            let width = CodeEventKind::ALL
+                .iter()
+                .map(|kind| text_width(&code_event_label(*kind), fonts::CAPTION, cx))
+                .fold(0., f32::max)
+                .ceil();
+            *cached = Some((locale, family, width));
+            width
+        }
+    })
+}
+
 fn text_width(text: &str, size: f32, cx: &App) -> f32 {
     let run = TextRun {
         len: text.len(),
