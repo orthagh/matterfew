@@ -326,7 +326,7 @@ impl ChatApp {
                     .py_1p5()
                     .rounded(px(6.))
                     .cursor_pointer()
-                    .text_sm()
+                    .secondary_size()
                     .role(gpui_kit::Role::Tab)
                     .aria_selected(active)
                     .aria_label(SharedString::from(label.to_string()))
@@ -360,7 +360,13 @@ impl ChatApp {
             .min_w_0()
             .gap_2()
             .child(
-                div().flex_1().min_w_0().truncate().text_xs().text_color(p.muted()).child(t!("settings.server_hint")),
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .caption_size()
+                    .text_color(p.muted())
+                    .child(t!("settings.server_hint")),
             )
             .child(
                 Button::new("settings-cancel")
@@ -390,8 +396,8 @@ impl ChatApp {
             .px_5()
             .pt_4()
             .pb_1()
-            .child(div().text_sm().font_semibold().child(title))
-            .children(hint.map(|h| div().text_xs().text_color(p.muted()).child(h)))
+            .child(div().secondary_size().font_semibold().child(title))
+            .children(hint.map(|h| div().caption_size().text_color(p.muted()).child(h)))
     }
 
     /// Choix exclusif (boutons radio).
@@ -429,7 +435,7 @@ impl ChatApp {
                         .justify_center()
                         .when(active, |el| el.child(div().size(px(7.)).rounded_full().bg(p.button_bg))),
                 )
-                .child(div().text_sm().child(label))
+                .child(div().secondary_size().child(label))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if let Some(d) = this.settings_draft() {
                         set(d, value.clone());
@@ -457,7 +463,7 @@ impl ChatApp {
                 .px_5()
                 .pt_1()
                 .gap_2()
-                .child(div().text_xs().text_color(color).child(status))
+                .child(div().caption_size().text_color(color).child(status))
                 .child(
                     h_flex()
                         .gap_2()
@@ -486,7 +492,7 @@ impl ChatApp {
                                 })),
                         ),
                 )
-                .child(div().text_xs().text_color(p.muted()).child(t!("mcp.token_hint")))
+                .child(div().caption_size().text_color(p.muted()).child(t!("mcp.token_hint")))
                 .into_any_element(),
         )
     }
@@ -509,8 +515,8 @@ impl ChatApp {
                 v_flex()
                     .flex_1()
                     .min_w_0()
-                    .child(div().text_sm().child(label))
-                    .children(hint.map(|h| div().text_xs().text_color(p.muted()).child(h))),
+                    .child(div().secondary_size().child(label))
+                    .children(hint.map(|h| div().caption_size().text_color(p.muted()).child(h))),
             )
             .child(Switch::new(id).checked(checked).on_click(cx.listener(move |this, checked: &bool, _, cx| {
                 if let Some(d) = this.settings_draft() {
@@ -646,7 +652,7 @@ impl ChatApp {
                 .px_5()
                 .pt_1()
                 .gap_1()
-                .child(div().text_sm().child(t!("settings.mention_keys")))
+                .child(div().secondary_size().child(t!("settings.mention_keys")))
                 .child(Input::new(&d.mention_keys).small()),
         )
         .child(
@@ -654,8 +660,8 @@ impl ChatApp {
                 .px_5()
                 .pt_3()
                 .gap_1()
-                .child(div().text_sm().child(t!("settings.highlight_keys")))
-                .child(div().text_xs().text_color(p.muted()).child(t!("settings.highlight_keys_hint")))
+                .child(div().secondary_size().child(t!("settings.highlight_keys")))
+                .child(div().caption_size().text_color(p.muted()).child(t!("settings.highlight_keys_hint")))
                 .child(Input::new(&d.highlight_keys).small()),
         )
         .child(self.settings_section(t!("settings.auto_reply").into(), Some(t!("settings.auto_reply_hint").into())))

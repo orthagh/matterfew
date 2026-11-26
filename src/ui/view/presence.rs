@@ -148,7 +148,7 @@ impl ChatApp {
                 .rounded_full()
                 .border_1()
                 .cursor_pointer()
-                .text_sm()
+                .secondary_size()
                 .role(gpui_kit::Role::RadioButton)
                 .aria_selected(active)
                 .when(active, |el| el.bg(p.button_bg).border_color(p.button_bg).text_color(p.button_color))
@@ -166,7 +166,7 @@ impl ChatApp {
             .and_then(|end| dnd_until(end, Local::now()))
             .map(|until| t!("dnd.preview", until = until).to_string())
             .unwrap_or_else(|| t!("dnd.invalid").to_string());
-        let label = |text: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(text);
+        let label = |text: SharedString| div().caption_size().font_semibold().text_color(p.muted()).child(text);
         let content = v_flex()
             .px_4()
             .pb_4()
@@ -182,7 +182,7 @@ impl ChatApp {
             .child(div().w(px(140.)).child(
                 Input::new(&self.dialog_input).prefix(Icon::new(IconName::Clock).size(px(14.)).text_color(p.muted())),
             ))
-            .child(div().text_sm().text_color(p.muted()).child(preview))
+            .child(div().secondary_size().text_color(p.muted()).child(preview))
             .into_any_element();
         let footer = h_flex()
             .flex_1()

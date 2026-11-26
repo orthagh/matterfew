@@ -27,7 +27,7 @@ use super::{ChatApp, FilesTab, Pane, PanelKind, PickerTarget, Screen, SidebarRes
 use crate::api::{Channel, FileInfo, Post, User, human_size};
 use crate::backend::group_reactions;
 use crate::editor::Format;
-use crate::fonts::TitleFont as _;
+use crate::fonts::{self, TitleFont as _, TypeScale as _};
 use crate::rich::{self, CodeEventKind, Embed};
 use crate::sidebar::{self, Section};
 use crate::theme::Palette;
@@ -52,7 +52,7 @@ const TEAM_BAR_WIDTH: f32 = 64.;
 /// Pastille des mentions d'une autre équipe : bleu franc, lisible sur tous les thèmes.
 const TEAM_BADGE_BLUE: Hsla = Hsla { h: 0.6, s: 0.85, l: 0.52, a: 1. };
 const THREAD_WIDTH: f32 = 440.;
-const AVATAR: f32 = 32.;
+const AVATAR: f32 = 36.;
 /// Height of the channel header, bottom border included. The banner of the
 /// profile shown beside a direct message ends on the same line.
 const HEADER_HEIGHT: f32 = 62.;
@@ -61,7 +61,6 @@ const HEADER_HEIGHT: f32 = 62.;
 const THREAD_LINE: f32 = 20. + AVATAR / 2. - 1.;
 /// Space left above and below a run of inline replies, outside its panel.
 const THREAD_GAP: f32 = 10.;
-const BODY_TEXT: f32 = 14.5;
 
 impl ChatApp {
     // ------------------------------------------------------------------
@@ -149,13 +148,13 @@ impl ChatApp {
         let p = self.palette;
         let connecting = self.screen == Screen::Connecting;
         let busy = self.login_busy;
-        let label = |text: SharedString| div().text_sm().font_semibold().child(text);
+        let label = |text: SharedString| div().secondary_size().font_semibold().child(text);
         let separator = |text: SharedString| {
             h_flex()
                 .gap_3()
                 .py_1()
                 .child(div().flex_1().h(px(1.)).bg(p.border()))
-                .child(div().text_xs().text_color(p.muted()).child(text))
+                .child(div().caption_size().text_color(p.muted()).child(text))
                 .child(div().flex_1().h(px(1.)).bg(p.border()))
         };
 
@@ -174,7 +173,7 @@ impl ChatApp {
         } else {
             div()
                 .id("show-token")
-                .text_xs()
+                .caption_size()
                 .text_color(p.link)
                 .cursor_pointer()
                 .hover(|s| s.underline())
@@ -223,7 +222,7 @@ impl ChatApp {
                             .loading(busy == Some("browser") || connecting)
                             .on_click(cx.listener(|this, _, window, cx| this.login_browser(window, cx))),
                     )
-                    .child(div().text_xs().text_color(p.muted()).child(t!("login.via_mattermost_hint")))
+                    .child(div().caption_size().text_color(p.muted()).child(t!("login.via_mattermost_hint")))
                     .child(separator(t!("login.or_email").into()))
                     .child(label(t!("login.email").into()))
                     .child(Input::new(&self.email_input))
@@ -239,10 +238,12 @@ impl ChatApp {
                             .loading(busy == Some("password"))
                             .on_click(cx.listener(|this, _, window, cx| this.login_password(window, cx))),
                     )
-                    .when_some(self.error.clone(), |el, err| el.child(div().text_sm().text_color(p.error).child(err)))
+                    .when_some(self.error.clone(), |el, err| {
+                        el.child(div().secondary_size().text_color(p.error).child(err))
+                    })
                     .child(separator(t!("login.advanced").into()))
                     .child(token_section)
-                    .child(div().text_xs().text_color(p.muted()).child(t!("login.remembered"))),
+                    .child(div().caption_size().text_color(p.muted()).child(t!("login.remembered"))),
             )
     }
 
@@ -305,7 +306,7 @@ impl ChatApp {
                             .justify_center()
                             .bg(p.sidebar_text.opacity(if active { 0.24 } else { 0.12 }))
                             .text_color(p.sidebar_text)
-                            .text_sm()
+                            .secondary_size()
                             .font_bold()
                             .hover(|s| s.bg(p.sidebar_text.opacity(0.24)))
                             .child(initials)
@@ -337,8 +338,8 @@ impl ChatApp {
                                     .absolute()
                                     .top(-px(7.))
                                     .right(-px(7.))
-                                    .min_w(px(19.))
-                                    .h(px(19.))
+                                    .min_w(px(20.))
+                                    .h(px(20.))
                                     .px_1()
                                     .flex()
                                     .items_center()
@@ -348,13 +349,13 @@ impl ChatApp {
                                     .border_color(tb)
                                     .bg(TEAM_BADGE_BLUE)
                                     .text_color(white())
-                                    .text_size(px(10.))
-                                    .line_height(px(15.))
+                                    .caption_size()
+                                    .line_height(px(16.))
                                     .pb(px(1.))
                                     .font_bold()
                                     .child(centered_digits(
                                         if mentions > 99 { "99+".to_string() } else { mentions.to_string() },
-                                        10.,
+                                        fonts::CAPTION,
                                         cx,
                                     )),
                             )
@@ -455,7 +456,7 @@ impl ChatApp {
                 .pl(px(18.))
                 .pr_3()
                 .cursor_pointer()
-                .text_size(px(15.))
+                .body_size()
                 .text_color(text_color)
                 .border_l_4()
                 .border_color(if selected { p.sidebar_active_border } else { transparent_black() })
@@ -485,14 +486,14 @@ impl ChatApp {
                             .items_center()
                             .justify_center()
                             .rounded_full()
-                            .text_size(px(11.))
+                            .caption_size()
                             .line_height(px(18.))
                             // Chiffres de la police un peu bas dans leur ligne : 1 px de rattrapage.
                             .pb(px(2.))
                             .font_bold()
                             .bg(p.mention_bg)
                             .text_color(p.mention_color)
-                            .child(centered_digits(state.mentions.to_string(), 11., cx)),
+                            .child(centered_digits(state.mentions.to_string(), fonts::CAPTION, cx)),
                     )
                 })
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -662,7 +663,7 @@ impl ChatApp {
                 .px_2()
                 .gap_1p5()
                 .rounded(px(6.))
-                .text_size(px(13.5))
+                .secondary_size()
                 .font_bold()
                 .title_font()
                 .text_color(p.sidebar_text.opacity(0.88))
@@ -684,7 +685,7 @@ impl ChatApp {
                 .child(
                     div()
                         .flex_none()
-                        .text_size(px(11.))
+                        .caption_size()
                         .font_semibold()
                         .text_color(p.sidebar_text.opacity(0.4))
                         .child(count.to_string()),
@@ -795,7 +796,7 @@ impl ChatApp {
                             .px_2()
                             .gap_1p5()
                             .rounded(px(8.))
-                            .text_size(px(18.))
+                            .title_size()
                             .font_bold()
                             .title_font()
                             .cursor_pointer()
@@ -814,7 +815,7 @@ impl ChatApp {
                                         .rounded(px(4.))
                                         .bg(p.away)
                                         .text_color(black())
-                                        .text_size(px(10.))
+                                        .caption_size()
                                         .child(t!("sidebar.demo_badge")),
                                 )
                             })
@@ -842,7 +843,7 @@ impl ChatApp {
                             .bg(p.sidebar_text.opacity(0.08))
                             .hover(|s| s.bg(p.sidebar_text.opacity(0.13)))
                             .cursor_pointer()
-                            .text_sm()
+                            .secondary_size()
                             .text_color(p.sidebar_text.opacity(0.7))
                             .child(Icon::new(IconName::Search).size(px(14.)))
                             .child(div().flex_1().truncate().child(t!("sidebar.goto_channel")))
@@ -855,7 +856,7 @@ impl ChatApp {
                                         .rounded(px(5.))
                                         .border_1()
                                         .border_color(p.sidebar_text.opacity(0.2))
-                                        .text_size(px(10.5))
+                                        .caption_size()
                                         .child("Ctrl K"),
                                 )
                             })
@@ -911,12 +912,14 @@ impl ChatApp {
                             .rounded(px(6.))
                             .cursor_pointer()
                             .hover(|s| s.bg(p.sidebar_hover))
-                            .child(div().truncate().text_sm().font_semibold().child(me_name))
+                            .child(div().truncate().secondary_size().font_semibold().child(me_name))
                             .child(match self.status_line(&me_id, 13.).filter(|_| self.connected) {
-                                Some(line) => line.text_xs().text_color(p.sidebar_text.opacity(0.8)).into_any_element(),
+                                Some(line) => {
+                                    line.caption_size().text_color(p.sidebar_text.opacity(0.8)).into_any_element()
+                                }
                                 None => div()
                                     .truncate()
-                                    .text_xs()
+                                    .caption_size()
                                     .text_color(if self.connected { p.sidebar_text.opacity(0.64) } else { p.away })
                                     .child(status)
                                     .into_any_element(),
@@ -1222,7 +1225,7 @@ impl ChatApp {
                 let (entity, uid) = (entity.clone(), post.user_id.clone());
                 div()
                     .id(key("name"))
-                    .text_size(px(15.))
+                    .body_size()
                     .font_semibold()
                     .when(bot_name.is_none(), |el| {
                         el.cursor_pointer().hover(|s| s.underline()).on_click(move |ev, window, cx| {
@@ -1239,7 +1242,7 @@ impl ChatApp {
                         .px_1()
                         .rounded(px(3.))
                         .bg(p.center_color.opacity(0.1))
-                        .text_size(px(10.))
+                        .caption_size()
                         .font_semibold()
                         .text_color(p.muted())
                         .child("BOT"),
@@ -1247,17 +1250,17 @@ impl ChatApp {
             })
             .child(
                 self.time_link(entity, pane, post, key("time"), format_time(post.create_at))
-                    .text_xs()
+                    .caption_size()
                     .text_color(p.muted()),
             )
             .when(ephemeral, |el| {
-                el.child(div().text_xs().italic().text_color(p.muted()).child(t!("post.only_visible_to_you")))
+                el.child(div().caption_size().italic().text_color(p.muted()).child(t!("post.only_visible_to_you")))
             })
             .when(post.is_pinned, |el| {
                 el.child(
                     h_flex()
                         .gap_0p5()
-                        .text_xs()
+                        .caption_size()
                         .text_color(p.link)
                         .child(Icon::new(IconName::Pin).size(px(12.)))
                         .child(t!("post.pinned")),
@@ -1267,7 +1270,7 @@ impl ChatApp {
                 el.child(
                     h_flex()
                         .gap_0p5()
-                        .text_xs()
+                        .caption_size()
                         .text_color(p.away)
                         .child(Icon::new(IconName::Bookmark).size(px(12.)))
                         .child(t!("post.saved")),
@@ -1277,7 +1280,7 @@ impl ChatApp {
         let body: AnyElement = if post.is_system() && !ephemeral {
             div()
                 .italic()
-                .text_size(px(BODY_TEXT))
+                .body_size()
                 .text_color(p.muted())
                 .child(markdown::plain_text(&post.message))
                 .into_any_element()
@@ -1285,7 +1288,7 @@ impl ChatApp {
             div().into_any_element()
         } else {
             div()
-                .text_size(px(BODY_TEXT))
+                .body_size()
                 .child(
                     TextView::markdown(ElementId::Name(key("body")), view.md.clone())
                         .image_source(emoji_resolver(self.custom_emojis.clone()))
@@ -1312,7 +1315,9 @@ impl ChatApp {
                             }
                         }),
                 )
-                .when(post.edit_at > 0, |el| el.child(div().text_xs().text_color(p.muted()).child(t!("post.edited"))))
+                .when(post.edit_at > 0, |el| {
+                    el.child(div().caption_size().text_color(p.muted()).child(t!("post.edited")))
+                })
                 .into_any_element()
         };
 
@@ -1362,7 +1367,7 @@ impl ChatApp {
                 .px_1p5()
                 .rounded(px(4.))
                 .bg(p.link.opacity(0.13))
-                .text_size(px(12.))
+                .caption_size()
                 .text_color(p.link)
                 .cursor_pointer()
                 .hover(|s| s.underline())
@@ -1375,7 +1380,7 @@ impl ChatApp {
             let (entity, root) = (entity.clone(), post.id.clone());
             div()
                 .id(key("thread-count"))
-                .text_size(px(12.))
+                .caption_size()
                 .text_color(p.link)
                 .cursor_pointer()
                 .hover(|s| s.underline())
@@ -1462,7 +1467,7 @@ impl ChatApp {
                     .rounded(px(4.))
                     .border_1()
                     .cursor_pointer()
-                    .text_size(px(12.))
+                    .caption_size()
                     .font_semibold()
                     .when(by_me, |el| {
                         el.border_color(p.button_bg).bg(p.button_bg.opacity(0.08)).text_color(p.button_bg)
@@ -1523,7 +1528,7 @@ impl ChatApp {
             div()
                 .id(key("replies"))
                 .mt_1()
-                .text_size(px(12.))
+                .caption_size()
                 .font_semibold()
                 .text_color(p.link)
                 .cursor_pointer()
@@ -1554,7 +1559,7 @@ impl ChatApp {
                 el
             } else if compact {
                 el.pt(px(3.))
-                    .text_size(px(10.))
+                    .caption_size()
                     .text_color(p.muted())
                     .invisible()
                     .group_hover(group.clone(), |s| s.visible())
@@ -1657,7 +1662,7 @@ impl ChatApp {
                                     .id(key("bot-more"))
                                     .gap_1()
                                     .mt_0p5()
-                                    .text_xs()
+                                    .caption_size()
                                     .font_semibold()
                                     .text_color(p.link)
                                     .cursor_pointer()
@@ -1705,12 +1710,14 @@ impl ChatApp {
                             } else {
                                 // Inline code is set in another font, with padding: a few pixels each.
                                 let code_spans = summary.matches('`').count() / 2;
-                                (text_width(&markdown::plain_text(&summary), 14., cx) + 2.).ceil()
+                                (text_width(&markdown::plain_text(&summary), fonts::SECONDARY, cx) + 2.).ceil()
                                     + 10. * code_spans as f32
                             };
                             // Title and time share a line of the same height; the time, set
                             // smaller, is moved down by the difference of their baselines in it.
-                            let (title_size, time_size, line_height) = (px(14.), px(12.), px(20.));
+                            // A notification is quieter than a message: its line is set smaller.
+                            let (title_size, time_size, line_height) =
+                                (px(fonts::SECONDARY), px(fonts::CAPTION), px(20.));
                             let system = cx.text_system();
                             let ui_font = system.resolve_font(&font(cx.theme().font_family.clone()));
                             let drop = system.baseline_offset(ui_font, title_size, line_height)
@@ -1927,7 +1934,7 @@ impl ChatApp {
         if confirming {
             let (e1, e2, pid) = (entity.clone(), entity.clone(), post_id.clone());
             return bar
-                .child(div().px_2().text_xs().child(t!("post_menu.delete_confirm")))
+                .child(div().px_2().caption_size().child(t!("post_menu.delete_confirm")))
                 .child(
                     Button::new(id("del-yes"))
                         .label(t!("common.delete"))
@@ -2192,7 +2199,7 @@ impl ChatApp {
             (count * 10 > max * 9).then(|| {
                 div()
                     .px_1()
-                    .text_xs()
+                    .caption_size()
                     .when(count > max, |el| el.text_color(p.error).font_semibold())
                     .when(count <= max, |el| el.text_color(p.muted()))
                     .child(t!("composer.char_count", count = count, max = max))
@@ -2254,7 +2261,7 @@ impl ChatApp {
                 .pt_2()
                 .pb_1()
                 .min_h(px(44.))
-                .text_size(px(BODY_TEXT))
+                .body_size()
                 .child(if text.trim().is_empty() {
                     div().text_color(p.muted()).child(t!("composer.nothing_to_preview")).into_any_element()
                 } else {
@@ -2348,7 +2355,7 @@ impl ChatApp {
                                 .py_1p5()
                                 .rounded_t(px(15.))
                                 .bg(p.away.opacity(0.16))
-                                .text_xs()
+                                .caption_size()
                                 .child(div().flex_1().font_semibold().child(t!("composer.editing_message")))
                                 .child(
                                     Button::new(SharedString::from(format!("cancel-edit-{pane:?}")))
@@ -2376,7 +2383,17 @@ impl ChatApp {
                             .child(slot(send.into_any_element())),
                     ),
             )
-            .child(div().h(px(18.)).px_1().pt_0p5().text_size(px(11.)).italic().text_color(p.muted()).children(typing))
+            .child(
+                div()
+                    .h(px(18.))
+                    .px_1()
+                    .pt_0p5()
+                    .caption_size()
+                    .line_height(px(16.))
+                    .italic()
+                    .text_color(p.muted())
+                    .children(typing),
+            )
     }
 
     /// Image externe déjà chargée, dans une boîte de taille fixe (en attendant :
@@ -2410,7 +2427,8 @@ impl ChatApp {
 
             let mut card = v_flex().flex_1().min_w_0().px_3().py_2().gap_1();
             if !a.author_name.is_empty() {
-                card = card.child(div().text_xs().font_semibold().text_color(p.muted()).child(a.author_name.clone()));
+                card =
+                    card.child(div().caption_size().font_semibold().text_color(p.muted()).child(a.author_name.clone()));
             }
             if !a.title.is_empty() {
                 let title = div().id(id("title")).font_semibold().child(a.title.clone());
@@ -2427,7 +2445,7 @@ impl ChatApp {
             }
             if !a.text.is_empty() {
                 card = card.child(
-                    div().text_size(px(BODY_TEXT)).child(
+                    div().body_size().child(
                         TextView::markdown(ElementId::Name(id("text")), markdown::prepare(&a.text))
                             .plugin(self.diff_plugin())
                             .on_link_click(link_click()),
@@ -2441,8 +2459,8 @@ impl ChatApp {
                 v_flex()
                     .flex_1()
                     .min_w_0()
-                    .child(div().text_xs().font_semibold().child(f.title.clone()))
-                    .child(div().text_sm().child(emoji::replace_shortcodes(&f.value)))
+                    .child(div().caption_size().font_semibold().child(f.title.clone()))
+                    .child(div().secondary_size().child(emoji::replace_shortcodes(&f.value)))
             };
             for f in &a.fields {
                 match (f.short, pending_short.take()) {
@@ -2466,7 +2484,7 @@ impl ChatApp {
                 card = card.child(self.external_image(&a.image_url, 400., 240., &p));
             }
             if !a.footer.is_empty() {
-                card = card.child(div().text_xs().text_color(p.muted()).child(a.footer.clone()));
+                card = card.child(div().caption_size().text_color(p.muted()).child(a.footer.clone()));
             }
             let buttons: Vec<_> = a
                 .actions
@@ -2495,7 +2513,7 @@ impl ChatApp {
             let mut block = v_flex().gap_1().mt_1();
             if !a.pretext.is_empty() {
                 block = block.child(
-                    div().text_size(px(BODY_TEXT)).child(
+                    div().body_size().child(
                         TextView::markdown(ElementId::Name(id("pretext")), markdown::prepare(&a.pretext))
                             .on_link_click(link_click()),
                     ),
@@ -2544,12 +2562,14 @@ impl ChatApp {
                             .flex_1()
                             .min_w_0()
                             .gap_0p5()
-                            .when(!site.is_empty(), |el| el.child(div().text_xs().text_color(p.muted()).child(site)))
+                            .when(!site.is_empty(), |el| {
+                                el.child(div().caption_size().text_color(p.muted()).child(site))
+                            })
                             .when(!title.is_empty(), |el| {
                                 el.child(div().font_semibold().text_color(p.link).child(title))
                             })
                             .when(!description.is_empty(), |el| {
-                                el.child(div().text_sm().text_color(p.muted()).line_clamp(3).child(description))
+                                el.child(div().secondary_size().text_color(p.muted()).line_clamp(3).child(description))
                             }),
                     )
                     .children(image.map(|u| self.external_image(&u, 80., 80., &p)))
@@ -2573,14 +2593,14 @@ impl ChatApp {
                     .rounded(px(4.))
                     .border_1()
                     .border_color(p.border())
-                    .child(div().text_xs().text_color(p.muted()).child(t!(
+                    .child(div().caption_size().text_color(p.muted()).child(t!(
                         "post.permalink_from",
                         author = self.user_name(&user_id),
                         channel = channel
                     )))
                     // The quoted message keeps its formatting; its height stays bounded.
                     .child(
-                        div().text_sm().max_h(px(90.)).overflow_hidden().child(
+                        div().secondary_size().max_h(px(90.)).overflow_hidden().child(
                             TextView::markdown(ElementId::Name(id), markdown::prepare(&message))
                                 .on_link_click(link_click()),
                         ),
@@ -2615,7 +2635,7 @@ impl ChatApp {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_xs()
+                        .caption_size()
                         .text_color(p.muted())
                         .child(t!("files.loading_preview"))
                         .into_any_element(),
@@ -2663,10 +2683,10 @@ impl ChatApp {
                             v_flex()
                                 .flex_1()
                                 .min_w_0()
-                                .child(div().truncate().text_sm().font_semibold().child(file.name.clone()))
+                                .child(div().truncate().secondary_size().font_semibold().child(file.name.clone()))
                                 .child(
                                     div()
-                                        .text_xs()
+                                        .caption_size()
                                         .text_color(p.muted())
                                         .child(format!("{kind} · {}", file.human_size())),
                                 ),
@@ -2734,7 +2754,7 @@ impl ChatApp {
                 .border_1()
                 .border_color(if a.error.is_some() { p.error } else { p.border() })
                 .bg(p.center_color.opacity(0.04))
-                .text_xs()
+                .caption_size()
                 .child(div().text_size(px(16.)).child(file_icon(a.name.rsplit_once('.').map(|(_, e)| e).unwrap_or(""))))
                 .child(v_flex().min_w_0().child(div().truncate().font_semibold().child(a.name.clone())).child(status))
                 .child(
@@ -2804,7 +2824,15 @@ impl ChatApp {
                 .hover(|s| s.bg(p.button_bg.opacity(0.08)))
                 .child(icon)
                 .child(div().flex_none().font_semibold().child(item.label.clone()))
-                .child(div().flex_1().min_w_0().truncate().text_sm().text_color(p.muted()).child(item.detail.clone()))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .secondary_size()
+                        .text_color(p.muted())
+                        .child(item.detail.clone()),
+                )
                 .on_click(cx.listener(move |this, _, window, cx| this.accept_suggestion(i, window, cx)))
         });
         Some(
@@ -2824,7 +2852,7 @@ impl ChatApp {
                     h_flex()
                         .px_3()
                         .pb_1()
-                        .text_xs()
+                        .caption_size()
                         .font_semibold()
                         .text_color(p.muted())
                         .child(div().flex_1().child(title)),
@@ -2999,7 +3027,7 @@ impl ChatApp {
                         h_flex()
                             .gap_1()
                             .min_w_0()
-                            .text_size(px(16.))
+                            .title_size()
                             .font_bold()
                             .title_font()
                             .child(div().min_w_0().truncate().hover(|s| s.underline()).child(title))
@@ -3012,14 +3040,14 @@ impl ChatApp {
                                 .truncate()
                                 .max_h(px(18.))
                                 .overflow_hidden()
-                                .text_size(px(12.))
+                                .caption_size()
                                 .text_color(p.muted())
                                 .child(sub),
                         )
                     }),
             )
             .when(self.loading_older, |el| {
-                el.child(div().text_xs().text_color(p.muted()).child(t!("messages.loading_history")))
+                el.child(div().caption_size().text_color(p.muted()).child(t!("messages.loading_history")))
             })
             .children(actions.map(|a| a.flex_shrink(1.).min_w_0().overflow_hidden().justify_end()))
     }
@@ -3038,7 +3066,7 @@ impl ChatApp {
                 .py_2()
                 .gap_2()
                 .bg(p.error.opacity(0.12))
-                .text_sm()
+                .secondary_size()
                 .text_color(p.error)
                 .child(div().flex_1().child(err))
                 .child(Button::new("dismiss-error").icon(Icon::new(IconName::X)).xsmall().ghost().on_click(
@@ -3055,7 +3083,7 @@ impl ChatApp {
                 .items_center()
                 .justify_center()
                 .gap_1()
-                .child(div().text_size(px(16.)).font_semibold().title_font().child(t!("messages.empty_title")))
+                .child(div().title_size().font_semibold().title_font().child(t!("messages.empty_title")))
                 .child(div().text_color(p.muted()).child(t!("messages.empty_hint")))
                 .into_any_element()
         } else if self.loading_posts && self.posts.is_empty() {
@@ -3105,7 +3133,7 @@ impl ChatApp {
                 .py_2()
                 .gap_2()
                 .bg(p.button_bg.opacity(0.08))
-                .text_sm()
+                .secondary_size()
                 .child(div().flex_1().child(info))
                 .child(Button::new("dismiss-info").icon(Icon::new(IconName::X)).xsmall().ghost().on_click(cx.listener(
                     |this, _, _, cx| {
@@ -3150,7 +3178,7 @@ impl ChatApp {
                     .gap_2()
                     .rounded(px(8.))
                     .bg(p.center_color.opacity(0.06))
-                    .text_sm()
+                    .secondary_size()
                     .text_color(p.muted())
                     .child(Icon::new(IconName::Archive).size(px(16.)))
                     .child(t!("browse.archived_banner"))
@@ -3194,8 +3222,8 @@ impl ChatApp {
                         .gap_2()
                         .border_b_1()
                         .border_color(p.border())
-                        .child(div().text_size(px(16.)).font_bold().title_font().child(t!("threads.thread")))
-                        .child(div().flex_1().truncate().text_size(px(12.)).text_color(p.muted()).child(channel))
+                        .child(div().title_size().font_bold().title_font().child(t!("threads.thread")))
+                        .child(div().flex_1().truncate().caption_size().text_color(p.muted()).child(channel))
                         .child(self.expand_button("expand-thread", cx))
                         .child(
                             Button::new("close-thread")
@@ -3470,7 +3498,7 @@ impl ChatApp {
         let line = |icon: IconName, text: String| {
             h_flex()
                 .gap_2()
-                .text_sm()
+                .secondary_size()
                 .child(div().flex_none().text_color(p.muted()).child(Icon::new(icon).size(px(15.))))
                 .child(div().min_w_0().truncate().child(text))
         };
@@ -3491,14 +3519,15 @@ impl ChatApp {
                     .child(
                         v_flex()
                             .gap_0p5()
-                            .child(div().text_size(px(18.)).font_bold().title_font().child(name))
-                            .child(div().text_sm().text_color(p.muted()).child(format!("@{}", u.username)))
-                            .when(!u.position.is_empty(), |el| el.child(div().text_sm().child(u.position.clone()))),
+                            .child(div().title_size().font_bold().title_font().child(name))
+                            .child(div().secondary_size().text_color(p.muted()).child(format!("@{}", u.username)))
+                            .when(!u.position.is_empty(), |el| {
+                                el.child(div().secondary_size().child(u.position.clone()))
+                            }),
                     )
-                    .children(
-                        self.status_line(&uid, 18.)
-                            .map(|line| line.px_3().py_2().rounded(px(8.)).text_sm().bg(p.center_color.opacity(0.06))),
-                    )
+                    .children(self.status_line(&uid, 18.).map(|line| {
+                        line.px_3().py_2().rounded(px(8.)).secondary_size().bg(p.center_color.opacity(0.06))
+                    }))
                     .child(
                         v_flex()
                             .gap_2()
@@ -3506,7 +3535,7 @@ impl ChatApp {
                             .child(
                                 h_flex()
                                     .gap_2()
-                                    .text_sm()
+                                    .secondary_size()
                                     .child(div().mx(px(3.)).size(px(9.)).rounded_full().bg(self.status_color(&uid)))
                                     .child(self.status_label(&uid)),
                             )
@@ -3516,7 +3545,7 @@ impl ChatApp {
                                     h_flex()
                                         .gap_2()
                                         .items_start()
-                                        .text_sm()
+                                        .secondary_size()
                                         .child(
                                             div()
                                                 .flex_none()
@@ -3526,7 +3555,7 @@ impl ChatApp {
                                         )
                                         .child(
                                             v_flex().child(t!("profile.local_time", time = clock)).when(!is_me, |d| {
-                                                d.child(div().text_xs().text_color(p.muted()).child(gap))
+                                                d.child(div().caption_size().text_color(p.muted()).child(gap))
                                             }),
                                         ),
                                 )
@@ -3594,8 +3623,8 @@ impl ChatApp {
                         .border_color(p.button_bg)
                         .bg(p.center_bg.opacity(0.92))
                         .child(Icon::new(IconName::Paperclip).size(px(28.)).text_color(p.button_bg))
-                        .child(div().text_size(px(16.)).font_semibold().child(t!("composer.drop_files")))
-                        .child(div().text_sm().text_color(p.muted()).child(t!(
+                        .child(div().title_size().font_semibold().child(t!("composer.drop_files")))
+                        .child(div().secondary_size().text_color(p.muted()).child(t!(
                             "composer.drop_files_hint",
                             max = crate::api::human_size(self.max_file_size()),
                             count = super::MAX_FILES
@@ -3645,11 +3674,18 @@ impl ChatApp {
                         .border_color(p.border())
                         .bg(p.center_bg)
                         .text_color(p.center_color)
-                        .text_sm()
+                        .secondary_size()
                         .shadow_lg()
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                         .child(
-                            div().px_3().pt_1().pb_1p5().text_xs().text_color(p.muted()).truncate().child(url.clone()),
+                            div()
+                                .px_3()
+                                .pt_1()
+                                .pb_1p5()
+                                .caption_size()
+                                .text_color(p.muted())
+                                .truncate()
+                                .child(url.clone()),
                         )
                         .child(row("link-menu-copy", IconName::Copy, t!("link_menu.copy").into()).on_click(
                             cx.listener(move |this, _, _, cx| {
@@ -3794,7 +3830,7 @@ impl ChatApp {
                             .child(
                                 h_flex()
                                     .gap_1()
-                                    .text_xs()
+                                    .caption_size()
                                     .text_color(p.muted())
                                     .child(self.channel_badge_by_id(&post.channel_id, 16.))
                                     .child(channel),
@@ -3805,14 +3841,14 @@ impl ChatApp {
                                     .items_center()
                                     .child(self.post_avatar(post, 24., p.center_bg))
                                     .child(div().font_semibold().child(self.user_name(&post.user_id)))
-                                    .child(div().text_xs().text_color(p.muted()).child(format!(
+                                    .child(div().caption_size().text_color(p.muted()).child(format!(
                                         "{}, {}",
                                         day_label(post.create_at),
                                         format_hour(post.create_at)
                                     ))),
                             )
                             .child(
-                                div().text_size(px(BODY_TEXT)).line_clamp(6).child(
+                                div().body_size().line_clamp(6).child(
                                     TextView::markdown(
                                         SharedString::from(format!("side-text-{}", post.id)),
                                         markdown::prepare_for(&post.message, &custom, Some(&post.channel_id)),
@@ -3846,8 +3882,8 @@ impl ChatApp {
                         .gap_2()
                         .border_b_1()
                         .border_color(p.border())
-                        .child(div().text_size(px(16.)).font_bold().title_font().child(title))
-                        .child(div().flex_1().truncate().text_size(px(12.)).text_color(p.muted()).child(subtitle))
+                        .child(div().title_size().font_bold().title_font().child(title))
+                        .child(div().flex_1().truncate().caption_size().text_color(p.muted()).child(subtitle))
                         .child(self.expand_button("expand-side", cx))
                         .child(
                             Button::new("close-side")
@@ -3870,7 +3906,7 @@ impl ChatApp {
                                     .pr_1()
                                     .py_0p5()
                                     .rounded(px(6.))
-                                    .text_xs()
+                                    .caption_size()
                                     .bg(if filter { p.link.opacity(0.12) } else { p.center_color.opacity(0.08) })
                                     .text_color(if filter { p.link } else { p.center_color })
                                     .child(token)
@@ -3944,7 +3980,7 @@ impl ChatApp {
                     .child(
                         h_flex()
                             .gap_1()
-                            .text_xs()
+                            .caption_size()
                             .text_color(p.muted())
                             .child(self.channel_badge_by_id(&t.post.channel_id, 16.))
                             .child(div().flex_1().child(channel))
@@ -3976,12 +4012,12 @@ impl ChatApp {
                                 .child(self.user_name(&t.post.user_id)),
                         ),
                     )
-                    .child(div().text_sm().line_clamp(2).child(markdown::plain_text(&t.post.message)))
+                    .child(div().secondary_size().line_clamp(2).child(markdown::plain_text(&t.post.message)))
                     .child(
                         h_flex()
                             .gap_2()
                             .mt_0p5()
-                            .text_xs()
+                            .caption_size()
                             .text_color(p.muted())
                             .child(h_flex().pl(px(6.)).children(t.participants.iter().take(5).map(|u| {
                                 // Avatars empilés, légèrement décalés, cerclés du fond.
@@ -4081,7 +4117,7 @@ impl ChatApp {
                     .px_2()
                     .gap_1p5()
                     .rounded(px(6.))
-                    .text_size(px(13.))
+                    .secondary_size()
                     .font_bold()
                     .title_font()
                     .text_color(p.center_color.opacity(0.85))
@@ -4094,7 +4130,7 @@ impl ChatApp {
                     .child(
                         div()
                             .flex_none()
-                            .text_size(px(11.))
+                            .caption_size()
                             .font_semibold()
                             .text_color(p.muted())
                             .child(people.len().to_string()),
@@ -4139,7 +4175,7 @@ impl ChatApp {
                                     .child(
                                         div()
                                             .truncate()
-                                            .text_sm()
+                                            .body_size()
                                             .font_semibold()
                                             .when(role.is_some(), |d| d.text_color(group_color("admins", &p)))
                                             .child(self.user_name(id)),
@@ -4147,7 +4183,9 @@ impl ChatApp {
                                     .children(self.status_emoji(id, 14., cx)),
                             )
                             .when_some(self.users.get(id).map(|u| u.username.clone()), |el, name| {
-                                el.child(div().truncate().text_xs().text_color(p.muted()).child(format!("@{name}")))
+                                el.child(
+                                    div().truncate().caption_size().text_color(p.muted()).child(format!("@{name}")),
+                                )
                             }),
                     )
                     .when_some(role, |el, role| {
@@ -4174,7 +4212,12 @@ impl ChatApp {
         let hidden = total - ids.len() as i64;
         if hidden > 0 {
             list = list.child(
-                div().px_4().pt_3().text_xs().text_color(p.muted()).child(t!("members.hidden_count", count = hidden)),
+                div()
+                    .px_4()
+                    .pt_3()
+                    .caption_size()
+                    .text_color(p.muted())
+                    .child(t!("members.hidden_count", count = hidden)),
             );
         }
         Some(
@@ -4195,8 +4238,10 @@ impl ChatApp {
                         .gap_2()
                         .border_b_1()
                         .border_color(p.border())
-                        .child(div().text_size(px(15.)).font_bold().title_font().child(t!("members.title")))
-                        .when(total > 0, |el| el.child(div().text_sm().text_color(p.muted()).child(total.to_string()))),
+                        .child(div().title_size().font_bold().title_font().child(t!("members.title")))
+                        .when(total > 0, |el| {
+                            el.child(div().secondary_size().text_color(p.muted()).child(total.to_string()))
+                        }),
                 )
                 .when(ids.is_empty(), |el| el.child(div().p_4().text_color(p.muted()).child(t!("common.loading"))))
                 .child(list)
@@ -4232,7 +4277,7 @@ impl ChatApp {
                 .border_color(p.border())
                 .bg(p.center_bg)
                 .shadow_md()
-                .text_sm()
+                .secondary_size()
                 .children(found.suggestions.iter().enumerate().map(|(i, s)| {
                     let (w, s2) = (word.clone(), s.clone());
                     div()
@@ -4400,7 +4445,7 @@ impl ChatApp {
                                 .rounded(px(5.))
                                 .border_1()
                                 .border_color(p.center_color.opacity(0.14))
-                                .text_size(px(10.5))
+                                .caption_size()
                                 .text_color(p.muted())
                                 .child("Ctrl F"),
                         )
@@ -4434,7 +4479,7 @@ impl ChatApp {
         let value = self.search_input.read(cx).value().to_string();
         let word = value.rsplit(' ').next().unwrap_or("").to_string();
         let section = |title: SharedString| {
-            div().px_2().pt_2().pb_1().text_xs().font_semibold().text_color(p.muted()).child(title)
+            div().px_2().pt_2().pb_1().caption_size().font_semibold().text_color(p.muted()).child(title)
         };
         // Une ligne cliquable qui insère un filtre (ou lance une recherche).
         let row =
@@ -4448,8 +4493,8 @@ impl ChatApp {
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover()))
                     .child(div().flex_none().w(px(22.)).flex().justify_center().text_color(p.muted()).child(icon))
-                    .child(div().flex_1().min_w_0().truncate().text_sm().child(label))
-                    .child(div().flex_none().text_xs().text_color(p.muted()).child(hint))
+                    .child(div().flex_1().min_w_0().truncate().secondary_size().child(label))
+                    .child(div().flex_none().caption_size().text_color(p.muted()).child(hint))
                     .on_mouse_down(
                         MouseButton::Left,
                         cx.listener(move |this, _, window, cx| {
@@ -4552,7 +4597,7 @@ impl ChatApp {
                         .border_1()
                         .border_color(p.border())
                         .cursor_pointer()
-                        .text_xs()
+                        .caption_size()
                         .hover(|s| s.bg(p.hover()))
                         .child(div().font_semibold().text_color(p.link).child(token.clone()))
                         .child(div().text_color(p.muted()).child(label))
@@ -4636,7 +4681,7 @@ impl ChatApp {
                             .rounded_full()
                             .bg(p.link.opacity(0.12))
                             .text_color(p.link)
-                            .text_xs()
+                            .caption_size()
                             .font_semibold()
                             .cursor_pointer()
                             .child(terms.clone())
@@ -4660,7 +4705,7 @@ impl ChatApp {
                             .id("sg-forget")
                             .px_2()
                             .pt_2()
-                            .text_xs()
+                            .caption_size()
                             .text_color(p.link)
                             .cursor_pointer()
                             .hover(|s| s.underline())
@@ -4720,7 +4765,7 @@ impl ChatApp {
                     .py_2()
                     .border_t_1()
                     .border_color(p.border())
-                    .text_xs()
+                    .caption_size()
                     .text_color(p.muted())
                     .child(t!("search.syntax_hint")),
             )
@@ -4818,12 +4863,17 @@ impl ChatApp {
                 .cursor_pointer()
                 .border_b_2()
                 .border_color(if active { p.button_bg } else { transparent_black() })
-                .text_sm()
+                .secondary_size()
                 .when(active, |el| el.font_semibold())
                 .when(!active, |el| el.text_color(p.muted()).hover(|s| s.text_color(p.center_color)))
                 .child(label)
                 .child(
-                    div().px_1p5().rounded_full().text_xs().bg(p.center_color.opacity(0.08)).child(count.to_string()),
+                    div()
+                        .px_1p5()
+                        .rounded_full()
+                        .caption_size()
+                        .bg(p.center_color.opacity(0.08))
+                        .child(count.to_string()),
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.set_files_tab(t, cx)))
         };
@@ -4859,7 +4909,13 @@ impl ChatApp {
                         return gallery;
                     }
                     let gallery = gallery.child(
-                        div().pt_2().pb_0p5().text_xs().font_semibold().text_color(p.muted()).child(title.to_string()),
+                        div()
+                            .pt_2()
+                            .pb_0p5()
+                            .caption_size()
+                            .font_semibold()
+                            .text_color(p.muted())
+                            .child(title.to_string()),
                     );
                     let rows = justify_rows(group, MEDIA_ROW_WIDTH, MEDIA_ROW_HEIGHT, 6.);
                     group.clear();
@@ -4907,8 +4963,8 @@ impl ChatApp {
                             v_flex()
                                 .flex_1()
                                 .min_w_0()
-                                .child(div().truncate().text_sm().font_semibold().child(f.name.clone()))
-                                .child(div().truncate().text_xs().text_color(p.muted()).child(format!(
+                                .child(div().truncate().secondary_size().font_semibold().child(f.name.clone()))
+                                .child(div().truncate().caption_size().text_color(p.muted()).child(format!(
                                     "{} · {}",
                                     f.human_size(),
                                     meta(&f.user_id, f.create_at)
@@ -4982,12 +5038,14 @@ impl ChatApp {
                                 .child(
                                     div()
                                         .truncate()
-                                        .text_sm()
+                                        .secondary_size()
                                         .font_semibold()
                                         .child(l.title.clone().unwrap_or(domain.clone())),
                                 )
-                                .child(div().truncate().text_xs().text_color(p.link).child(l.url.clone()))
-                                .child(div().truncate().text_xs().text_color(p.muted()).child(meta(&l.user_id, l.at))),
+                                .child(div().truncate().caption_size().text_color(p.link).child(l.url.clone()))
+                                .child(
+                                    div().truncate().caption_size().text_color(p.muted()).child(meta(&l.user_id, l.at)),
+                                ),
                         )
                         .on_click(move |_, _, cx| open_link(&url, cx))
                 }))
@@ -5076,7 +5134,7 @@ impl ChatApp {
                         linear_color_stop(black().opacity(0.65), 1.),
                     ))
                     .text_color(white())
-                    .text_xs()
+                    .caption_size()
                     .child(div().truncate().child(name)),
             )
             .on_click(move |_, window, cx| {
@@ -5160,7 +5218,7 @@ impl ChatApp {
                     div()
                         .flex_1()
                         .min_w_0()
-                        .text_sm()
+                        .secondary_size()
                         .when(team.description.is_empty(), |d| d.italic().text_color(p.muted()))
                         .child(if team.description.is_empty() {
                             t!("common.no_description").to_string()
@@ -5230,12 +5288,12 @@ impl ChatApp {
                                         .gap_0p5()
                                         .child(
                                             div()
-                                                .text_size(px(19.))
+                                                .title_size()
                                                 .font_bold()
                                                 .title_font()
                                                 .child(team.display_name.clone()),
                                         )
-                                        .child(div().text_sm().text_color(p.muted()).child(kind)),
+                                        .child(div().secondary_size().text_color(p.muted()).child(kind)),
                                 )
                                 .child(
                                     v_flex()
@@ -5244,7 +5302,7 @@ impl ChatApp {
                                         .child(
                                             h_flex()
                                                 .gap_2()
-                                                .text_sm()
+                                                .secondary_size()
                                                 .child(Icon::new(IconName::Users).size(px(15.)).text_color(p.muted()))
                                                 .child(members),
                                         )
@@ -5252,7 +5310,7 @@ impl ChatApp {
                                             el.child(
                                                 h_flex()
                                                     .gap_2()
-                                                    .text_sm()
+                                                    .secondary_size()
                                                     .child(
                                                         Icon::new(IconName::Clock).size(px(15.)).text_color(p.muted()),
                                                     )
@@ -5265,7 +5323,7 @@ impl ChatApp {
                                         .gap_1()
                                         .child(
                                             div()
-                                                .text_xs()
+                                                .caption_size()
                                                 .font_semibold()
                                                 .text_color(p.muted())
                                                 .child(t!("common.description")),
@@ -5296,12 +5354,12 @@ impl ChatApp {
         let since = (channel.create_at > 0)
             .then(|| t!("channel_card.created", day = day_label_inline(channel.create_at)).to_string());
         let favorite = self.is_favorite(&id);
-        let section = |title: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(title);
+        let section = |title: SharedString| div().caption_size().font_semibold().text_color(p.muted()).child(title);
         // Markdown rendu (liens cliquables), ou une invite si vide.
         let entity = cx.entity();
         let text_or = |key: &str, text: &str, empty: SharedString| {
             let id = SharedString::from(format!("ch-info-{key}"));
-            div().min_w_0().text_sm().when(text.is_empty(), |d| d.italic().text_color(p.muted())).child(
+            div().min_w_0().secondary_size().when(text.is_empty(), |d| d.italic().text_color(p.muted())).child(
                 if text.is_empty() {
                     empty.into_any_element()
                 } else {
@@ -5373,7 +5431,7 @@ impl ChatApp {
                 .py_2()
                 .rounded(px(8.))
                 .cursor_pointer()
-                .text_xs()
+                .caption_size()
                 .text_color(p.center_color)
                 .hover(|s| s.bg(p.hover()))
                 .child(Icon::new(icon).size(px(17.)).text_color(p.button_bg))
@@ -5407,21 +5465,18 @@ impl ChatApp {
                         .child(
                             v_flex()
                                 .gap_0p5()
+                                .child(div().title_size().font_bold().title_font().child(self.channel_title(channel)))
                                 .child(
                                     div()
-                                        .text_size(px(19.))
-                                        .font_bold()
-                                        .title_font()
-                                        .child(self.channel_title(channel)),
-                                )
-                                .child(
-                                    div().text_sm().text_color(p.muted()).child(format!("{kind} · ~{}", channel.name)),
+                                        .secondary_size()
+                                        .text_color(p.muted())
+                                        .child(format!("{kind} · ~{}", channel.name)),
                                 ),
                         )
                         .child(
                             h_flex()
                                 .gap_4()
-                                .text_sm()
+                                .secondary_size()
                                 .child(
                                     h_flex()
                                         .gap_1p5()
@@ -5498,7 +5553,7 @@ impl ChatApp {
             }
             super::CreateKind::Invite => (t!("create.invite_title"), IconName::UserPlus, t!("create.invite_submit")),
         };
-        let label = |t: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(t);
+        let label = |t: SharedString| div().caption_size().font_semibold().text_color(p.muted()).child(t);
         let choice = |id: &'static str, on: bool, icon: IconName, t: SharedString, hint: SharedString| {
             h_flex()
                 .id(id)
@@ -5513,8 +5568,8 @@ impl ChatApp {
                 .child(Icon::new(icon).size(px(16.)).text_color(if on { p.button_bg } else { p.muted() }))
                 .child(
                     v_flex()
-                        .child(div().text_sm().font_semibold().child(t))
-                        .child(div().text_xs().text_color(p.muted()).child(hint)),
+                        .child(div().secondary_size().font_semibold().child(t))
+                        .child(div().caption_size().text_color(p.muted()).child(hint)),
                 )
         };
         let name = self.channel_slug_preview(cx);
@@ -5549,7 +5604,7 @@ impl ChatApp {
                             h_flex()
                                 .gap_2()
                                 .child(Icon::new(icon).size(px(18.)).text_color(p.button_bg))
-                                .child(div().flex_1().text_size(px(16.)).font_bold().title_font().child(title))
+                                .child(div().flex_1().title_size().font_bold().title_font().child(title))
                                 .child(
                                     Button::new("create-close")
                                         .icon(Icon::new(IconName::X))
@@ -5572,7 +5627,7 @@ impl ChatApp {
                                 .when(kind == super::CreateKind::Channel && !name.is_empty(), |el| {
                                     el.child(
                                         div()
-                                            .text_xs()
+                                            .caption_size()
                                             .text_color(p.muted())
                                             .child(t!("create.link_preview", name = name)),
                                     )
@@ -5621,7 +5676,7 @@ impl ChatApp {
                             )
                         })
                         .when(kind == super::CreateKind::Invite, |el| {
-                            el.child(div().text_xs().text_color(p.muted()).child(t!("create.invite_hint")))
+                            el.child(div().caption_size().text_color(p.muted()).child(t!("create.invite_hint")))
                         })
                         .child(
                             h_flex()
@@ -5678,15 +5733,19 @@ impl ChatApp {
                             v_flex()
                                 .flex_1()
                                 .min_w_0()
-                                .child(div().truncate().text_sm().font_semibold().child(self.user_name(&u.id)))
+                                .child(div().truncate().secondary_size().font_semibold().child(self.user_name(&u.id)))
                                 .child(
-                                    div().truncate().text_xs().text_color(p.muted()).child(format!("@{}", u.username)),
+                                    div()
+                                        .truncate()
+                                        .caption_size()
+                                        .text_color(p.muted())
+                                        .child(format!("@{}", u.username)),
                                 ),
                         )
                         .child(if added {
                             h_flex()
                                 .gap_1()
-                                .text_sm()
+                                .secondary_size()
                                 .text_color(p.online)
                                 .child(Icon::new(IconName::CircleCheck).size(px(15.)))
                                 .child(t!("members.added"))
@@ -5739,7 +5798,7 @@ impl ChatApp {
                                 .child(
                                     div()
                                         .flex_1()
-                                        .text_size(px(16.))
+                                        .title_size()
                                         .font_bold()
                                         .title_font()
                                         .child(t!("members.add_to", channel = title)),
@@ -5801,7 +5860,7 @@ impl ChatApp {
                             div()
                                 .px_1p5()
                                 .rounded_full()
-                                .text_xs()
+                                .caption_size()
                                 .font_bold()
                                 .bg(p.mention_bg)
                                 .text_color(p.mention_color)
@@ -5937,7 +5996,7 @@ impl ChatApp {
                         .flex()
                         .items_end()
                         .pb_1()
-                        .text_xs()
+                        .caption_size()
                         .font_semibold()
                         .text_color(p.muted())
                         .child(t.clone())
@@ -6063,7 +6122,10 @@ impl ChatApp {
                     }))
                     .when(more > 0, |el| {
                         el.child(
-                            div().text_sm().text_color(light.opacity(0.7)).child(t!("viewer.pdf_more", count = more)),
+                            div()
+                                .secondary_size()
+                                .text_color(light.opacity(0.7))
+                                .child(t!("viewer.pdf_more", count = more)),
                         )
                     })
                     .on_click(|_, _, cx| cx.stop_propagation())
@@ -6125,7 +6187,12 @@ impl ChatApp {
                                         .flex_1()
                                         .min_w_0()
                                         .child(div().truncate().font_semibold().child(file.name.clone()))
-                                        .child(div().text_xs().text_color(light.opacity(0.6)).child(file.human_size())),
+                                        .child(
+                                            div()
+                                                .caption_size()
+                                                .text_color(light.opacity(0.6))
+                                                .child(file.human_size()),
+                                        ),
                                 )
                                 .child(
                                     action("viewer-download", IconName::Download, t!("common.download").into())
@@ -6178,11 +6245,13 @@ impl Render for ChatApp {
             Screen::Login | Screen::Connecting => self.render_login(cx).into_any_element(),
             Screen::Chat => self.render_chat(cx).into_any_element(),
         };
+        // Text that is given no role of its own is set like what is read.
+        let content = div().size_full().text_size(px(fonts::BODY)).child(content).into_any_element();
         // Some Wayland compositors (GNOME) draw no title bar for applications:
         // when the window ends up client-decorated, draw ours. The frame and
         // its resize edges already come from the kit's root view.
         if cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Client { .. }) {
-            let title = div().text_sm().child(crate::desktop::window_title());
+            let title = div().secondary_size().child(crate::desktop::window_title());
             return v_flex()
                 .size_full()
                 .child(TitleBar::new().child(title))
@@ -6316,7 +6385,7 @@ fn date_separator(ms: i64, p: &Palette) -> impl IntoElement {
         .pb_1()
         .gap_3()
         .child(div().flex_1().h(px(1.)).bg(p.border()))
-        .child(div().text_size(px(12.)).font_semibold().title_font().text_color(p.center_color).child(day_label(ms)))
+        .child(div().caption_size().font_semibold().title_font().text_color(p.center_color).child(day_label(ms)))
         .child(div().flex_1().h(px(1.)).bg(p.border()))
 }
 
@@ -6356,7 +6425,7 @@ fn new_messages_separator(p: &Palette) -> impl IntoElement {
         .pt_3()
         .gap_3()
         .child(div().flex_1().h(px(1.)).bg(p.new_separator))
-        .child(div().text_size(px(12.)).font_semibold().text_color(p.new_separator).child(t!("messages.new_messages")))
+        .child(div().caption_size().font_semibold().text_color(p.new_separator).child(t!("messages.new_messages")))
         .child(div().flex_1().h(px(1.)).bg(p.new_separator))
 }
 

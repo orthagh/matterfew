@@ -219,7 +219,7 @@ impl ChatApp {
             .py_1p5()
             .gap_2()
             .bg(p.button_bg.opacity(0.12))
-            .text_sm()
+            .secondary_size()
             .role(Role::Status)
             .child(Icon::new(IconName::Download).size(px(15.)).text_color(p.button_bg));
         let row = match state {

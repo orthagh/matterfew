@@ -105,7 +105,7 @@ impl ChatApp {
                 .px_5()
                 .py_2()
                 .cursor_pointer()
-                .text_sm()
+                .secondary_size()
                 .role(gpui_kit::Role::Button)
                 .aria_label(label.clone())
                 .when(danger, |el| el.text_color(p.error))
@@ -147,13 +147,19 @@ impl ChatApp {
     ) -> AnyElement {
         let p = self.palette;
         let body: AnyElement = match teams {
-            None => div().px_4().pb_4().text_sm().text_color(p.muted()).child(t!("common.loading")).into_any_element(),
+            None => div()
+                .px_4()
+                .pb_4()
+                .secondary_size()
+                .text_color(p.muted())
+                .child(t!("common.loading"))
+                .into_any_element(),
             Some(list) if list.is_empty() => v_flex()
                 .px_4()
                 .pb_5()
                 .gap_1()
-                .child(div().text_sm().font_semibold().child(t!("teams.none")))
-                .child(div().text_sm().text_color(p.muted()).child(t!("teams.none_hint")))
+                .child(div().secondary_size().font_semibold().child(t!("teams.none")))
+                .child(div().secondary_size().text_color(p.muted()).child(t!("teams.none_hint")))
                 .into_any_element(),
             Some(list) => v_flex()
                 .id("join-team-list")
@@ -191,8 +197,10 @@ impl ChatApp {
                             v_flex()
                                 .flex_1()
                                 .min_w_0()
-                                .child(div().truncate().text_sm().font_semibold().child(team.display_name.clone()))
-                                .child(div().truncate().text_xs().text_color(p.muted()).child(
+                                .child(
+                                    div().truncate().secondary_size().font_semibold().child(team.display_name.clone()),
+                                )
+                                .child(div().truncate().caption_size().text_color(p.muted()).child(
                                     if team.description.is_empty() {
                                         t!("common.no_description").to_string()
                                     } else {
@@ -220,7 +228,7 @@ impl ChatApp {
         let content = div()
             .px_4()
             .pb_4()
-            .text_sm()
+            .secondary_size()
             .text_color(p.muted())
             .child(t!("teams.leave_confirm", team = name))
             .into_any_element();
@@ -250,7 +258,7 @@ impl ChatApp {
 
     pub(crate) fn render_team_settings(&self, open: bool, cx: &mut Context<Self>) -> AnyElement {
         let p = self.palette;
-        let label = |text: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(text);
+        let label = |text: SharedString| div().caption_size().font_semibold().text_color(p.muted()).child(text);
         let content = v_flex()
             .px_4()
             .pb_4()
@@ -268,8 +276,8 @@ impl ChatApp {
                         v_flex()
                             .flex_1()
                             .min_w_0()
-                            .child(div().text_sm().child(t!("teams.open")))
-                            .child(div().text_xs().text_color(p.muted()).child(t!("teams.open_hint"))),
+                            .child(div().secondary_size().child(t!("teams.open")))
+                            .child(div().caption_size().text_color(p.muted()).child(t!("teams.open_hint"))),
                     )
                     .child(Switch::new("team-open").checked(open).on_click(cx.listener(
                         |this, checked: &bool, _, cx| {

@@ -14,6 +14,8 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 - New typography, the same on every desktop: Nunito Sans for text and
   Bricolage Grotesque for titles, both embedded.
+- Four text sizes instead of fifteen (12, 13, 15 and 18), with messages set
+  at 15 on a 22 line.
 - Channel icons are a symbol (public, private, group) on a light tint of the
   channel's colour, instead of initials on a saturated gradient.
 

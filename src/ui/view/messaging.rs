@@ -251,7 +251,7 @@ impl ChatApp {
             .mt_1()
             .gap_1()
             .flex_wrap()
-            .text_sm()
+            .secondary_size()
             .child(Icon::new(IconName::TriangleAlert).size(px(14.)).text_color(p.error))
             .child(
                 div()
@@ -361,7 +361,7 @@ impl ChatApp {
             .px_4()
             .pb_4()
             .gap_2()
-            .text_sm()
+            .secondary_size()
             .child(t!("confirm_notify.body", mention = mention, count = count))
             .child(div().text_color(p.muted()).child(t!("confirm_notify.hint")))
             .into_any_element();
@@ -476,7 +476,9 @@ impl ChatApp {
                     .when(i == d.highlight, |el| el.bg(p.button_bg.opacity(0.1)))
                     .hover(|s| s.bg(p.button_bg.opacity(0.07)))
                     .child(div().w(px(22.)).flex().justify_center().child(icon))
-                    .child(div().flex_1().min_w_0().truncate().text_sm().child(self.channel_title(&state.channel)))
+                    .child(
+                        div().flex_1().min_w_0().truncate().secondary_size().child(self.channel_title(&state.channel)),
+                    )
                     .when(chosen, |el| el.child(Icon::new(IconName::CircleCheck).size(px(17.)).text_color(p.button_bg)))
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(Dialog::Forward(d)) = this.dialog.as_mut() {
@@ -502,9 +504,9 @@ impl ChatApp {
                     h_flex()
                         .gap_2()
                         .child(self.avatar(&post.user_id, 20., p.center_bg))
-                        .child(div().text_sm().font_semibold().child(self.user_name(&post.user_id))),
+                        .child(div().secondary_size().font_semibold().child(self.user_name(&post.user_id))),
                 )
-                .child(div().text_sm().line_clamp(3).child(markdown::plain_text(&post.message)))
+                .child(div().secondary_size().line_clamp(3).child(markdown::plain_text(&post.message)))
         });
         let content = v_flex()
             .capture_action(cx.listener(|this, _: &MoveUp, window, cx| {
@@ -620,7 +622,7 @@ impl ChatApp {
                 .mx_5()
                 .mb_1p5()
                 .gap_2()
-                .text_xs()
+                .caption_size()
                 .text_color(p.muted())
                 .child(Icon::new(icon).size(px(14.)))
                 .child(text)
@@ -779,7 +781,7 @@ impl ChatApp {
                         .rounded_full()
                         .bg(p.button_bg)
                         .text_color(p.button_color)
-                        .text_sm()
+                        .secondary_size()
                         .font_semibold()
                         .shadow_md()
                         .child(

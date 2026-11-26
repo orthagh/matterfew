@@ -257,14 +257,7 @@ impl ChatApp {
                             .gap_2()
                             .child(Icon::new(icon).size(px(18.)).text_color(p.button_bg))
                             .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .text_size(px(16.))
-                                    .font_bold()
-                                    .title_font()
-                                    .child(title),
+                                div().flex_1().min_w_0().truncate().title_size().font_bold().title_font().child(title),
                             )
                             .child(
                                 Button::new("dialog-close")
@@ -332,15 +325,13 @@ impl ChatApp {
             .cursor_pointer()
             .border_b_2()
             .border_color(if active { p.button_bg } else { transparent_black() })
-            .text_sm()
+            .secondary_size()
             .when(active, |el| el.font_semibold())
             .when(!active, |el| el.text_color(p.muted()).hover(|s| s.text_color(p.center_color)))
             .child(label)
-            .children(
-                count.map(|n| {
-                    div().px_1p5().rounded_full().text_xs().bg(p.center_color.opacity(0.08)).child(n.to_string())
-                }),
-            )
+            .children(count.map(|n| {
+                div().px_1p5().rounded_full().caption_size().bg(p.center_color.opacity(0.08)).child(n.to_string())
+            }))
             .on_click(cx.listener(move |this, _, _, cx| {
                 on_click(this, cx);
                 cx.notify();
@@ -495,7 +486,7 @@ impl ChatApp {
                             let action: AnyElement = if member || archived {
                                 div()
                                     .flex_none()
-                                    .text_sm()
+                                    .secondary_size()
                                     .text_color(p.muted())
                                     .child(if archived { t!("browse.view") } else { t!("browse.joined") })
                                     .into_any_element()
@@ -539,7 +530,7 @@ impl ChatApp {
                                             el.child(
                                                 div()
                                                     .truncate()
-                                                    .text_xs()
+                                                    .caption_size()
                                                     .text_color(p.muted())
                                                     .child(markdown::plain_text(&c.purpose)),
                                             )
@@ -572,7 +563,7 @@ impl ChatApp {
             .flex_1()
             .min_w_0()
             .gap_2()
-            .child(div().flex_1().min_w_0().text_xs().text_color(p.muted()).child(t!("browse.hint")))
+            .child(div().flex_1().min_w_0().caption_size().text_color(p.muted()).child(t!("browse.hint")))
             .child(
                 Button::new("browse-create")
                     .icon(Icon::new(IconName::Plus))
@@ -695,7 +686,7 @@ impl ChatApp {
                 .py(px(3.))
                 .rounded_full()
                 .bg(p.button_bg.opacity(0.12))
-                .text_sm()
+                .secondary_size()
                 .child(self.avatar(id, 20., p.center_bg))
                 .child(self.user_name(id))
                 .child(
@@ -745,10 +736,12 @@ impl ChatApp {
                                 .child(
                                     h_flex()
                                         .gap_1p5()
-                                        .child(div().truncate().text_sm().font_semibold().child(self.user_name(id)))
+                                        .child(
+                                            div().truncate().secondary_size().font_semibold().child(self.user_name(id)),
+                                        )
                                         .children(self.status_emoji(id, 15., cx)),
                                 )
-                                .child(div().truncate().text_xs().text_color(p.muted()).child(username)),
+                                .child(div().truncate().caption_size().text_color(p.muted()).child(username)),
                         )
                         .child(if picked {
                             Icon::new(IconName::CircleCheck).size(px(18.)).text_color(p.button_bg).into_any_element()
@@ -792,18 +785,20 @@ impl ChatApp {
                             .cleanable(true),
                     ),
             )
-            .child(div().px_4().pt_1().pb_1().text_xs().font_semibold().text_color(p.muted()).child(if searching {
-                t!("direct.results")
-            } else {
-                t!("direct.recent")
-            }))
+            .child(
+                div().px_4().pt_1().pb_1().caption_size().font_semibold().text_color(p.muted()).child(if searching {
+                    t!("direct.results")
+                } else {
+                    t!("direct.recent")
+                }),
+            )
             .child(list)
             .into_any_element();
         let footer = h_flex()
             .flex_1()
             .min_w_0()
             .gap_2()
-            .child(div().flex_1().min_w_0().text_xs().text_color(p.muted()).child(if n >= GROUP_MAX {
+            .child(div().flex_1().min_w_0().caption_size().text_color(p.muted()).child(if n >= GROUP_MAX {
                 t!("direct.group_full", max = GROUP_MAX)
             } else {
                 t!("direct.hint", max = GROUP_MAX)
@@ -940,7 +935,7 @@ impl ChatApp {
                     .px_4()
                     .pt_1()
                     .pb_1()
-                    .text_xs()
+                    .caption_size()
                     .font_semibold()
                     .text_color(p.muted())
                     .child(t!("custom_status.suggestions")),
@@ -954,8 +949,8 @@ impl ChatApp {
                     .cursor_pointer()
                     .hover(|s| s.bg(p.hover()))
                     .child(self.named_emoji(emoji, 18.))
-                    .child(div().flex_1().text_sm().child(preset_text(key)))
-                    .child(div().text_xs().text_color(p.muted()).child(duration_label(duration)))
+                    .child(div().flex_1().secondary_size().child(preset_text(key)))
+                    .child(div().caption_size().text_color(p.muted()).child(duration_label(duration)))
                     .on_click(cx.listener(move |this, _, window, cx| this.apply_preset(i, window, cx)))
             }))
         });
@@ -968,7 +963,7 @@ impl ChatApp {
                 .py_1()
                 .rounded_full()
                 .cursor_pointer()
-                .text_xs()
+                .caption_size()
                 .border_1()
                 .when(active, |el| el.bg(p.button_bg).border_color(p.button_bg).text_color(p.button_color))
                 .when(!active, |el| el.border_color(p.border()).hover(|s| s.bg(p.center_color.opacity(0.06))))
@@ -1000,7 +995,13 @@ impl ChatApp {
                     .pt_3()
                     .pb_4()
                     .gap_2()
-                    .child(div().text_xs().font_semibold().text_color(p.muted()).child(t!("custom_status.clear_after")))
+                    .child(
+                        div()
+                            .caption_size()
+                            .font_semibold()
+                            .text_color(p.muted())
+                            .child(t!("custom_status.clear_after")),
+                    )
                     .child(durations),
             )
             .into_any_element();
@@ -1170,7 +1171,7 @@ impl ChatApp {
                         .justify_center()
                         .when(active, |el| el.child(div().size(px(7.)).rounded_full().bg(p.button_bg))),
                 )
-                .child(div().text_sm().child(label))
+                .child(div().secondary_size().child(label))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     if let Some(Dialog::Notify(d)) = this.dialog.as_mut() {
                         d.desktop = value.into();
@@ -1192,8 +1193,8 @@ impl ChatApp {
                     v_flex()
                         .flex_1()
                         .min_w_0()
-                        .child(div().text_sm().child(label))
-                        .child(div().text_xs().text_color(p.muted()).child(hint)),
+                        .child(div().secondary_size().child(label))
+                        .child(div().caption_size().text_color(p.muted()).child(hint)),
                 )
                 .child(Switch::new(id).checked(checked).on_click(cx.listener(move |this, checked: &bool, _, cx| {
                     if let Some(Dialog::Notify(d)) = this.dialog.as_mut() {
@@ -1202,8 +1203,9 @@ impl ChatApp {
                     cx.notify();
                 })))
         };
-        let section =
-            |text: SharedString| div().px_4().pt_3().pb_1().text_xs().font_semibold().text_color(p.muted()).child(text);
+        let section = |text: SharedString| {
+            div().px_4().pt_3().pb_1().caption_size().font_semibold().text_color(p.muted()).child(text)
+        };
         let content = v_flex()
             .pb_2()
             .child(section(t!("notify.desktop").into()))
@@ -1340,7 +1342,7 @@ impl ChatApp {
                 .pl(px(18.))
                 .pr_3()
                 .cursor_pointer()
-                .text_size(px(15.))
+                .body_size()
                 .text_color(color)
                 .border_l_4()
                 .border_color(if selected { p.sidebar_active_border } else { transparent_black() })
@@ -1366,13 +1368,13 @@ impl ChatApp {
                             .items_center()
                             .justify_center()
                             .rounded_full()
-                            .text_size(px(11.))
+                            .caption_size()
                             .line_height(px(18.))
                             .pb(px(2.))
                             .font_bold()
                             .bg(bg)
                             .text_color(fg)
-                            .child(centered_digits(n.to_string(), 11., cx)),
+                            .child(centered_digits(n.to_string(), crate::fonts::CAPTION, cx)),
                     )
                 })
                 .on_click(cx.listener(|this, _, _, cx| this.open_threads_panel(true, cx)))

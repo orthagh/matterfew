@@ -103,7 +103,7 @@ impl ChatApp {
             self.team_name(),
             clean_channel_name(self.dialog_comment.read(cx).value().as_ref())
         );
-        let label = |text: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(text);
+        let label = |text: SharedString| div().caption_size().font_semibold().text_color(p.muted()).child(text);
         let danger_box = |title: SharedString, body: SharedString, button: AnyElement| {
             h_flex()
                 .gap_3()
@@ -116,8 +116,8 @@ impl ChatApp {
                     v_flex()
                         .flex_1()
                         .min_w_0()
-                        .child(div().text_sm().font_semibold().child(title))
-                        .child(div().text_xs().text_color(p.muted()).child(body)),
+                        .child(div().secondary_size().font_semibold().child(title))
+                        .child(div().caption_size().text_color(p.muted()).child(body)),
                 )
                 .child(button)
         };
@@ -133,7 +133,7 @@ impl ChatApp {
                 .py_2()
                 .rounded(px(8.))
                 .bg(p.error.opacity(0.08))
-                .text_sm()
+                .secondary_size()
                 .child(Icon::new(IconName::TriangleAlert).size(px(15.)).text_color(p.error))
                 .child(div().flex_1().min_w_0().child(text))
                 .child(
@@ -164,7 +164,7 @@ impl ChatApp {
             .child(div().h(px(4.)))
             .child(label(t!("channel_settings.url").into()))
             .child(Input::new(&self.dialog_comment).prefix(div().text_color(p.muted()).child("~")))
-            .child(div().truncate().text_xs().text_color(p.muted()).child(url))
+            .child(div().truncate().caption_size().text_color(p.muted()).child(url))
             .child(div().h(px(8.)))
             .when(public && !archived, |el| {
                 el.child(danger_box(
@@ -367,7 +367,7 @@ impl ChatApp {
                         .py_2()
                         .rounded(px(8.))
                         .bg(p.error.opacity(0.08))
-                        .text_sm()
+                        .secondary_size()
                         .child(Icon::new(IconName::TriangleAlert).size(px(15.)).text_color(p.error))
                         .child(div().flex_1().child(t!("category_dialog.confirm_delete", count = count))),
                 )
@@ -567,7 +567,7 @@ impl ChatApp {
                     .border_b_2()
                     .border_color(p.border())
                     .bg(p.center_color.opacity(0.04))
-                    .text_xs()
+                    .caption_size()
                     .font_semibold()
                     .child(match k {
                         "Shift" => t!("keys.shift").to_string(),
@@ -585,11 +585,12 @@ impl ChatApp {
             .pb_4()
             .gap_3()
             .children(groups.into_iter().map(|(title, rows)| {
-                v_flex().gap_1p5().child(div().text_xs().font_semibold().text_color(p.muted()).child(title)).children(
-                    rows.into_iter().map(|(keys, what)| {
-                        h_flex().gap_3().text_sm().child(div().flex_1().child(what)).child(keycap(keys))
-                    }),
-                )
+                v_flex()
+                    .gap_1p5()
+                    .child(div().caption_size().font_semibold().text_color(p.muted()).child(title))
+                    .children(rows.into_iter().map(|(keys, what)| {
+                        h_flex().gap_3().secondary_size().child(div().flex_1().child(what)).child(keycap(keys))
+                    }))
             }))
             .into_any_element();
         self.dialog_shell(IconName::Keyboard, t!("shortcuts.title").into(), 480., content, None, cx)
@@ -612,7 +613,7 @@ impl ChatApp {
                 .py_1p5()
                 .gap_2()
                 .bg(p.away.opacity(0.22))
-                .text_sm()
+                .secondary_size()
                 .child(Icon::new(IconName::WifiOff).size(px(15.)))
                 .child(div().flex_1().child(t!("offline.banner")))
                 .into_any_element(),

@@ -122,7 +122,7 @@ impl ChatApp {
                         .gap_1p5()
                         .rounded(px(6.))
                         .cursor_pointer()
-                        .text_sm()
+                        .secondary_size()
                         .hover(|s| s.bg(p.hover()))
                         .child(icon)
                         .child(div().max_w(px(220.)).truncate().child(b.display_name.clone()))
@@ -171,7 +171,7 @@ impl ChatApp {
 
     pub(crate) fn render_bookmark_dialog(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = self.palette;
-        let label = |text: SharedString| div().text_xs().font_semibold().text_color(p.muted()).child(text);
+        let label = |text: SharedString| div().caption_size().font_semibold().text_color(p.muted()).child(text);
         let content = v_flex()
             .px_4()
             .pb_4()

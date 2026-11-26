@@ -38,7 +38,7 @@ impl ChatApp {
                 .px_4()
                 .py_2()
                 .when(ix % 2 == 1, |el| el.bg(p.center_color.opacity(0.03)))
-                .child(div().w(px(150.)).flex_none().text_sm().text_color(p.muted()).child({
+                .child(div().w(px(150.)).flex_none().secondary_size().text_color(p.muted()).child({
                     let label_key = format!("markdown_help.{key}");
                     t!(label_key.as_str()).to_string()
                 }))
@@ -51,10 +51,10 @@ impl ChatApp {
                         .rounded(px(4.))
                         .bg(p.center_color.opacity(0.06))
                         .font_family(mono.clone())
-                        .text_size(px(12.5))
+                        .secondary_size()
                         .child(source.clone()),
                 )
-                .child(div().flex_1().min_w_0().text_sm().child(TextView::markdown(
+                .child(div().flex_1().min_w_0().secondary_size().child(TextView::markdown(
                     SharedString::from(format!("md-help-{key}")),
                     markdown::prepare(&source),
                 )))
@@ -65,7 +65,7 @@ impl ChatApp {
                     .gap_4()
                     .px_4()
                     .pb_2()
-                    .text_xs()
+                    .caption_size()
                     .font_semibold()
                     .text_color(p.muted())
                     .child(div().w(px(150.)).child(t!("markdown_help.what")))
@@ -87,7 +87,7 @@ impl ChatApp {
                     .py_3()
                     .border_t_1()
                     .border_color(p.border())
-                    .text_xs()
+                    .caption_size()
                     .text_color(p.muted())
                     .child(t!("markdown_help.footer")),
             )

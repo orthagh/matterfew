@@ -20,6 +20,7 @@ pub(crate) use crate::backend::SideKind as PanelKind;
 use crate::backend::{self, AcKind, Command, Event, PAGE_SIZE, SideKind, Suggestion};
 use crate::credentials::AuthKind;
 use crate::desktop::{self, ClickTarget, Tray, TrayAction};
+use crate::fonts::TypeScale as _;
 use crate::settings::{SIDEBAR_MAX, SIDEBAR_MIN, UiSettings};
 use crate::sidebar::{ChannelState, SidebarPrefs};
 use crate::theme::{MattermostTheme, Palette};
@@ -90,7 +91,7 @@ impl Render for DraggedChannel {
             .rounded(px(6.))
             .bg(self.bg)
             .text_color(self.fg)
-            .text_sm()
+            .secondary_size()
             .font_weight(FontWeight::SEMIBOLD)
             .shadow_md()
             .child(self.title.clone())

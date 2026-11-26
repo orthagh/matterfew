@@ -9,10 +9,10 @@ use std::borrow::Cow;
 use std::io::Read as _;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use gpui_kit::{App, SharedString, Styled};
+use gpui_kit::{App, SharedString, Styled, px, relative};
 
-const TEXT: &str = "Nunito Sans";
-const TITLE: &str = "Bricolage Grotesque";
+const TEXT_FAMILY: &str = "Nunito Sans";
+const TITLE_FAMILY: &str = "Bricolage Grotesque";
 
 const FILES: [&[u8]; 7] = [
     include_bytes!("../assets/fonts/NunitoSans-Regular.ttf.gz"),
@@ -43,18 +43,54 @@ pub fn install(cx: &mut App) {
 
 /// The font of everything that is read, once installed.
 pub fn text() -> Option<SharedString> {
-    INSTALLED.load(Ordering::Relaxed).then(|| TEXT.into())
+    INSTALLED.load(Ordering::Relaxed).then(|| TEXT_FAMILY.into())
 }
 
 /// Titles: the name of a channel or of a window, section headings. Author
 /// names are not titles: they come back with every message, in the text font.
 pub trait TitleFont: Styled + Sized {
     fn title_font(self) -> Self {
-        if INSTALLED.load(Ordering::Relaxed) { self.font_family(TITLE) } else { self }
+        if INSTALLED.load(Ordering::Relaxed) { self.font_family(TITLE_FAMILY) } else { self }
     }
 }
 
 impl<T: Styled> TitleFont for T {}
+
+/// The type scale: four sizes, one role each.
+///
+/// Timestamps, counters, metadata.
+pub const CAPTION: f32 = 12.;
+/// Panels, dialogs, section headings: what frames the reading.
+pub const SECONDARY: f32 = 13.;
+/// What is read: messages, the names of their authors, and the lists of
+/// channels and of people.
+pub const BODY: f32 = 15.;
+/// The line of a message.
+pub const BODY_LINE: f32 = 22.;
+/// Titles.
+pub const TITLE: f32 = 18.;
+
+pub trait TypeScale: Styled + Sized {
+    fn caption_size(self) -> Self {
+        self.text_size(px(CAPTION))
+    }
+
+    fn secondary_size(self) -> Self {
+        self.text_size(px(SECONDARY))
+    }
+
+    /// The line height follows the size, so that a heading or a code block
+    /// inside a message keeps its proportions.
+    fn body_size(self) -> Self {
+        self.text_size(px(BODY)).line_height(relative(BODY_LINE / BODY))
+    }
+
+    fn title_size(self) -> Self {
+        self.text_size(px(TITLE))
+    }
+}
+
+impl<T: Styled> TypeScale for T {}
 
 #[cfg(test)]
 mod tests {
