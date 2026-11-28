@@ -1245,3 +1245,39 @@ fn a_created_conversation_is_not_unread_until_a_message_arrives() {
         }
     });
 }
+
+#[test]
+fn e2e_liens_plus_anciens() {
+    // L'onglet Liens remonte l'historique : un lien ancien (hors des messages
+    // affichés) apparaît, et « Liens plus anciens » continue plus loin.
+    use crate::backend::Event;
+    let mut w = demo_app();
+    w.1.update(|a, _, cx| a.show_files(cx));
+    wait_for(&w, "historique des liens demandé", |a| {
+        a.channel_id.as_ref().is_some_and(|id| a.link_history.get(id).is_some_and(|h| !h.loading))
+    });
+    let channel_id = w.1.read(|a, _| a.channel_id.clone().unwrap());
+    let old = crate::api::Post {
+        id: "old-link".into(),
+        create_at: 1_000,
+        user_id: "u1".into(),
+        channel_id: channel_id.clone(),
+        message: "Le ticket d'origine : https://old.example.org/ticket/1".into(),
+        ..Default::default()
+    };
+    w.1.update(|a, window, cx| {
+        let event = Event::ChannelLinkPosts { channel_id: channel_id.clone(), posts: vec![old], next_page: Some(5) };
+        a.on_event(event, window, cx);
+    });
+    w.1.read(|a, _| {
+        let links = a.channel_links();
+        assert_eq!(
+            links.last().map(|l| l.url.as_str()),
+            Some("https://old.example.org/ticket/1"),
+            "le plus ancien en dernier"
+        );
+    });
+    w.1.draw();
+    w.1.update(|a, _, cx| a.more_links(cx));
+    w.1.read(|a, _| assert!(a.link_history[&channel_id].loading));
+}

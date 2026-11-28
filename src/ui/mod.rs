@@ -41,6 +41,15 @@ impl PostView {
 }
 
 /// Fichier en cours d'envoi ou prêt à être joint au prochain message.
+/// Onglet Liens : messages à liens trouvés plus haut dans l'historique.
+#[derive(Default)]
+pub(crate) struct LinkHistory {
+    posts: Vec<Post>,
+    /// Page suivante à parcourir (`None` : début du canal, ou pas encore chargé).
+    next_page: Option<u32>,
+    loading: bool,
+}
+
 struct Attachment {
     local_id: u64,
     pane: Pane,
@@ -360,6 +369,8 @@ pub struct ChatApp {
     failed_previews: HashSet<String>,
     /// Fichiers de chaque canal (recherche du serveur).
     channel_files: HashMap<String, Vec<FileInfo>>,
+    /// Messages à liens remontés de l'historique, par canal (onglet Liens).
+    link_history: HashMap<String, LinkHistory>,
     files_tab: FilesTab,
     /// Propositions de la recherche (filtres, historique) ouvertes.
     search_open: bool,
@@ -825,6 +836,7 @@ impl ChatApp {
             server_autolinks: Vec::new(),
             failed_previews: HashSet::new(),
             channel_files: HashMap::new(),
+            link_history: HashMap::new(),
             files_tab: FilesTab::Media,
             search_open: false,
             search_focus_gen: 0,
@@ -2662,14 +2674,35 @@ impl ChatApp {
     }
 
     /// Panneau des fichiers et liens du canal.
-    fn show_files(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn show_files(&mut self, cx: &mut Context<Self>) {
         let Some(channel_id) = self.channel_id.clone() else { return };
         if self.thread.is_some() {
             self.close_thread(cx);
         }
         self.side = Some(SidePanel { kind: SideKind::Files, subject: String::new(), posts: Some(Vec::new()) });
         self.load_channel_files(&channel_id);
+        if !self.link_history.contains_key(&channel_id) {
+            self.load_older_links(&channel_id, 0);
+        }
         cx.notify();
+    }
+
+    /// Remonte l'historique du canal pour l'onglet Liens, à partir de `page`.
+    fn load_older_links(&mut self, channel_id: &str, page: u32) {
+        let history = self.link_history.entry(channel_id.to_string()).or_default();
+        if history.loading {
+            return;
+        }
+        history.loading = true;
+        self.send(Command::LoadChannelLinks { channel_id: channel_id.to_string(), page });
+    }
+
+    pub(crate) fn more_links(&mut self, cx: &mut Context<Self>) {
+        let Some(channel_id) = self.channel_id.clone() else { return };
+        if let Some(page) = self.link_history.get(&channel_id).and_then(|h| h.next_page) {
+            self.load_older_links(&channel_id, page);
+            cx.notify();
+        }
     }
 
     fn load_channel_files(&mut self, channel_id: &str) {
@@ -3735,6 +3768,12 @@ impl ChatApp {
             Event::Members { channel_id, user_ids, admins, total } => {
                 self.channel_admins.insert(channel_id.clone(), admins);
                 self.members.insert(channel_id, (user_ids, total));
+            }
+            Event::ChannelLinkPosts { channel_id, posts, next_page } => {
+                let history = self.link_history.entry(channel_id).or_default();
+                history.posts.extend(posts);
+                history.next_page = next_page;
+                history.loading = false;
             }
             Event::ChannelFiles { channel_id, files } => {
                 let wanted: Vec<String> = files

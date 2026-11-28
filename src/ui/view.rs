@@ -4808,11 +4808,15 @@ impl ChatApp {
         files
     }
 
-    /// Liens des messages chargés du canal (avec le titre de leur aperçu s'il y en a un).
-    fn channel_links(&self) -> Vec<ChannelLink> {
+    /// Liens du canal, du plus récent au plus ancien : messages affichés et
+    /// historique parcouru pour l'onglet (avec le titre de leur aperçu).
+    pub(crate) fn channel_links(&self) -> Vec<ChannelLink> {
+        let history = self.channel_id.as_ref().and_then(|id| self.link_history.get(id));
+        let mut posts: Vec<&Post> = self.posts.iter().map(|v| &v.post).collect();
+        posts.extend(history.iter().flat_map(|h| h.posts.iter()));
+        posts.sort_by_key(|p| std::cmp::Reverse(p.create_at));
         let mut out: Vec<ChannelLink> = Vec::new();
-        for view in self.posts.iter().rev() {
-            let post = &view.post;
+        for post in posts {
             let titles: HashMap<String, String> = post
                 .metadata
                 .embeds
@@ -4852,6 +4856,7 @@ impl ChatApp {
             .filter(|l| keep(&format!("{} {}", l.url, l.title.as_deref().unwrap_or_default())))
             .collect();
         let loaded = self.channel_id.as_ref().is_some_and(|id| self.channel_files.contains_key(id));
+        let link_history = self.channel_id.as_ref().and_then(|id| self.link_history.get(id));
 
         let tab = |t: FilesTab, label: SharedString, count: usize, cx: &mut Context<Self>| {
             let active = self.files_tab == t;
@@ -4996,6 +5001,9 @@ impl ChatApp {
                         )
                 }))
                 .into_any_element(),
+            FilesTab::Links if links.is_empty() && link_history.is_some_and(|h| h.loading) => {
+                empty(t!("files.loading_links").into())
+            }
             FilesTab::Links if links.is_empty() => empty(t!("files.no_links").into()),
             FilesTab::Links => v_flex()
                 .id("links-list")
@@ -5049,6 +5057,19 @@ impl ChatApp {
                         )
                         .on_click(move |_, _, cx| open_link(&url, cx))
                 }))
+                // Plus anciens : on remonte encore l'historique.
+                .when_some(link_history.filter(|h| h.loading || h.next_page.is_some()), |el, h| {
+                    el.child(
+                        h_flex().justify_center().py_3().child(
+                            Button::new("older-links")
+                                .label(if h.loading { t!("files.loading_links") } else { t!("files.older_links") })
+                                .small()
+                                .ghost()
+                                .disabled(h.loading)
+                                .on_click(cx.listener(|this, _, _, cx| this.more_links(cx))),
+                        ),
+                    )
+                })
                 .into_any_element(),
         };
         v_flex().flex_1().min_h_0().child(tabs).child(search).child(body).into_any_element()
@@ -6527,11 +6548,11 @@ enum SearchPick {
 }
 
 /// Lien trouvé dans un message du canal.
-struct ChannelLink {
-    title: Option<String>,
-    url: String,
-    user_id: String,
-    at: i64,
+pub(crate) struct ChannelLink {
+    pub(crate) title: Option<String>,
+    pub(crate) url: String,
+    pub(crate) user_id: String,
+    pub(crate) at: i64,
 }
 
 /// Adresses web d'un texte (ponctuation finale retirée).

@@ -200,6 +200,12 @@ pub enum Command {
     LoadMembers {
         channel_id: String,
     },
+    /// Messages à liens de l'historique d'un canal, à partir de la page
+    /// `page` (200 messages par page), pour l'onglet Liens.
+    LoadChannelLinks {
+        channel_id: String,
+        page: u32,
+    },
     /// Fichiers d'un canal (`terms` : la recherche `in:` correspondante).
     LoadChannelFiles {
         team_id: String,
@@ -511,6 +517,13 @@ pub enum Event {
     ChannelFiles {
         channel_id: String,
         files: Vec<FileInfo>,
+    },
+    /// Messages contenant des liens, plus anciens ; `next_page` : de quoi
+    /// remonter encore (`None` : début du canal atteint).
+    ChannelLinkPosts {
+        channel_id: String,
+        posts: Vec<Post>,
+        next_page: Option<u32>,
     },
     TeamInfo {
         team_id: String,
@@ -903,6 +916,9 @@ async fn run(
     Ok(())
 }
 
+/// Pages d'historique (200 messages chacune) parcourues par l'onglet Liens.
+const LINK_PAGES: u32 = 5;
+
 async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
     let client = &ctx.client;
     match cmd {
@@ -1039,6 +1055,27 @@ async fn handle(cmd: Command, ctx: &Ctx) -> Result<()> {
                 Ok(bytes) => ctx.emit(Event::FilePreview { file_id, bytes: Arc::new(bytes) }).await,
                 Err(_) => ctx.emit(Event::PreviewFailed { file_id }).await,
             }
+        }
+        Command::LoadChannelLinks { channel_id, page } => {
+            // Mattermost ne cherche pas les liens : on parcourt l'historique,
+            // LINK_PAGES pages de 200 messages à la fois.
+            let mut posts = Vec::new();
+            let mut next_page = None;
+            for p in page..page + LINK_PAGES {
+                // Page en échec : on rend ce qui est trouvé, « Plus anciens » la redemande.
+                let Ok(batch) = client.channel_posts_page(&channel_id, p, 200).await else {
+                    next_page = Some(p);
+                    break;
+                };
+                let full = batch.len() == 200;
+                posts.extend(batch.into_iter().filter(|p| p.delete_at == 0 && p.message.contains("://")));
+                if !full {
+                    break;
+                }
+                next_page = Some(p + 1);
+            }
+            ctx.ensure_users(posts.iter().map(|p| p.user_id.clone())).await;
+            ctx.emit(Event::ChannelLinkPosts { channel_id, posts, next_page }).await;
         }
         Command::LoadChannelFiles { team_id, channel_id, terms } => {
             // Recherche refusée ou vide : l'interface complète avec les messages connus.

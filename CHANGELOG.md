@@ -15,6 +15,9 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 - The channel name in the header is no longer cut short next to the search
   field: the field narrows first, and becomes a magnifier button when the
   column is too narrow for it.
+- The Links tab of the files panel goes back through the last 1,000 messages
+  of the channel instead of only those on screen, and "Older links" goes
+  further.
 
 ## [0.5.0] - 2026-11-26
 

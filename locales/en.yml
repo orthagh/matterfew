@@ -82,6 +82,8 @@ files:
   tab_links: "Links"
   no_media: "No images or videos in this channel."
   no_files: "No files in this channel."
+  older_links: "Older links"
+  loading_links: "Looking for older links…"
   no_links: "No links in the loaded messages of this channel."
 autocomplete:
   custom_emoji: "custom emoji"

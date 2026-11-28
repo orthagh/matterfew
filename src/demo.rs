@@ -946,6 +946,10 @@ fn handle(cmd: Command, demo: &mut Demo, send: &impl Fn(Event)) {
             send(Event::Statuses(vec![(ME.into(), status)]));
             send(Event::DndEnd(end));
         }
+        // La démo charge tout l'historique d'emblée : rien de plus ancien.
+        Command::LoadChannelLinks { channel_id, .. } => {
+            send(Event::ChannelLinkPosts { channel_id, posts: Vec::new(), next_page: None });
+        }
         Command::LoadChannelFiles { channel_id, .. } => {
             // Démo : fichiers des messages connus du canal.
             let files = demo
