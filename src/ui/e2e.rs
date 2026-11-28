@@ -1278,6 +1278,11 @@ fn e2e_liens_plus_anciens() {
         );
     });
     w.1.draw();
+    // « Liens plus anciens » redemande la suite ; la démo répond qu'il n'y a
+    // rien de plus ancien, et le bouton disparaît.
+    w.1.read(|a, _| assert_eq!(a.link_history[&channel_id].next_page, Some(5)));
     w.1.update(|a, _, cx| a.more_links(cx));
-    w.1.read(|a, _| assert!(a.link_history[&channel_id].loading));
+    wait_for(&w, "suite demandée puis reçue", |a| {
+        a.link_history.get(&channel_id).is_some_and(|h| !h.loading && h.next_page.is_none())
+    });
 }
