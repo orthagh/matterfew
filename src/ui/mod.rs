@@ -482,6 +482,10 @@ pub struct ChatApp {
     tray: Option<Tray>,
     /// Dernier état affiché sur la pastille : (mentions, non-lus, session expirée).
     badge: (i64, bool, bool),
+    /// Colours last given to the native title bar, with the system
+    /// appearance they were set under (GPUI resets the dark variant when the
+    /// system's changes).
+    title_bar: Option<([u8; 3], [u8; 3], bool, WindowAppearance)>,
     /// Le serveur a refusé le jeton en cours d'utilisation.
     session_expired: bool,
     statuses: HashMap<String, String>,
@@ -883,6 +887,7 @@ impl ChatApp {
             hwnd: if cfg!(test) { None } else { desktop::hwnd(window) },
             tray: if cfg!(test) { None } else { Tray::new() },
             badge: (0, false, false),
+            title_bar: None,
             session_expired: false,
             statuses: HashMap::new(),
             typing: Vec::new(),
@@ -986,6 +991,26 @@ impl ChatApp {
 
     /// Pastille de la barre des tâches et icône de la zone de notification :
     /// mentions et non-lus de toutes les équipes.
+    /// The native title bar takes the theme's surface, so the window reads
+    /// as one piece.
+    fn sync_title_bar(&mut self, window: &Window) {
+        let Some(hwnd) = self.hwnd else { return };
+        let bytes = |c: Hsla| {
+            let c = Rgba::from(c);
+            [c.r, c.g, c.b].map(|v| (v.clamp(0., 1.) * 255.).round() as u8)
+        };
+        let state = (
+            bytes(self.palette.center_bg),
+            bytes(self.palette.center_bg.blend(self.palette.center_color.opacity(0.8))),
+            self.palette.is_dark(),
+            window.appearance(),
+        );
+        if self.title_bar != Some(state) {
+            desktop::set_title_bar(hwnd, state.0, state.1, state.2);
+            self.title_bar = Some(state);
+        }
+    }
+
     fn update_badge(&mut self) {
         let current_team = self.team_id.clone().unwrap_or_default();
         let mut mentions: i64 = self.channels.values().map(|c| c.mentions).sum();

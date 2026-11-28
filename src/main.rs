@@ -191,7 +191,16 @@ fn main() {
         let bounds = Bounds::centered(None, size(px(w), px(h)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            titlebar: Some(TitlebarOptions { title: Some(desktop::window_title().into()), ..Default::default() }),
+            // macOS: the title bar is drawn by the application, in the theme's
+            // colours, with the traffic lights over it (see `ChatApp::render`).
+            titlebar: Some(if cfg!(target_os = "macos") {
+                TitlebarOptions {
+                    title: Some(desktop::window_title().into()),
+                    ..gpui_kit::component::TitleBar::title_bar_options()
+                }
+            } else {
+                TitlebarOptions { title: Some(desktop::window_title().into()), ..Default::default() }
+            }),
             ..Default::default()
         };
 

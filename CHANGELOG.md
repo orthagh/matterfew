@@ -10,6 +10,12 @@ then push the `vx.y.z` tag. The GitHub release reuses that section.
 
 ## [Unreleased]
 
+### Changed
+
+- The window's title bar takes the colours of the Mattermost theme: the
+  native bar is coloured on Windows 11 (light or dark on Windows 10), and
+  macOS gets a bar drawn in the theme with the traffic lights over it.
+
 ### Fixed
 
 - The channel name in the header is no longer cut short next to the search

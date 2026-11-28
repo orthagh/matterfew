@@ -6241,6 +6241,7 @@ impl ChatApp {
 impl Render for ChatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_mcp_screen();
+        self.sync_title_bar(window);
         if self.screen == Screen::Chat {
             self.sync_spelling(cx);
             self.sync_composers(window, cx);
@@ -6270,8 +6271,12 @@ impl Render for ChatApp {
         let content = div().size_full().text_size(px(fonts::BODY)).child(content).into_any_element();
         // Some Wayland compositors (GNOME) draw no title bar for applications:
         // when the window ends up client-decorated, draw ours. The frame and
-        // its resize edges already come from the kit's root view.
-        if cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Client { .. }) {
+        // its resize edges already come from the kit's root view. On macOS the
+        // native bar is transparent and ours, in the theme's colours, takes
+        // its place (Windows colours its native bar: `sync_title_bar`).
+        let client_decorated =
+            cfg!(target_os = "linux") && matches!(window.window_decorations(), Decorations::Client { .. });
+        if cfg!(target_os = "macos") || client_decorated {
             let title = div().secondary_size().child(crate::desktop::window_title());
             return v_flex()
                 .size_full()

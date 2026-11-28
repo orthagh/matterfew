@@ -297,6 +297,31 @@ mod windows_impl {
         }
     }
 
+    /// Colours the native title bar like the window's content (Windows 11;
+    /// Windows 10 only takes the light or dark variant). `bg` and `fg` are
+    /// sRGB bytes.
+    pub fn set_title_bar(hwnd: isize, bg: [u8; 3], fg: [u8; 3], dark: bool) {
+        use windows::Win32::Foundation::COLORREF;
+        use windows::core::BOOL;
+        use windows::Win32::Graphics::Dwm::{
+            DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute,
+        };
+        let colorref = |[r, g, b]: [u8; 3]| COLORREF(u32::from(r) | u32::from(g) << 8 | u32::from(b) << 16);
+        let hwnd = to_hwnd(hwnd);
+        unsafe {
+            let dark = BOOL::from(dark);
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_USE_IMMERSIVE_DARK_MODE,
+                &dark as *const _ as _,
+                size_of::<BOOL>() as u32,
+            );
+            for (attribute, color) in [(DWMWA_CAPTION_COLOR, colorref(bg)), (DWMWA_TEXT_COLOR, colorref(fg))] {
+                let _ = DwmSetWindowAttribute(hwnd, attribute, &color as *const _ as _, size_of::<COLORREF>() as u32);
+            }
+        }
+    }
+
     /// Pastille de la barre des tâches (rien si tout est lu).
     /// À appeler depuis le thread de l'interface.
     pub fn set_taskbar_badge(hwnd: isize, mentions: i64, unread: bool, expired: bool) {
@@ -531,6 +556,7 @@ mod unix_impl {
 
     pub fn hide_window(_hwnd: isize) {}
     pub fn show_window(_hwnd: isize) {}
+    pub fn set_title_bar(_hwnd: isize, _bg: [u8; 3], _fg: [u8; 3], _dark: bool) {}
 
     /// Pastille de l'icône du lanceur (Linux) ou du Dock (macOS).
     pub fn set_taskbar_badge(_hwnd: isize, mentions: i64, unread: bool, expired: bool) {

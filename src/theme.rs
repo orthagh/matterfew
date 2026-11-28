@@ -195,6 +195,10 @@ impl Palette {
 
     fn write_colors(&self, theme: &mut Theme) {
         theme.background = self.center_bg;
+        // The title bar we draw (macOS, client-decorated Linux) is the same
+        // surface as the rest of the window.
+        theme.title_bar = self.center_bg;
+        theme.title_bar_border = self.border();
         theme.foreground = self.center_color;
         theme.border = self.border();
         theme.input = self.center_color.opacity(0.16);
